@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-quality-gates:
+    name: Backend Quality Gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "0.8.11"
+
+      - name: Set up Python 3.14
+        run: uv python install 3.14
+
+      - name: Install Dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Ruff Lint & Format Check
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Mypy Type Checking
+        run: uv run mypy app
+
+      - name: Bandit Security Analysis
+        run: uv run bandit -r app
+
+      - name: Pip-Audit Vulnerability Scan
+        run: uv run pip-audit
+
+      - name: Run Pytest Test Suite
+        run: uv run pytest -v
+
+  frontend-quality-gates:
+    name: Frontend Quality Gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.0
+
+      - name: Set up Node.js 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "pnpm"
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Oxlint / Linter
+        run: pnpm lint
+
+      - name: TypeScript Type Check
+        run: pnpm exec tsc -b
+
+      - name: Run Vitest Unit & Component Tests
+        run: pnpm test
+
+      - name: Production Web Build
+        run: pnpm build
+
+  docker-build:
+    name: Docker Images Build Verification
+    runs-on: ubuntu-latest
+    needs: [backend-quality-gates, frontend-quality-gates]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend API Image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          file: apps/api/Dockerfile
+          push: false
+
+      - name: Build Frontend Web Image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          push: false
