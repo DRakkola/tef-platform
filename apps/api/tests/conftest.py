@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import BinaryIO
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -39,6 +40,12 @@ from app.modules.users.models import (
     TeacherVerificationStatus,
     User,
     UserRole,
+)
+from app.modules.writing.models import (  # noqa: F401
+    WritingAttempt,
+    WritingCorrection,
+    WritingSubmission,
+    WritingTask,
 )
 
 # Test SQLite in-memory database for isolated testing
@@ -198,21 +205,21 @@ async def test_admin(db_session: AsyncSession) -> User:
     return user
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 def student_auth_headers(test_student: User) -> dict[str, str]:
     """Provide Bearer auth header for the test student."""
     token = create_access_token(test_student.id, test_student.role.value)
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 def teacher_auth_headers(test_teacher: User) -> dict[str, str]:
     """Provide Bearer auth header for the test teacher."""
     token = create_access_token(test_teacher.id, test_teacher.role.value)
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 def admin_auth_headers(test_admin: User) -> dict[str, str]:
     """Provide Bearer auth header for the test admin."""
     token = create_access_token(test_admin.id, test_admin.role.value)
