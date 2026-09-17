@@ -21,7 +21,7 @@ services:
       POSTGRES_APP_PASSWORD: ${POSTGRES_PASSWORD:-tef_app_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh:ro
+      - ../docker/postgres/init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-tef_admin} -d ${POSTGRES_DB:-tef_platform}"]
       interval: 5s
@@ -105,13 +105,13 @@ services:
       MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-minioadmin_dev_secret}
       STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-tef-private}
     volumes:
-      - ./minio/init-buckets.sh:/scripts/init-buckets.sh:ro
+      - ../docker/minio/init-buckets.sh:/scripts/init-buckets.sh:ro
     networks:
       - tef-network
 
   api:
     build:
-      context: ../apps/api
+      context: ../../apps/api
       dockerfile: Dockerfile
     container_name: tef-api
     restart: unless-stopped
@@ -150,7 +150,7 @@ services:
 
   celery-worker:
     build:
-      context: ../apps/api
+      context: ../../apps/api
       dockerfile: Dockerfile
     container_name: tef-celery-worker
     restart: unless-stopped
@@ -185,7 +185,7 @@ services:
 
   web:
     build:
-      context: ../apps/web
+      context: ../../apps/web
       dockerfile: Dockerfile
     container_name: tef-web
     restart: unless-stopped

@@ -19,19 +19,19 @@ help:
 	@echo "  make check       - Run ALL quality gates (test, lint, typecheck, audit)"
 
 up:
-	docker compose -f infra/docker-compose.yml up -d
+	docker compose -f infra/compose/docker-compose.yml up -d
 
 down:
-	docker compose -f infra/docker-compose.yml down
+	docker compose -f infra/compose/docker-compose.yml down
 
 restart:
-	docker compose -f infra/docker-compose.yml restart
+	docker compose -f infra/compose/docker-compose.yml restart
 
 logs:
-	docker compose -f infra/docker-compose.yml logs -f
+	docker compose -f infra/compose/docker-compose.yml logs -f
 
 ps:
-	docker compose -f infra/docker-compose.yml ps
+	docker compose -f infra/compose/docker-compose.yml ps
 
 lint:
 	cd apps/api && uv run ruff check .

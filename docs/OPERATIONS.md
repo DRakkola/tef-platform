@@ -64,23 +64,23 @@ Before starting a deployment, verify that all required environment variables are
 ### 2.2 Zero-Downtime Deployment Steps
 1. **Pull Images**: Pre-pull or build production container images on target nodes:
    ```bash
-   docker compose -f infra/docker-compose.yml pull
+   docker compose -f infra/compose/docker-compose.yml pull
    ```
 2. **Execute Database Migrations**: Run Alembic migrations prior to traffic cutover:
    ```bash
-   docker compose -f infra/docker-compose.yml run --rm api alembic upgrade head
+   docker compose -f infra/compose/docker-compose.yml run --rm api alembic upgrade head
    ```
 3. **Rolling Update of Workers**:
    ```bash
-   docker compose -f infra/docker-compose.yml up -d --no-deps celery-worker
+   docker compose -f infra/compose/docker-compose.yml up -d --no-deps celery-worker
    ```
 4. **Rolling Update of API Service**:
    ```bash
-   docker compose -f infra/docker-compose.yml up -d --no-deps --build api
+   docker compose -f infra/compose/docker-compose.yml up -d --no-deps --build api
    ```
 5. **Update Web Frontend**:
    ```bash
-   docker compose -f infra/docker-compose.yml up -d --no-deps --build web
+   docker compose -f infra/compose/docker-compose.yml up -d --no-deps --build web
    ```
 6. **Health Verification**:
    Query the API liveness and readiness endpoints:

@@ -71,7 +71,7 @@ Start all services (PostgreSQL 18, Redis 7.4, MinIO, MinIO-Init, API, Celery Wor
 make up
 
 # Or directly with Docker Compose
-docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/compose/docker-compose.yml up -d
 ```
 
 Access services:

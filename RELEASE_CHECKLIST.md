@@ -65,7 +65,7 @@ All identified High and Critical issues, as well as practical Medium issues, hav
 ### Issue 4: Missing Container Resource Limits in Compose Configuration
 - **Severity**: **MEDIUM**
 - **Domain**: Docker / Infrastructure
-- **Location**: `infra/docker-compose.yml`
+- **Location**: `infra/compose/docker-compose.yml`
 - **Description**: Services lacked explicit CPU and RAM resource bounds (`deploy.resources.limits`), exposing host nodes to OOM-killer cascade if a service experienced runaway memory consumption.
 - **Remediation**: Configured explicit CPU and memory resource limits and reservations for all containers (`postgres`: 2 CPUs / 1024MB; `redis`: 1 CPU / 512MB; `minio`: 1 CPU / 512MB; `api`: 2 CPUs / 1024MB; `celery-worker`: 2 CPUs / 1024MB; `web`: 1 CPU / 256MB).
 - **Status**: **FIXED & VERIFIED**.
