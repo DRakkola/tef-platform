@@ -8,6 +8,7 @@ import type { StudentDashboardData, StudentProgressData } from "./types";
 async function fetchDashboardData(): Promise<StudentDashboardData> {
   const token = localStorage.getItem("auth_token");
   const headers: Record<string, string> = {
+    "Accept": "application/json",
     "Content-Type": "application/json",
   };
   if (token) {
@@ -20,8 +21,21 @@ async function fetchDashboardData(): Promise<StudentDashboardData> {
     credentials: "include",
   });
 
+  const contentType = response.headers?.get ? response.headers.get("content-type") || "" : "application/json";
+
   if (!response.ok) {
-    throw new Error(`Failed to load student dashboard: ${response.statusText}`);
+    if (response.status === 401) {
+      throw new Error("AUTH_REQUIRED");
+    }
+    if (contentType.includes("application/json")) {
+      const err = await response.json().catch(() => null);
+      throw new Error(err?.error?.message || `Erreur serveur (${response.status})`);
+    }
+    throw new Error(`Erreur réseau (${response.status}: ${response.statusText})`);
+  }
+
+  if (contentType && !contentType.includes("application/json")) {
+    throw new Error(`Réponse inattendue du serveur: attendu JSON, reçu ${contentType || "HTML"}`);
   }
 
   return response.json();
@@ -30,6 +44,7 @@ async function fetchDashboardData(): Promise<StudentDashboardData> {
 async function fetchProgressData(): Promise<StudentProgressData> {
   const token = localStorage.getItem("auth_token");
   const headers: Record<string, string> = {
+    "Accept": "application/json",
     "Content-Type": "application/json",
   };
   if (token) {
@@ -42,8 +57,21 @@ async function fetchProgressData(): Promise<StudentProgressData> {
     credentials: "include",
   });
 
+  const contentType = response.headers?.get ? response.headers.get("content-type") || "" : "application/json";
+
   if (!response.ok) {
-    throw new Error(`Failed to load student progress: ${response.statusText}`);
+    if (response.status === 401) {
+      throw new Error("AUTH_REQUIRED");
+    }
+    if (contentType.includes("application/json")) {
+      const err = await response.json().catch(() => null);
+      throw new Error(err?.error?.message || `Erreur serveur (${response.status})`);
+    }
+    throw new Error(`Erreur réseau (${response.status}: ${response.statusText})`);
+  }
+
+  if (contentType && !contentType.includes("application/json")) {
+    throw new Error(`Réponse inattendue du serveur: attendu JSON, reçu ${contentType || "HTML"}`);
   }
 
   return response.json();

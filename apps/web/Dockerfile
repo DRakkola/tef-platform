@@ -30,20 +30,8 @@ RUN rm -rf /usr/share/nginx/html/*
 # Copy build artifacts from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Custom nginx configuration supporting client-side routing and security headers
-RUN printf 'server {\n\
-    listen 80;\n\
-    server_name localhost;\n\
-    add_header X-Content-Type-Options "nosniff" always;\n\
-    add_header X-Frame-Options "DENY" always;\n\
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
-    add_header Permissions-Policy "camera=(), microphone=(self), geolocation=()" always;\n\
-    location / {\n\
-        root /usr/share/nginx/html;\n\
-        index index.html;\n\
-        try_files $uri $uri/ /index.html;\n\
-    }\n\
-}\n' > /etc/nginx/conf.d/default.conf
+# Custom nginx configuration supporting reverse-proxy, client-side routing, and security headers
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

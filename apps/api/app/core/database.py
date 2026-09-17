@@ -42,6 +42,19 @@ class Base(AsyncAttrs, DeclarativeBase):
     """Base model class with standard UUID primary key and timestamps."""
 
 
+class UUIDModel(Base):
+    """Abstract model providing UUID primary key only (e.g. for append-only logs)."""
+
+    __abstract__ = True
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+    )
+
+
 class TimeStampedUUIDModel(Base):
     """Abstract model providing UUID primary keys and timezone-aware timestamps."""
 

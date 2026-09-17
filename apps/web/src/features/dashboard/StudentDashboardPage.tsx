@@ -26,8 +26,140 @@ export const StudentDashboardPage: React.FC = () => {
   const { dashboard, progress, isLoading, isError, error, refetch } =
     useStudentDashboard();
 
+  const [loginEmail, setLoginEmail] = React.useState("student.demo@example.com");
+  const [loginPassword, setLoginPassword] = React.useState("DemoStudent2026!");
+  const [authError, setAuthError] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const handleLogin = async (emailOverride?: string, passwordOverride?: string) => {
+    setIsSubmitting(true);
+    setAuthError(null);
+    const email = emailOverride || loginEmail;
+    const password = passwordOverride || loginPassword;
+
+    try {
+      const resp = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!resp.ok) {
+        // If demo user is missing on initial login, auto-register them
+        if (resp.status === 401 && email.includes("demo")) {
+          const regResp = await fetch("/api/v1/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email,
+              password,
+              role: "student",
+            }),
+          });
+          if (regResp.ok) {
+            const regData = await regResp.json();
+            localStorage.setItem("auth_token", regData.access_token);
+            refetch();
+            return;
+          }
+        }
+        const errData = await resp.json().catch(() => null);
+        throw new Error(errData?.error?.message || "Identifiants de connexion invalides.");
+      }
+
+      const data = await resp.json();
+      localStorage.setItem("auth_token", data.access_token);
+      refetch();
+    } catch (err: any) {
+      setAuthError(err.message || "Erreur de connexion.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   if (isLoading) {
     return <DashboardSkeleton />;
+  }
+
+  // Render friendly authentication form if unauthorized
+  if (isError && error?.message === "AUTH_REQUIRED") {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6">
+        <div className="w-full max-w-md p-8 rounded-2xl border border-indigo-500/20 bg-slate-900/80 shadow-2xl backdrop-blur-xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="inline-flex items-center justify-center size-12 rounded-xl bg-indigo-500/10 text-indigo-400 mb-2">
+              <Target className="size-6" />
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight text-white">Tableau de bord Étudiant</h2>
+            <p className="text-sm text-slate-400">
+              Veuillez vous connecter pour accéder à votre profil, vos scores et vos recommandations TEF.
+            </p>
+          </div>
+
+          {authError && (
+            <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs text-center">
+              {authError}
+            </div>
+          )}
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Email</label>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="nom@exemple.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Mot de passe</label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="••••••••••••"
+              />
+            </div>
+
+            <Button
+              onClick={() => handleLogin()}
+              disabled={isSubmitting}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-lg transition-colors"
+            >
+              {isSubmitting ? "Connexion..." : "Se connecter"}
+            </Button>
+
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-800" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-slate-900 px-2 text-slate-500">ou</span>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => handleLogin("student.demo@example.com", "DemoStudent2026!")}
+              disabled={isSubmitting}
+              variant="outline"
+              className="w-full border-indigo-500/30 hover:bg-indigo-500/10 text-indigo-300 font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              <Sparkles className="size-4 text-indigo-400" />
+              Connexion Rapide (Compte Démo Étudiant)
+            </Button>
+          </div>
+
+          <div className="pt-2 text-center">
+            <a href="/" className="text-xs text-slate-400 hover:text-slate-200 transition-colors">
+              &larr; Retour à l'accueil
+            </a>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (isError || !dashboard) {
@@ -114,6 +246,18 @@ export const StudentDashboardPage: React.FC = () => {
               </div>
             </div>
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              localStorage.removeItem("auth_token");
+              refetch();
+            }}
+            className="text-xs border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-300"
+          >
+            Déconnexion
+          </Button>
         </div>
       </header>
 
