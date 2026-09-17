@@ -24,6 +24,14 @@ class Settings(BaseSettings):
         description="Secret key for signing tokens and sessions",
     )
 
+    # Authentication & Security
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
+    COOKIE_DOMAIN: str | None = None
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 10
+
     # Server
     HOST: str = "0.0.0.0"  # nosec B104
     PORT: int = 8000
@@ -70,6 +78,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def cookie_secure(self) -> bool:
+        return self.is_production
 
 
 @lru_cache

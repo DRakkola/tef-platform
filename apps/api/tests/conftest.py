@@ -1,5 +1,6 @@
 """Pytest async fixtures and testing configuration."""
 
+import uuid
 from collections.abc import AsyncGenerator
 from typing import BinaryIO
 
@@ -8,8 +9,19 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.database import Base, get_db
+from app.core.security import create_access_token, hash_password
 from app.core.storage import StorageService, get_storage
 from app.main import app
+
+# Ensure all models are registered on Base.metadata
+from app.modules.users.models import (
+    RefreshToken,  # noqa: F401
+    StudentProfile,
+    TeacherProfile,
+    TeacherVerificationStatus,
+    User,
+    UserRole,
+)
 
 # Test SQLite in-memory database for isolated testing
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -95,3 +107,95 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def test_student(db_session: AsyncSession) -> User:
+    """Fixture providing an active student user with profile."""
+    user = User(
+        email=f"student_{uuid.uuid4().hex[:8]}@example.com",
+        password_hash=hash_password("ValidPassword123!"),
+        role=UserRole.STUDENT,
+        is_active=True,
+        is_verified=True,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    profile = StudentProfile(
+        user_id=user.id,
+        target_exam="TEF Canada",
+        target_level="B2",
+        timezone="America/Toronto",
+        native_language="English",
+        learning_preferences={"daily_goal_minutes": 30},
+    )
+    db_session.add(profile)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def test_teacher(db_session: AsyncSession) -> User:
+    """Fixture providing an active teacher user with profile."""
+    user = User(
+        email=f"teacher_{uuid.uuid4().hex[:8]}@example.com",
+        password_hash=hash_password("ValidPassword123!"),
+        role=UserRole.TEACHER,
+        is_active=True,
+        is_verified=True,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    profile = TeacherProfile(
+        user_id=user.id,
+        display_name="Professeur Martin",
+        bio="Certified TEF examiner with 10 years experience",
+        expertise=["comprehension_orale", "expression_orale"],
+        teaching_levels=["B1", "B2", "C1"],
+        hourly_price=4500,
+        verification_status=TeacherVerificationStatus.APPROVED,
+    )
+    db_session.add(profile)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def test_admin(db_session: AsyncSession) -> User:
+    """Fixture providing an active admin user."""
+    user = User(
+        email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
+        password_hash=hash_password("ValidPassword123!"),
+        role=UserRole.ADMIN,
+        is_active=True,
+        is_verified=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+def student_auth_headers(test_student: User) -> dict[str, str]:
+    """Provide Bearer auth header for the test student."""
+    token = create_access_token(test_student.id, test_student.role.value)
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+def teacher_auth_headers(test_teacher: User) -> dict[str, str]:
+    """Provide Bearer auth header for the test teacher."""
+    token = create_access_token(test_teacher.id, test_teacher.role.value)
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+def admin_auth_headers(test_admin: User) -> dict[str, str]:
+    """Provide Bearer auth header for the test admin."""
+    token = create_access_token(test_admin.id, test_admin.role.value)
+    return {"Authorization": f"Bearer {token}"}
