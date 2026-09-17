@@ -1,0 +1,1 @@
+"""Bookings business domain module."""

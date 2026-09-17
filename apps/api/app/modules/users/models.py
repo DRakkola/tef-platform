@@ -3,7 +3,14 @@
 import datetime
 import uuid
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.modules.teachers.models import (
+        TeacherAvailabilityException,
+        TeacherAvailabilityRule,
+        TeacherBooking,
+    )
 
 from sqlalchemy import (
     JSON,
@@ -96,6 +103,15 @@ class User(TimeStampedUUIDModel):
     refresh_tokens: Mapped[list[RefreshToken]] = relationship(
         "RefreshToken",
         back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    # Bookings made as a student
+    student_bookings: Mapped[list[TeacherBooking]] = relationship(
+        "TeacherBooking",
+        foreign_keys="TeacherBooking.student_id",
+        back_populates="student",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
@@ -223,5 +239,30 @@ class TeacherProfile(TimeStampedUUIDModel):
         nullable=False,
         index=True,
     )
+    timezone: Mapped[str] = mapped_column(
+        String(50),
+        default="UTC",
+        nullable=False,
+    )
 
     user: Mapped[User] = relationship("User", back_populates="teacher_profile")
+
+    # Availability & Bookings relationships
+    availability_rules: Mapped[list[TeacherAvailabilityRule]] = relationship(
+        "TeacherAvailabilityRule",
+        back_populates="teacher",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    availability_exceptions: Mapped[list[TeacherAvailabilityException]] = relationship(
+        "TeacherAvailabilityException",
+        back_populates="teacher",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    bookings: Mapped[list[TeacherBooking]] = relationship(
+        "TeacherBooking",
+        back_populates="teacher",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )

@@ -33,6 +33,11 @@ from app.modules.learning.models import (  # noqa: F401
     SkillAssessment,
     StudentSkill,
 )
+from app.modules.teachers.models import (  # noqa: F401
+    TeacherAvailabilityException,
+    TeacherAvailabilityRule,
+    TeacherBooking,
+)
 from app.modules.users.models import (
     RefreshToken,  # noqa: F401
     StudentProfile,
