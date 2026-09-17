@@ -1,9 +1,9 @@
 """Reusable authorization dependencies: current_user, require_role, ownership, and CSRF."""
 
 import hmac
-from typing import Any
 import uuid
 from collections.abc import Callable, Coroutine
+from typing import Any
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer

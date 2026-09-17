@@ -12,8 +12,17 @@ from app.core.database import Base, get_db
 from app.core.security import create_access_token, hash_password
 from app.core.storage import StorageService, get_storage
 from app.main import app
-
-# Ensure all models are registered on Base.metadata
+from app.modules.assessments.models import (  # noqa: F401
+    Assessment,
+    AssessmentSection,
+    Attempt,
+    AttemptAnswer,
+    AttemptScore,
+    Question,
+    QuestionOption,
+    QuestionSkillTag,
+    Skill,
+)
 from app.modules.users.models import (
     RefreshToken,  # noqa: F401
     StudentProfile,
