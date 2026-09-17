@@ -20,6 +20,7 @@ from app.modules.assessments.router import router as assessments_router
 from app.modules.auth.router import router as auth_router
 from app.modules.bookings.router import router as bookings_router
 from app.modules.learning.router import router as learning_router
+from app.modules.speaking.router import router as speaking_router
 from app.modules.students.router import router as students_router
 from app.modules.teachers.router import router as teachers_router
 from app.modules.writing.router import router as writing_router
@@ -130,6 +131,7 @@ api_v1_router.include_router(students_router)
 api_v1_router.include_router(teachers_router)
 api_v1_router.include_router(bookings_router)
 api_v1_router.include_router(writing_router)
+api_v1_router.include_router(speaking_router)
 api_v1_router.include_router(admin_router)
 
 app.include_router(api_v1_router)

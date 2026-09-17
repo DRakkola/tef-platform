@@ -33,6 +33,12 @@ from app.modules.learning.models import (  # noqa: F401
     SkillAssessment,
     StudentSkill,
 )
+from app.modules.speaking.models import (  # noqa: F401
+    SpeakingEvaluation,
+    SpeakingEvaluationSkill,
+    SpeakingParticipant,
+    SpeakingSession,
+)
 from app.modules.teachers.models import (  # noqa: F401
     TeacherAvailabilityException,
     TeacherAvailabilityRule,
