@@ -8,14 +8,23 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
+import structlog
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 
 from app.core.config import settings
 from app.core.exceptions import AppException
 
+logger = structlog.get_logger("tef-api.security")
+
 # Argon2id password hasher
 password_hasher = PasswordHash((Argon2Hasher(),))
+
+# Pre-computed dummy Argon2id hash for timing-safe account enumeration defense
+DUMMY_PASSWORD_HASH = password_hasher.hash("DummyPasswordForTimingSafety123!")
+
+# In-memory fallback for revoked token JTIs when Redis is unreachable
+_revoked_tokens_in_memory: set[str] = set()
 
 
 def validate_password_policy(password: str) -> None:
@@ -75,6 +84,44 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plaintext password against an Argon2id hash."""
     return password_hasher.verify(plain_password, hashed_password)
+
+
+def verify_password_timing_safe(plain_password: str, hashed_password: str | None) -> bool:
+    """Verify password in constant-time against a dummy hash when account does not exist.
+
+    Eliminates side-channel timing differences preventing account enumeration.
+    """
+    if hashed_password is None:
+        # Compute Argon2 on dummy hash to consume equivalent CPU/time (~80ms)
+        password_hasher.verify(plain_password, DUMMY_PASSWORD_HASH)
+        return False
+    return password_hasher.verify(plain_password, hashed_password)
+
+
+async def revoke_token_jti(jti: str, ttl_seconds: int = 900) -> None:
+    """Blacklist a JWT JTI in Redis (with in-memory fallback) until natural expiry."""
+    _revoked_tokens_in_memory.add(jti)
+    try:
+        from app.core.redis import redis_service
+
+        await redis_service.set(f"revoked_token:{jti}", "1", expire=ttl_seconds)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("redis_revoke_token_fallback", error=str(exc))
+
+
+async def is_token_revoked(jti: str | None) -> bool:
+    """Check if a JWT JTI has been revoked prior to expiration."""
+    if not jti:
+        return False
+    if jti in _revoked_tokens_in_memory:
+        return True
+    try:
+        from app.core.redis import redis_service
+
+        val = await redis_service.get(f"revoked_token:{jti}")
+        return val is not None
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def create_access_token(

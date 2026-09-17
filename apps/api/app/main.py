@@ -12,7 +12,12 @@ from app.core.config import settings
 from app.core.database import check_db_health
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
-from app.core.middleware import CorrelationIdMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import (
+    CorrelationIdMiddleware,
+    CSRFProtectionMiddleware,
+    PayloadSizeLimitMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.core.redis import check_redis_health, redis_service
 from app.core.storage import check_storage_health
 from app.modules.admin.router import router as admin_router
@@ -58,6 +63,8 @@ app = FastAPI(
 # 1. Register security & correlation middlewares
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(PayloadSizeLimitMiddleware)
+app.add_middleware(CSRFProtectionMiddleware)
 
 # 2. Register CORS middleware
 app.add_middleware(

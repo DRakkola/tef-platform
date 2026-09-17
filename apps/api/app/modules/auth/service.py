@@ -14,8 +14,10 @@ from app.core.security import (
     generate_secure_token,
     hash_password,
     hash_token,
+    revoke_token_jti,
     validate_password_policy,
     verify_password,
+    verify_password_timing_safe,
 )
 from app.modules.auth.schemas import ChangePasswordRequest, LoginRequest, RegisterRequest
 from app.modules.users.models import (
@@ -28,6 +30,11 @@ from app.modules.users.models import (
 )
 
 logger = structlog.get_logger("tef-api.auth")
+
+# In-memory fallback for failed login tracking when Redis is unavailable: email -> (count, locked_until_ts)
+_failed_logins_in_memory: dict[str, tuple[int, float]] = {}
+MAX_FAILED_LOGINS = 5
+LOCKOUT_DURATION_SECONDS = 900  # 15 minutes
 
 
 class AuthService:
@@ -128,6 +135,31 @@ class AuthService:
         """Authenticate user credentials, verify account state, and issue tokens."""
         clean_email = req.email.strip().lower()
 
+        # 1. Check account-level lockout state
+        now_ts = datetime.datetime.now(datetime.UTC).timestamp()
+        is_locked = False
+        try:
+            from app.core.redis import redis_service
+
+            lock_val = await redis_service.get(f"account_locked:{clean_email}")
+            if lock_val:
+                is_locked = True
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("redis_lockout_check_fallback", error=str(exc))
+
+        if not is_locked and clean_email in _failed_logins_in_memory:
+            count, locked_until = _failed_logins_in_memory[clean_email]
+            if count >= MAX_FAILED_LOGINS and now_ts < locked_until:
+                is_locked = True
+
+        if is_locked:
+            logger.warning("audit_login_blocked_locked_account", email=clean_email)
+            raise AppException(
+                message="Account temporarily locked due to multiple failed login attempts. Please try again in 15 minutes.",
+                code="ACCOUNT_LOCKED",
+                status_code=429,
+            )
+
         stmt = (
             select(User)
             .where(User.email == clean_email)
@@ -135,14 +167,49 @@ class AuthService:
         )
         user = (await db.execute(stmt)).scalar_one_or_none()
 
-        # Generic failure message for timing and enumeration protection
-        if not user or not verify_password(req.password, user.password_hash):
+        # 2. Timing-safe password verification preventing enumeration
+        is_password_valid = verify_password_timing_safe(
+            req.password, user.password_hash if user else None
+        )
+
+        if not user or not is_password_valid:
+            # Record failed login attempt
+            try:
+                from app.core.redis import redis_service
+
+                fail_count = await redis_service.client.incr(f"failed_logins:{clean_email}")
+                if fail_count == 1:
+                    await redis_service.client.expire(
+                        f"failed_logins:{clean_email}", LOCKOUT_DURATION_SECONDS
+                    )
+                if fail_count >= MAX_FAILED_LOGINS:
+                    await redis_service.set(
+                        f"account_locked:{clean_email}", "1", expire=LOCKOUT_DURATION_SECONDS
+                    )
+                    logger.warning("audit_account_locked", email=clean_email)
+            except Exception:  # noqa: BLE001
+                cur_count, _ = _failed_logins_in_memory.get(clean_email, (0, 0.0))
+                new_count = cur_count + 1
+                locked_until = (
+                    now_ts + LOCKOUT_DURATION_SECONDS if new_count >= MAX_FAILED_LOGINS else 0.0
+                )
+                _failed_logins_in_memory[clean_email] = (new_count, locked_until)
+
             logger.warning("audit_login_failed", email=clean_email)
             raise AppException(
                 message="Invalid email or password",
                 code="INVALID_CREDENTIALS",
                 status_code=401,
             )
+
+        # Clear failed login attempts on success
+        try:
+            from app.core.redis import redis_service
+
+            await redis_service.delete(f"failed_logins:{clean_email}")
+            await redis_service.delete(f"account_locked:{clean_email}")
+        except Exception:  # noqa: BLE001
+            _failed_logins_in_memory.pop(clean_email, None)
 
         if not user.is_active:
             logger.warning("audit_login_inactive_user", user_id=str(user.id))
@@ -218,27 +285,35 @@ class AuthService:
         return user, access_token, new_refresh_token
 
     @staticmethod
-    async def logout(db: AsyncSession, plaintext_refresh_token: str | None) -> None:
-        """Revoke active refresh token session."""
-        if not plaintext_refresh_token:
-            return
+    async def logout(
+        db: AsyncSession,
+        plaintext_refresh_token: str | None,
+        access_token_jti: str | None = None,
+    ) -> None:
+        """Revoke active refresh token session and blacklist access token JTI."""
+        if access_token_jti:
+            await revoke_token_jti(
+                access_token_jti, ttl_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            )
 
-        token_hash = hash_token(plaintext_refresh_token)
-        now = datetime.datetime.now(datetime.UTC)
+        if plaintext_refresh_token:
+            token_hash = hash_token(plaintext_refresh_token)
+            now = datetime.datetime.now(datetime.UTC)
 
-        stmt = (
-            update(RefreshToken)
-            .where(RefreshToken.token_hash == token_hash, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=now)
-        )
-        await db.execute(stmt)
-        logger.info("audit_user_logged_out")
+            stmt = (
+                update(RefreshToken)
+                .where(RefreshToken.token_hash == token_hash, RefreshToken.revoked_at.is_(None))
+                .values(revoked_at=now)
+            )
+            await db.execute(stmt)
+        logger.info("audit_user_logged_out", jti_revoked=bool(access_token_jti))
 
     @staticmethod
     async def change_password(
         db: AsyncSession,
         user: User,
         req: ChangePasswordRequest,
+        access_token_jti: str | None = None,
     ) -> None:
         """Verify current password, update password hash, and revoke all active sessions."""
         if not verify_password(req.current_password, user.password_hash):
@@ -252,6 +327,11 @@ class AuthService:
         validate_password_policy(req.new_password)
 
         user.password_hash = hash_password(req.new_password)
+
+        if access_token_jti:
+            await revoke_token_jti(
+                access_token_jti, ttl_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            )
 
         # Revoke all active sessions on password change
         now = datetime.datetime.now(datetime.UTC)

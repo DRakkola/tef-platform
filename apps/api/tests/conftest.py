@@ -92,17 +92,65 @@ class MockStorageService(StorageService):
         folder: str = "general",
         file_extension: str = "",
     ) -> str:
+        import io
+
+        from app.core.exceptions import AppException
+        from app.core.storage import ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES
+
+        normalized_content_type = content_type.lower().split(";")[0].strip()
+        if normalized_content_type not in ALLOWED_MIME_TYPES:
+            raise AppException(
+                message=f"File type '{content_type}' is not permitted",
+                code="INVALID_FILE_TYPE",
+                status_code=415,
+            )
+
+        file_obj.seek(0, io.SEEK_END)
+        file_size = file_obj.tell()
+        file_obj.seek(0)
+        if file_size > MAX_FILE_SIZE_BYTES:
+            raise AppException(
+                message=f"File size exceeds maximum permitted limit of {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB",
+                code="FILE_TOO_LARGE",
+                status_code=413,
+            )
+
+        if ".." in folder or folder.startswith("/") or "\\" in folder:
+            raise AppException(
+                message="Folder path contains illegal path traversal characters",
+                code="INVALID_FOLDER_PATH",
+                status_code=400,
+            )
         key = f"{folder}/test-file{file_extension}"
         self.files[key] = file_obj.read()
         return key
 
     def download_file(self, object_key: str) -> bytes:
+        if ".." in object_key or object_key.startswith("/") or "\\" in object_key:
+            from app.core.exceptions import AppException
+
+            raise AppException(
+                message="Invalid object key path traversal detected",
+                code="INVALID_OBJECT_KEY",
+                status_code=400,
+            )
         if object_key not in self.files:
             raise KeyError("File not found")
         return self.files[object_key]
 
     def generate_presigned_url(self, object_key: str, expiration_seconds: int = 3600) -> str:
-        return f"http://storage.local/presigned/{object_key}?expires={expiration_seconds}"
+        if ".." in object_key or object_key.startswith("/") or "\\" in object_key:
+            from app.core.exceptions import AppException
+
+            raise AppException(
+                message="Invalid object key path traversal detected",
+                code="INVALID_OBJECT_KEY",
+                status_code=400,
+            )
+        from app.core.storage import MAX_PRESIGNED_URL_EXPIRY_SECONDS
+
+        capped_expiry = min(max(60, expiration_seconds), MAX_PRESIGNED_URL_EXPIRY_SECONDS)
+        return f"http://storage.local/presigned/{object_key}?expires={capped_expiry}"
 
     def delete_file(self, object_key: str) -> bool:
         if object_key in self.files:

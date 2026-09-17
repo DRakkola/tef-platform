@@ -192,8 +192,12 @@ async def test_logout(client: AsyncClient, test_student: User):
     )
     refresh_token = login_res.json()["refresh_token"]
 
+    csrf_token = login_res.cookies.get("csrf_token")
+    headers = {"X-CSRF-Token": csrf_token} if csrf_token else {}
+
     logout_res = await client.post(
         "/api/v1/auth/logout",
+        headers=headers,
         json={"refresh_token": refresh_token},
     )
     assert logout_res.status_code == 200

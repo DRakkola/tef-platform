@@ -423,7 +423,7 @@ async def unblock_practice_peer(
 async def practice_webrtc_signaling_ws(
     websocket: WebSocket,
     room_id: str,
-    token: str = Query(..., description="Bearer JWT access token for authentication"),
+    token: str | None = Query(None, description="Bearer JWT access token for authentication"),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """WebSocket endpoint for audio-only WebRTC signaling between matched students.
@@ -431,11 +431,28 @@ async def practice_webrtc_signaling_ws(
     Live audio is NEVER sent through this endpoint. Audio flows peer-to-peer over WebRTC.
     Camera/video track negotiation is strictly forbidden.
     """
+    auth_token = token or websocket.cookies.get("access_token")
+    if not auth_token:
+        auth_header = websocket.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            auth_token = auth_header.removeprefix("Bearer ").strip()
+        elif "sec-websocket-protocol" in websocket.headers:
+            protocols = [p.strip() for p in websocket.headers["sec-websocket-protocol"].split(",")]
+            if len(protocols) >= 2 and protocols[0] == "token":
+                auth_token = protocols[1]
+            elif len(protocols) == 1:
+                auth_token = protocols[0]
+
+    if not auth_token:
+        logger.warning("practice_ws_missing_credentials", room_id=room_id)
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     try:
         session, user, alias = await PracticePoolService.authorize_room_connection(
             db=db,
             room_id=room_id,
-            token=token,
+            token=auth_token,
         )
     except AppException as exc:
         logger.warning(

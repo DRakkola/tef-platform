@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AppException
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, is_token_revoked
 from app.modules.assessments.models import Skill
 from app.modules.speaking.enums import (
     SpeakingEvaluatorType,
@@ -396,6 +396,14 @@ class SpeakingService:
             raise AppException(
                 message="Invalid or expired access token",
                 code="INVALID_TOKEN",
+                status_code=401,
+            )
+
+        jti = token_payload.get("jti")
+        if jti and await is_token_revoked(jti):
+            raise AppException(
+                message="Token has been revoked",
+                code="TOKEN_REVOKED",
                 status_code=401,
             )
 

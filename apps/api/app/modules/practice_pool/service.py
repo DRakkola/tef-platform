@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, is_token_revoked
 from app.modules.practice_pool.aliases import generate_anonymous_alias
 from app.modules.practice_pool.enums import (
     PracticeMatchStatus,
@@ -679,6 +679,10 @@ class PracticePoolService:
         token_payload = decode_access_token(token)
         if not token_payload:
             raise AppException("Invalid or expired token", code="INVALID_TOKEN", status_code=401)
+
+        jti = token_payload.get("jti")
+        if jti and await is_token_revoked(jti):
+            raise AppException("Token has been revoked", code="TOKEN_REVOKED", status_code=401)
 
         user_id_str = token_payload.get("sub")
         if not user_id_str:

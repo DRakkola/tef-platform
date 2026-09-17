@@ -1,5 +1,6 @@
 """FastAPI Router for authentication endpoints: /api/v1/auth."""
 
+import structlog
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,7 +8,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.rate_limit import check_rate_limit
-from app.core.security import generate_secure_token
+from app.core.security import decode_access_token, generate_secure_token
 from app.modules.auth.dependencies import get_current_user, verify_csrf_if_cookie
 from app.modules.auth.schemas import (
     ChangePasswordRequest,
@@ -22,6 +23,7 @@ from app.modules.users.models import User
 from app.modules.users.schemas import UserResponse
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+logger = structlog.get_logger("tef-api.auth")
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -195,7 +197,23 @@ async def logout(
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     token = (body.refresh_token if body else None) or request.cookies.get("refresh_token")
-    await AuthService.logout(db=db, plaintext_refresh_token=token)
+
+    access_jti: str | None = None
+    auth_header = request.headers.get("Authorization")
+    raw_access_token: str | None = None
+    if auth_header and auth_header.startswith("Bearer "):
+        raw_access_token = auth_header.removeprefix("Bearer ").strip()
+    elif "access_token" in request.cookies:
+        raw_access_token = request.cookies["access_token"]
+
+    if raw_access_token:
+        try:
+            payload = decode_access_token(raw_access_token)
+            access_jti = payload.get("jti")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("access_token_decode_skipped_for_logout", error=str(exc))
+
+    await AuthService.logout(db=db, plaintext_refresh_token=token, access_token_jti=access_jti)
     _clear_auth_cookies(response)
     return MessageResponse(message="Successfully logged out")
 
@@ -224,6 +242,9 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     await verify_csrf_if_cookie(request)
-    await AuthService.change_password(db=db, user=current_user, req=req)
+    access_jti = getattr(request.state, "access_token_jti", None)
+    await AuthService.change_password(
+        db=db, user=current_user, req=req, access_token_jti=access_jti
+    )
     _clear_auth_cookies(response)
     return MessageResponse(message="Password changed successfully. Please log in again.")

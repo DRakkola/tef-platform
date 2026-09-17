@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.exceptions import AppException
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, is_token_revoked
 from app.modules.users.models import User, UserRole
 
 # HTTP Bearer authentication scheme (auto_error=False to allow fallback to HttpOnly cookie)
@@ -42,6 +42,14 @@ async def get_current_user(
         )
 
     payload = decode_access_token(token)
+    jti = payload.get("jti")
+    if jti and await is_token_revoked(jti):
+        raise AppException(
+            message="Token has been revoked",
+            code="TOKEN_REVOKED",
+            status_code=401,
+        )
+
     user_id_str = payload.get("sub")
     if not user_id_str:
         raise AppException(
@@ -81,6 +89,7 @@ async def get_current_user(
     # Attach auth context to request state
     request.state.is_cookie_auth = is_cookie_auth
     request.state.current_user = user
+    request.state.access_token_jti = jti
 
     return user
 
@@ -118,9 +127,19 @@ def check_resource_ownership(
 
 async def verify_csrf_if_cookie(request: Request) -> None:
     """CSRF protection for state-changing requests when authenticated via cookies."""
+    # If request used Bearer token authentication, CSRF is not required
+    if getattr(request.state, "is_cookie_auth", None) is False:
+        return
+
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return
+
     # Only enforce if request relies on cookie authentication
     if request.method in {"POST", "PUT", "PATCH", "DELETE"} and (
-        "access_token" in request.cookies or "refresh_token" in request.cookies
+        getattr(request.state, "is_cookie_auth", False)
+        or "access_token" in request.cookies
+        or "refresh_token" in request.cookies
     ):
         cookie_csrf = request.cookies.get("csrf_token")
         header_csrf = request.headers.get("X-CSRF-Token")
