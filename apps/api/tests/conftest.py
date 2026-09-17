@@ -33,6 +33,14 @@ from app.modules.learning.models import (  # noqa: F401
     SkillAssessment,
     StudentSkill,
 )
+from app.modules.practice_pool.models import (  # noqa: F401
+    PracticeBlock,
+    PracticeMatch,
+    PracticeQueueEntry,
+    PracticeReport,
+    PracticeRequest,
+    PracticeSession,
+)
 from app.modules.speaking.models import (  # noqa: F401
     SpeakingEvaluation,
     SpeakingEvaluationSkill,
