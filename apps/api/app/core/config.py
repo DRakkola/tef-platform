@@ -1,9 +1,9 @@
 """Application configuration using Pydantic Settings."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -83,6 +83,27 @@ class Settings(BaseSettings):
     @property
     def cookie_secure(self) -> bool:
         return self.is_production
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> Self:
+        if self.ENVIRONMENT == "production":
+            insecure_defaults = [
+                "dev-secret-key-change-in-production-must-be-32-chars-long",
+                "secret",
+                "changeme",
+            ]
+            if self.SECRET_KEY in insecure_defaults or len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    "Insecure or too short SECRET_KEY configured for production environment. "
+                    "Must be a high-entropy secret of at least 32 characters."
+                )
+            if self.POSTGRES_PASSWORD == "tef_app_password":  # nosec B105
+                raise ValueError("Default POSTGRES_PASSWORD must not be used in production.")
+            if self.REDIS_PASSWORD == "tef_redis_password":  # nosec B105
+                raise ValueError("Default REDIS_PASSWORD must not be used in production.")
+            if "minioadmin" in (self.STORAGE_ACCESS_KEY, self.STORAGE_SECRET_KEY):
+                raise ValueError("Default MinIO credentials must not be used in production.")
+        return self
 
 
 @lru_cache

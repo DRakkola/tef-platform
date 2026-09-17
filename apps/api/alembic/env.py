@@ -5,6 +5,14 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+# Ensure all application models are loaded into Base.metadata
+import app.modules.assessments.models
+import app.modules.learning.models
+import app.modules.practice_pool.models
+import app.modules.speaking.models
+import app.modules.teachers.models
+import app.modules.users.models
+import app.modules.writing.models  # noqa: F401
 from alembic import context
 from app.core.config import settings
 from app.core.database import Base

@@ -20,4 +20,9 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=300,  # 5 minutes maximum runtime for worker tasks
     worker_prefetch_multiplier=1,
+    task_acks_late=True,  # Only ack task when execution finishes successfully
+    task_reject_on_worker_lost=True,  # Re-queue task if worker process is abruptly terminated
+    broker_connection_retry_on_startup=True,  # Retry connecting to broker on worker launch
+    task_default_retry_delay=30,  # Default retry delay in seconds
+    task_max_retries=3,  # Cap default retries
 )
