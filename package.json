@@ -1,0 +1,16 @@
+{
+  "name": "tef-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev:web": "pnpm --filter @tef/web dev",
+    "build:web": "pnpm --filter @tef/web build",
+    "lint:web": "pnpm --filter @tef/web lint",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down"
+  }
+}
