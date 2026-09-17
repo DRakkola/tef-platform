@@ -125,6 +125,17 @@ class Assessment(TimeStampedUUIDModel):
         nullable=False,
         index=True,
     )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="published",
+        nullable=False,
+        index=True,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+    )
 
     sections: Mapped[list[AssessmentSection]] = relationship(
         "AssessmentSection",
@@ -367,6 +378,11 @@ class Attempt(TimeStampedUUIDModel):
     submitted_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+    assessment_version: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
     )
 
     assessment: Mapped[Assessment] = relationship(

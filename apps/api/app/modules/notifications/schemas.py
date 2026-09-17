@@ -13,6 +13,8 @@ class NotificationType(str, Enum):
     BOOKING_CONFIRMED = "booking_confirmed"
     BOOKING_CANCELLED = "booking_cancelled"
     EVALUATION_READY = "evaluation_ready"
+    WRITING_CORRECTION_READY = "writing_correction_ready"
+    PRACTICE_MATCHED = "practice_matched"
     SYSTEM_ANNOUNCEMENT = "system_announcement"
 
 

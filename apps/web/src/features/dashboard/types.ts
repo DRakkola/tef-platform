@@ -82,7 +82,7 @@ export interface StudentDashboardData {
   weakest_skills: WeakestSkillSummary[];
   recommended_exercises: RecommendedExerciseSummary[];
   recent_assessments: RecentAssessmentSummary[];
-  recent_writings: RecentWritingSummary[];
+  recent_writing_corrections: RecentWritingSummary[];
   upcoming_bookings: UpcomingBookingSummary[];
   recent_speaking_sessions: RecentSpeakingSummary[];
 }

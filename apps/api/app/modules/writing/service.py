@@ -25,6 +25,7 @@ from app.modules.writing.models import (
 )
 from app.modules.writing.providers.mock import MockCorrectionProvider
 from app.modules.writing.providers.teacher import HumanTeacherCorrectionProvider
+from app.modules.notifications.service import NotificationService
 from app.modules.writing.schemas import TeacherCorrectionRequest
 from app.modules.writing.storage import WritingStorage
 from app.modules.writing.utils import count_words_french
@@ -557,6 +558,18 @@ class WritingService:
         submission.status = WritingSubmissionStatus.RETURNED
         await db.flush()
 
+        # Emit student notification
+        try:
+            await NotificationService.notify_writing_correction_ready(
+                db=db,
+                student_id=submission.user_id,
+                submission_id=submission.id,
+                score=correction.score,
+                estimated_level=correction.estimated_level,
+            )
+        except Exception as notif_err:  # noqa: BLE001
+            logger.warning("failed_sending_writing_notification", error=str(notif_err))
+
         logger.info(
             "teacher_correction_submitted",
             submission_id=str(submission.id),
@@ -623,6 +636,18 @@ class WritingService:
 
         submission.status = WritingSubmissionStatus.RETURNED
         await db.flush()
+
+        # Emit student notification
+        try:
+            await NotificationService.notify_writing_correction_ready(
+                db=db,
+                student_id=submission.user_id,
+                submission_id=submission.id,
+                score=correction.score,
+                estimated_level=correction.estimated_level,
+            )
+        except Exception as notif_err:  # noqa: BLE001
+            logger.warning("failed_sending_writing_notification", error=str(notif_err))
 
         logger.info(
             "mock_correction_completed",

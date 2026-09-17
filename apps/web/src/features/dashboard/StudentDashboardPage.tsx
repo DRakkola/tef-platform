@@ -185,7 +185,7 @@ export const StudentDashboardPage: React.FC = () => {
   const isEmpty =
     dashboard.skills.length === 0 &&
     dashboard.recent_assessments.length === 0 &&
-    dashboard.recent_writings.length === 0 &&
+    dashboard.recent_writing_corrections.length === 0 &&
     dashboard.recent_speaking_sessions.length === 0;
 
   if (isEmpty) {
@@ -429,11 +429,11 @@ export const StudentDashboardPage: React.FC = () => {
             <PenLine className="size-4 text-amber-400" />
             <h3 className="font-semibold text-white">Rédactions & Corrections</h3>
           </div>
-          {dashboard.recent_writings.length === 0 ? (
+          {dashboard.recent_writing_corrections.length === 0 ? (
             <p className="text-xs text-slate-400">Aucune rédaction soumise.</p>
           ) : (
             <div className="space-y-3">
-              {dashboard.recent_writings.map((w) => (
+              {dashboard.recent_writing_corrections.map((w) => (
                 <div
                   key={w.id}
                   className="rounded-lg border border-white/5 bg-slate-950/40 p-3 flex justify-between items-center"

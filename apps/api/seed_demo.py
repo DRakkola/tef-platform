@@ -9,8 +9,17 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.core.security import hash_password
-from app.modules.assessments.enums import AssessmentType, AttemptStatus
-from app.modules.assessments.models import Assessment, Attempt, AttemptScore, Skill
+from app.modules.assessments.enums import AssessmentType, AttemptStatus, QuestionType
+from app.modules.assessments.models import (
+    Assessment,
+    AssessmentSection,
+    Attempt,
+    AttemptScore,
+    Question,
+    QuestionOption,
+    QuestionSkillTag,
+    Skill,
+)
 from app.modules.learning.enums import RecommendationStatus, RecommendationType, SkillCategory
 from app.modules.learning.models import Exercise, Recommendation, SkillAssessment, StudentSkill
 from app.modules.teachers.enums import BookingStatus
@@ -20,6 +29,8 @@ from app.modules.users.models import StudentProfile, TeacherProfile, TeacherVeri
 DEMO_EMAIL = "student.demo@example.com"
 DEMO_PASSWORD = "DemoStudent2026!"
 TEACHER_EMAIL = "teacher.jean@example.com"
+ADMIN_EMAIL = "admin@example.com"
+ADMIN_PASSWORD = "AdminPass2026!"
 
 
 async def seed():
@@ -27,6 +38,23 @@ async def seed():
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
+        # 0. Admin User
+        admin_res = await session.execute(select(User).where(User.email == ADMIN_EMAIL))
+        admin_user = admin_res.scalar_one_or_none()
+        if not admin_user:
+            admin_user = User(
+                email=ADMIN_EMAIL,
+                password_hash=hash_password(ADMIN_PASSWORD),
+                role=UserRole.ADMIN,
+                is_active=True,
+                is_verified=True,
+            )
+            session.add(admin_user)
+            await session.flush()
+            print(f"Created admin user: {admin_user.email}")
+        else:
+            print(f"Admin user already exists: {admin_user.email}")
+
         # 1. Demo Student User
         res = await session.execute(select(User).where(User.email == DEMO_EMAIL))
         user = res.scalar_one_or_none()
@@ -168,9 +196,34 @@ async def seed():
                 difficulty=3,
                 level="B2",
                 instructions="Complétez les phrases avec le subjonctif approprié.",
-                options_payload=[],
+                explanation="Après les expressions d'obligation impersonnelles ('il est nécessaire que'), le verbe subordonné requiert le subjonctif : 'que vous sachiez'.",
+                points=5,
+                options_payload=[
+                    {"content": "sachiez", "is_correct": True, "order_index": 1},
+                    {"content": "savez", "is_correct": False, "order_index": 2},
+                    {"content": "sussiez", "is_correct": False, "order_index": 3},
+                    {"content": "sauriez", "is_correct": False, "order_index": 4},
+                ],
             )
             session.add(exercise)
+            await session.flush()
+            session.add(
+                ExerciseSkill(
+                    exercise_id=exercise.id,
+                    skill_id=created_skills[0].id,
+                    subskill="Subjonctif Présent",
+                    weight=1.0,
+                )
+            )
+        elif not exercise.options_payload:
+            exercise.options_payload = [
+                {"content": "sachiez", "is_correct": True, "order_index": 1},
+                {"content": "savez", "is_correct": False, "order_index": 2},
+                {"content": "sussiez", "is_correct": False, "order_index": 3},
+                {"content": "sauriez", "is_correct": False, "order_index": 4},
+            ]
+            exercise.points = 5
+            exercise.explanation = "Après les expressions d'obligation impersonnelles ('il est nécessaire que'), le verbe subordonné requiert le subjonctif : 'que vous sachiez'."
             await session.flush()
 
         rec_res = await session.execute(
@@ -205,17 +258,80 @@ async def seed():
             )
             session.add(booking)
 
-        # 7. Recent Assessment Attempt
-        att_res = await session.execute(
-            select(Attempt).where(Attempt.user_id == user.id)
+        # 7. Recent Assessment Attempt & Sections
+        asmt_res = await session.execute(
+            select(Assessment).where(Assessment.title == "Compréhension Écrite — Blanc 1")
         )
-        if not att_res.scalar_one_or_none():
+        asmt = asmt_res.scalar_one_or_none()
+        if not asmt:
             asmt = Assessment(
                 title="Compréhension Écrite — Blanc 1",
+                description="Épreuve complète de compréhension écrite TEF Canada comprenant des textes journalistiques et argumentatifs.",
                 assessment_type=AssessmentType.READING,
                 duration_seconds=3600,
+                status="published",
+                version=1,
+                is_published=True,
             )
             session.add(asmt)
+            await session.flush()
+
+        sec_res = await session.execute(
+            select(AssessmentSection).where(AssessmentSection.assessment_id == asmt.id)
+        )
+        sec = sec_res.scalar_one_or_none()
+        if not sec:
+            sec = AssessmentSection(
+                assessment_id=asmt.id,
+                title="Section 1 — Compréhension de textes informatifs et d'opinion",
+                instructions="Lisez attentivement les documents et sélectionnez la meilleure réponse.",
+                order_index=1,
+                passage_text="Une étude récente montre que l'adoption croissante du travail à distance est portée par le souhait des employés d'éviter les embouteillages quotidiens et d'obtenir une meilleure conciliation vie professionnelle et vie personnelle.",
+            )
+            session.add(sec)
+            await session.flush()
+
+            # Question 1
+            q1 = Question(
+                section_id=sec.id,
+                question_type=QuestionType.SINGLE_CHOICE,
+                prompt="Selon l'analyse présentée, quel est le principal facteur du développement du télétravail dans les grandes métropoles ?",
+                difficulty=3,
+                order_index=1,
+                points=10,
+                explanation="Le texte précise expressément le souhait d'éviter les trajets quotidiens et la conciliation des temps de vie.",
+            )
+            session.add(q1)
+            await session.flush()
+
+            session.add_all([
+                QuestionOption(question_id=q1.id, content="La diminution globale des coûts des transports en commun.", is_correct=False, order_index=1),
+                QuestionOption(question_id=q1.id, content="La recherche d'une meilleure conciliation vie professionnelle-personnelle et la réduction des trajets.", is_correct=True, order_index=2),
+                QuestionOption(question_id=q1.id, content="La fermeture définitive de l'ensemble des locaux d'entreprise.", is_correct=False, order_index=3),
+                QuestionOption(question_id=q1.id, content="Une obligation légale et sanitaire permanente.", is_correct=False, order_index=4),
+                QuestionSkillTag(question_id=q1.id, skill_id=created_skills[2].id, weight=1.0),
+            ])
+
+            # Question 2
+            q2 = Question(
+                section_id=sec.id,
+                question_type=QuestionType.SINGLE_CHOICE,
+                prompt="Quel risque majeur est souligné par l'auteur concernant la généralisation des outils numériques ?",
+                difficulty=3,
+                order_index=2,
+                points=10,
+                explanation="L'auteur met en garde contre l'isolement social des collaborateurs.",
+            )
+            session.add(q2)
+            await session.flush()
+
+            session.add_all([
+                QuestionOption(question_id=q2.id, content="Une baisse irrémédiable de la vitesse de connexion internet.", is_correct=False, order_index=1),
+                QuestionOption(question_id=q2.id, content="L'effritement du lien social et le risque d'isolement des collaborateurs.", is_correct=True, order_index=2),
+                QuestionOption(question_id=q2.id, content="L'augmentation injustifiée des salaires dans le secteur numérique.", is_correct=False, order_index=3),
+                QuestionOption(question_id=q2.id, content="Une incompatibilité totale avec les objectifs écologiques.", is_correct=False, order_index=4),
+                QuestionSkillTag(question_id=q2.id, skill_id=created_skills[2].id, weight=1.0),
+            ])
             await session.flush()
 
             attempt = Attempt(

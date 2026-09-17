@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AppException
+from app.modules.notifications.service import NotificationService
 from app.modules.teachers.enums import BookingStatus
 from app.modules.teachers.models import TeacherBooking
 from app.modules.teachers.schemas import BookingCreateRequest
@@ -200,6 +201,22 @@ class BookingService:
         booking.cancelled_at = datetime.datetime.now(datetime.UTC)
 
         await db.commit()
+
+        # Emit notification to counterparty
+        try:
+            cancelled_by_name = "l'étudiant" if is_student else "l'enseignant"
+            target_user_id = booking.teacher.user_id if is_student else booking.student_id
+            await NotificationService.notify_booking_cancelled(
+                db=db,
+                notify_user_id=target_user_id,
+                booking_id=booking.id,
+                cancelled_by_name=cancelled_by_name,
+                reason=reason,
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            pass
+
         reload_stmt = (
             select(TeacherBooking)
             .where(TeacherBooking.id == booking.id)
@@ -247,6 +264,20 @@ class BookingService:
 
         booking.status = BookingStatus.CONFIRMED
         await db.commit()
+
+        # Emit notifications to student and teacher
+        try:
+            await NotificationService.notify_booking_confirmed(
+                db=db,
+                student_id=booking.student_id,
+                teacher_id=booking.teacher.user_id,
+                booking_id=booking.id,
+                start_time=booking.start_time,
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            pass
+
         reload_stmt = (
             select(TeacherBooking)
             .where(TeacherBooking.id == booking.id)

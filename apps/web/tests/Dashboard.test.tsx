@@ -185,7 +185,7 @@ describe("Student Dashboard & Learning Loop", () => {
           submitted_at: "2026-09-14T11:00:00Z",
         },
       ],
-      recent_writings: [
+      recent_writing_corrections: [
         {
           id: "w-1",
           task_title: "Section B — Lettre au rédacteur",

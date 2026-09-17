@@ -81,6 +81,17 @@ class WritingTask(TimeStampedUUIDModel):
         nullable=False,
         index=True,
     )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="published",
+        nullable=False,
+        index=True,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+    )
 
     attempts: Mapped[list[WritingAttempt]] = relationship(
         "WritingAttempt",
