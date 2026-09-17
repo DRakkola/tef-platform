@@ -46,6 +46,14 @@ export const HomePage: React.FC = () => {
           <p className="text-muted-foreground max-w-lg mx-auto">
             Production-grade modular monolith architecture adhering to the engineering contract.
           </p>
+          <div className="pt-2">
+            <a
+              href="/dashboard"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors shadow-sm"
+            >
+              Accéder au Tableau de bord Étudiant &rarr;
+            </a>
+          </div>
         </div>
 
         {/* Status Card */}

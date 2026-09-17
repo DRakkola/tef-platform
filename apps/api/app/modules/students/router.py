@@ -7,6 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.modules.auth.dependencies import require_role
+from app.modules.students.dashboard_schemas import (
+    StudentDashboardResponse,
+    StudentProgressResponse,
+)
+from app.modules.students.dashboard_service import StudentDashboardService
 from app.modules.users.models import StudentProfile, User, UserRole
 from app.modules.users.schemas import StudentProfileResponse
 
@@ -34,3 +39,29 @@ async def get_my_student_profile(
         )
 
     return StudentProfileResponse.model_validate(profile)
+
+
+@router.get(
+    "/me/dashboard",
+    response_model=StudentDashboardResponse,
+    summary="Get aggregated student dashboard data",
+)
+async def get_my_dashboard(
+    current_user: User = Depends(require_role(UserRole.STUDENT, UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> StudentDashboardResponse:
+    """Retrieve complete learning loop summary for student dashboard."""
+    return await StudentDashboardService.get_dashboard(db, current_user)
+
+
+@router.get(
+    "/me/progress",
+    response_model=StudentProgressResponse,
+    summary="Get historical progress timeline and skill trajectories",
+)
+async def get_my_progress(
+    current_user: User = Depends(require_role(UserRole.STUDENT, UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> StudentProgressResponse:
+    """Retrieve historical measurement timeline and skill trajectories."""
+    return await StudentDashboardService.get_progress(db, current_user)
