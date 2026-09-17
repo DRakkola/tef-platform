@@ -29,6 +29,7 @@ from app.modules.assessments.enums import (
     QuestionType,
     ScoringPolicy,
 )
+from app.modules.learning.enums import SkillCategory
 from app.modules.users.models import User
 
 
@@ -46,6 +47,11 @@ class Skill(TimeStampedUUIDModel):
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+    category: Mapped[SkillCategory | None] = mapped_column(
+        SQLEnum(SkillCategory, name="skill_category", native_enum=False),
+        nullable=True,
+        index=True,
     )
     description: Mapped[str | None] = mapped_column(
         Text,

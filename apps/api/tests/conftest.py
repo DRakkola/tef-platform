@@ -23,6 +23,15 @@ from app.modules.assessments.models import (  # noqa: F401
     QuestionSkillTag,
     Skill,
 )
+from app.modules.learning.models import (  # noqa: F401
+    Exercise,
+    ExerciseAttempt,
+    ExerciseSkill,
+    Mistake,
+    Recommendation,
+    SkillAssessment,
+    StudentSkill,
+)
 from app.modules.users.models import (
     RefreshToken,  # noqa: F401
     StudentProfile,

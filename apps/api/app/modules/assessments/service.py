@@ -23,6 +23,7 @@ from app.modules.assessments.models import (
 )
 from app.modules.assessments.schemas import AnswerSubmitRequest
 from app.modules.assessments.scoring import ScoringEngine
+from app.modules.learning.service import LearningService
 
 logger = structlog.get_logger("tef-api.assessments")
 
@@ -448,6 +449,14 @@ class AssessmentService:
                 db.add(score)
 
             await db.flush()
+
+            # Trigger learning engine hook for mistake logging, skill tracking & recommendations
+            await LearningService.process_assessment_submission(
+                db=db,
+                attempt=attempt,
+                assessment=assessment,
+                score_result=score_result,
+            )
 
             logger.info(
                 "attempt_graded",
