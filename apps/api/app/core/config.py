@@ -1,9 +1,9 @@
 """Application configuration using Pydantic Settings."""
 
 from functools import lru_cache
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,11 +35,27 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"  # nosec B104
     PORT: int = 8000
-    CORS_ORIGINS: list[str] = [
+    CORS_ORIGINS: list[str] | str = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v_stripped = v.strip()
+            if v_stripped.startswith("[") and v_stripped.endswith("]"):
+                import json
+                try:
+                    return json.loads(v_stripped)
+                except Exception:
+                    pass
+            return [i.strip() for i in v_stripped.split(",") if i.strip()]
+        elif isinstance(v, list):
+            return v
+        return []
 
     # Database (PostgreSQL 18 system of record)
     POSTGRES_USER: str = "tef_app"

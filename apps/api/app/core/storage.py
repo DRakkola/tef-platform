@@ -64,6 +64,9 @@ class StorageService(ABC):
     def check_health(self) -> bool:
         """Verifies storage service reachability and bucket presence."""
 
+    def ensure_bucket_exists(self) -> None:
+        """Ensures storage bucket or container exists."""
+
 
 class S3StorageService(StorageService):
     """S3-compatible storage implementation (MinIO in local/dev)."""
@@ -192,6 +195,17 @@ class S3StorageService(StorageService):
         except Exception as exc:  # noqa: BLE001
             logger.warning("storage_health_check_failed", error=str(exc))
             return False
+
+    def ensure_bucket_exists(self) -> None:
+        """Ensures the configured bucket exists, creating it if necessary."""
+        try:
+            self.s3_client.head_bucket(Bucket=self.bucket_name)
+        except Exception:
+            try:
+                self.s3_client.create_bucket(Bucket=self.bucket_name)
+                logger.info("storage_bucket_created", bucket=self.bucket_name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("storage_bucket_creation_failed", error=str(exc))
 
 
 # Global default storage service instance

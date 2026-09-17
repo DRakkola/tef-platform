@@ -19,7 +19,7 @@ from app.core.middleware import (
     SecurityHeadersMiddleware,
 )
 from app.core.redis import check_redis_health, redis_service
-from app.core.storage import check_storage_health
+from app.core.storage import check_storage_health, storage_service
 from app.modules.admin.router import router as admin_router
 from app.modules.assessments.router import router as assessments_router
 from app.modules.auth.router import router as auth_router
@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
         version="0.1.0",
         python_baseline="3.14",
     )
+    storage_service.ensure_bucket_exists()
     yield
     logger.info("tef_api_shutting_down")
     await redis_service.close()

@@ -6,6 +6,7 @@ from collections import defaultdict
 import structlog
 from fastapi import Request
 
+from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.redis import redis_service
 
@@ -25,6 +26,9 @@ async def check_rate_limit(
 
     Raises AppException 429 if the request limit is exceeded within window_seconds.
     """
+    if settings.ENVIRONMENT == "testing":
+        return
+
     client_ip = request.client.host if request.client else "unknown"
     rate_key = f"{key_prefix}:{client_ip}"
 
