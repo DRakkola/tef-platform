@@ -28,7 +28,52 @@ ALLOWED_MIME_TYPES = {
     "audio/mpeg",
     "audio/mp4",
     "application/json",
+    "image/png",
+    "image/jpeg",
 }
+
+# Binary magic signatures for content-type verification
+MAGIC_SIGNATURES: dict[str, list[bytes]] = {
+    "application/pdf": [b"%PDF"],
+    "image/png": [b"\x89PNG\r\n\x1a\n"],
+    "image/jpeg": [b"\xff\xd8\xff"],
+    "audio/wav": [b"RIFF"],
+    "audio/ogg": [b"OggS"],
+    "audio/webm": [b"\x1a\x45\xdf\xa3"],
+    "audio/mpeg": [b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"],
+}
+
+
+def validate_magic_bytes(file_obj: BinaryIO, content_type: str) -> None:
+    """Sniffs file header bytes to confirm format matches declared MIME type."""
+    normalized = content_type.lower().split(";")[0].strip()
+    expected_signatures = MAGIC_SIGNATURES.get(normalized)
+    if not expected_signatures:
+        # text/plain and application/json: verify utf-8 decode
+        if normalized in ("text/plain", "application/json"):
+            sample = file_obj.read(1024)
+            file_obj.seek(0)
+            try:
+                sample.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise AppException(
+                    message="File content contains invalid characters for declared text type",
+                    code="CORRUPTED_FILE_CONTENT",
+                    status_code=415,
+                ) from exc
+        return
+
+    sample = file_obj.read(32)
+    file_obj.seek(0)
+    if not any(sample.startswith(sig) for sig in expected_signatures):
+        # Fallback for MP4 / WebM containers with variable offsets
+        if normalized in ("audio/mp4", "video/mp4") and b"ftyp" in sample:
+            return
+        raise AppException(
+            message=f"File binary signature does not match declared type '{content_type}'",
+            code="MIME_SPOOFING_DETECTED",
+            status_code=415,
+        )
 
 
 class StorageService(ABC):
@@ -41,6 +86,7 @@ class StorageService(ABC):
         content_type: str,
         folder: str = "general",
         file_extension: str = "",
+        filename: str | None = None,
     ) -> str:
         """Uploads a file with a server-generated key. Returns the object key."""
 
@@ -111,6 +157,7 @@ class S3StorageService(StorageService):
         content_type: str,
         folder: str = "general",
         file_extension: str = "",
+        filename: str | None = None,
     ) -> str:
         # 1. MIME type validation
         normalized_content_type = content_type.lower().split(";")[0].strip()
@@ -132,6 +179,9 @@ class S3StorageService(StorageService):
                 status_code=413,
             )
 
+        # 3. Magic byte signature verification
+        validate_magic_bytes(file_obj, normalized_content_type)
+
         # 3. Path traversal defense on folder and extension
         if ".." in folder or folder.startswith("/") or "\\" in folder:
             raise AppException(
@@ -143,7 +193,11 @@ class S3StorageService(StorageService):
         clean_ext = re.sub(r"[^a-zA-Z0-9]", "", file_extension.lstrip("."))
         ext_suffix = f".{clean_ext}" if clean_ext else ""
 
-        object_key = f"{clean_folder}/{uuid.uuid4()}{ext_suffix}"
+        if filename:
+            clean_filename = re.sub(r"[^a-zA-Z0-9_\-]", "", filename)
+            object_key = f"{clean_folder}/{clean_filename}{ext_suffix}"
+        else:
+            object_key = f"{clean_folder}/{uuid.uuid4()}{ext_suffix}"
 
         self.s3_client.upload_fileobj(
             file_obj,

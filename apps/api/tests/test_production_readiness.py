@@ -87,9 +87,26 @@ def test_production_settings_succeeds_with_strong_credentials() -> None:
         REDIS_PASSWORD="super-strong-redis-password-12345!",
         STORAGE_ACCESS_KEY="prod-minio-admin-user",
         STORAGE_SECRET_KEY="super-strong-minio-secret-12345!",
+        CORS_ORIGINS=["https://tef-prep.example.com"],
     )
     assert prod_settings.is_production is True
     assert prod_settings.cookie_secure is True
+
+
+def test_production_settings_rejects_localhost_cors() -> None:
+    """Settings must fail fast in production if localhost or wildcard CORS origins are configured."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="high-entropy-secure-production-secret-key-32chars",
+            POSTGRES_PASSWORD="super-strong-db-password-12345!",
+            REDIS_PASSWORD="super-strong-redis-password-12345!",
+            STORAGE_ACCESS_KEY="prod-minio-admin-user",
+            STORAGE_SECRET_KEY="super-strong-minio-secret-12345!",
+            CORS_ORIGINS=["http://localhost:5173"],
+        )
+    assert "Insecure CORS origin" in str(exc_info.value)
+
 
 
 def test_celery_worker_resilience_configuration() -> None:
@@ -108,9 +125,12 @@ def test_alembic_metadata_contains_all_models() -> None:
     env_path = Path(__file__).parent.parent / "alembic" / "env.py"
     env_content = env_path.read_text(encoding="utf-8")
 
-    # Verify all 7 domain model modules are imported in alembic/env.py
+    # Verify all 9 domain model modules are imported in alembic/env.py
     for module in [
+        "app.modules.admin.models",
+        "app.modules.analytics.models",
         "app.modules.assessments.models",
+        "app.modules.billing.models",
         "app.modules.learning.models",
         "app.modules.practice_pool.models",
         "app.modules.speaking.models",
@@ -121,7 +141,7 @@ def test_alembic_metadata_contains_all_models() -> None:
         assert f"import {module}" in env_content, f"alembic/env.py missing import of {module}"
 
     table_names = set(Base.metadata.tables.keys())
-    assert len(table_names) == 40, f"Expected 40 tables in Base.metadata, found {len(table_names)}"
+    assert len(table_names) == 83, f"Expected 83 tables in Base.metadata, found {len(table_names)}"
 
     expected_tables = {
         "users",
@@ -129,10 +149,13 @@ def test_alembic_metadata_contains_all_models() -> None:
         "student_profiles",
         "teacher_profiles",
         "skills",
+        "sub_skills",
         "assessments",
         "assessment_sections",
+        "assessment_versions",
         "questions",
         "question_options",
+        "question_versions",
         "question_skill_tags",
         "attempts",
         "attempt_answers",
@@ -143,13 +166,21 @@ def test_alembic_metadata_contains_all_models() -> None:
         "exercises",
         "exercise_skills",
         "exercise_attempts",
+        "exercise_versions",
         "recommendations",
+        "student_activity_events",
         "writing_tasks",
         "writing_attempts",
         "writing_submissions",
         "writing_corrections",
+        "writing_task_versions",
+        "writing_draft_revisions",
+        "writing_correction_items",
+        "writing_correction_skills",
+        "writing_assignments",
         "teacher_availability_rules",
         "teacher_availability_exceptions",
+        "teacher_availability_overrides",
         "teacher_bookings",
         "speaking_sessions",
         "speaking_participants",
@@ -159,11 +190,43 @@ def test_alembic_metadata_contains_all_models() -> None:
         "practice_requests",
         "practice_matches",
         "practice_sessions",
+        "practice_participants",
+        "practice_topics",
         "practice_reports",
         "practice_blocks",
         "audit_events",
         "media_assets",
+        "content_reviews",
         "notifications",
+        "products",
+        "product_prices",
+        "product_entitlements",
+        "subscriptions",
+        "orders",
+        "order_items",
+        "credit_accounts",
+        "credit_grants",
+        "credit_consumptions",
+        "billing_ledger_entries",
+        "payment_webhook_events",
+        "booking_reservations",
+        "teacher_earnings",
+        "ai_usage_records",
+        "coupons",
+        "user_entitlement_grants",
+        "readiness_profiles",
+        "skill_evidences",
+        "readiness_snapshots",
+        "exercise_effectiveness",
+        "spaced_review_items",
+        "analytics_events",
+        "user_feedback",
+        "support_tickets",
+        "experiments",
+        "experiment_variants",
+        "experiment_assignments",
+        "beta_cohorts",
+        "beta_invitations",
     }
     missing = expected_tables - table_names
     assert not missing, f"Missing tables from metadata: {missing}"

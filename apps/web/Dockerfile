@@ -33,6 +33,18 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Custom nginx configuration supporting reverse-proxy, client-side routing, and security headers
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Configure unprivileged permissions for nginx runtime
+RUN touch /var/run/nginx.pid && \
+    chown -R nginx:nginx /var/run/nginx.pid /var/cache/nginx /usr/share/nginx/html /etc/nginx/conf.d
+
+USER nginx
+
 EXPOSE 80
 
+STOPSIGNAL SIGQUIT
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1:80/ || exit 1
+
 CMD ["nginx", "-g", "daemon off;"]
+

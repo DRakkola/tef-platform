@@ -1,176 +1,169 @@
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  BookOpen,
-  Headphones,
-  Clock,
-  Layers,
-  ArrowRight,
-  AlertTriangle,
-  Sparkles,
-  ChevronLeft,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import React, { useState, useContext, useMemo } from "react"
+import { useNavigate } from "react-router-dom"
+import { QueryClient, QueryClientProvider, QueryClientContext } from "@tanstack/react-query"
+import { PageShell } from "@/components/layout/PageShell"
+import { StudentLayout } from "@/features/dashboard/StudentLayout"
+import { ErrorState } from "@/components/common/ErrorState"
+import { AssessmentLibraryHeader } from "./AssessmentLibraryHeader"
+import { ActiveAttemptCard } from "./ActiveAttemptCard"
+import { RecommendedAssessmentCard } from "./RecommendedAssessmentCard"
+import { AssessmentSkillSection } from "./AssessmentSkillSection"
+import { AssessmentSection } from "./AssessmentSection"
+import { AssessmentHistory } from "./AssessmentHistory"
+import { AssessmentLibrarySkeleton } from "./AssessmentLibrarySkeleton"
+import { useAssessmentLibrary, AuthRequiredError } from "./useAssessmentLibrary"
+import type { AssessmentFiltersState } from "./types"
 
-interface AssessmentItem {
-  id: string;
-  title: string;
-  description?: string | null;
-  assessment_type: string;
-  duration_seconds: number;
-  section_count: number;
-  question_count: number;
-  total_points: number;
+const AssessmentsListPageInner: React.FC = () => {
+  const navigate = useNavigate()
+
+  const [filters, setFilters] = useState<AssessmentFiltersState>({
+    type: "all",
+    level: "all",
+    duration: "all",
+    search: "",
+  })
+
+  const {
+    assessments,
+    recommendation,
+    activeAttempt,
+    history,
+    isLoading,
+    isHistoryLoading,
+    isRecommendationLoading,
+    isError,
+    error,
+    refetch,
+  } = useAssessmentLibrary()
+
+  const resetFilters = () => {
+    setFilters({
+      type: "all",
+      level: "all",
+      duration: "all",
+      search: "",
+    })
+  }
+
+  // Handle Authentication Session Expiration
+  if (error instanceof AuthRequiredError || (error as any)?.message === "AUTH_REQUIRED") {
+    return (
+      <StudentLayout>
+        <PageShell maxWidth="default">
+          <ErrorState
+            title="Session expirée"
+            description="Votre session a expiré ou une authentification est requise pour accéder aux simulations d'examen."
+            actionLabel="Se reconnecter"
+            onAction={() => {
+              try {
+                localStorage.removeItem("auth_token")
+              } catch {
+                // Ignore sandbox error
+              }
+              navigate("/login")
+            }}
+          />
+        </PageShell>
+      </StudentLayout>
+    )
+  }
+
+  return (
+    <StudentLayout>
+      <PageShell maxWidth="default">
+        {isLoading ? (
+          <div data-testid="assessments-loading-container">
+            <p className="sr-only">Chargement des épreuves disponibles...</p>
+            <AssessmentLibrarySkeleton />
+          </div>
+        ) : isError && assessments.length === 0 ? (
+          <ErrorState
+            title="Impossible de charger les épreuves"
+            description={(error as any)?.message || "Une erreur est survenue lors du chargement des simulations disponibles."}
+            actionLabel="Réessayer"
+            onRetry={refetch}
+          />
+        ) : (
+          <div className="space-y-10 sm:space-y-12">
+            {/* 1. Page Header */}
+            <AssessmentLibraryHeader totalAssessments={assessments.length} />
+
+            {/* 2. Active in-progress timed attempt banner */}
+            {activeAttempt && (
+              <ActiveAttemptCard attempt={activeAttempt} />
+            )}
+
+            {/* 3. Personalized Recommended Assessment Hero Card */}
+            <RecommendedAssessmentCard
+              recommendation={recommendation}
+              isLoading={isRecommendationLoading}
+            />
+
+            {/* 4. Assessment by Skill Modality */}
+            <AssessmentSkillSection
+              assessments={assessments}
+              onSelectSkill={(skill) => {
+                setFilters((prev) => ({ ...prev, type: skill }))
+                const element = document.getElementById("simulations-catalog-heading")
+                if (element) {
+                  element.scrollIntoView({ behavior: "smooth" })
+                }
+              }}
+            />
+
+            {/* 5. Complete Simulations Catalog Grid + Interactive Filters */}
+            <AssessmentSection
+              assessments={assessments}
+              filters={filters}
+              onFilterChange={setFilters}
+              onResetFilters={resetFilters}
+              activeAttemptId={activeAttempt?.id}
+              history={history}
+            />
+
+            {/* 6. Assessment History Table / Card Feed */}
+            <AssessmentHistory
+              history={history}
+              isLoading={isHistoryLoading}
+              onStartFirst={() => {
+                if (recommendation) {
+                  navigate(`/assessments/${recommendation.assessment_id}`)
+                } else if (assessments.length > 0) {
+                  navigate(`/assessments/${assessments[0].id}`)
+                }
+              }}
+            />
+          </div>
+        )}
+      </PageShell>
+    </StudentLayout>
+  )
 }
 
 export const AssessmentsListPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [assessments, setAssessments] = useState<AssessmentItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const existingClient = useContext(QueryClientContext)
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-  const authHeaders = {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+  const fallbackClient = useMemo(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            retry: false,
+            staleTime: 60 * 1000,
+          },
+        },
+      }),
+    []
+  )
 
-  useEffect(() => {
-    async function fetchAssessments() {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const resp = await fetch("/api/v1/assessments?page_size=50", {
-          credentials: "include",
-          headers: authHeaders,
-        });
-        if (!resp.ok) {
-          throw new Error("Impossible de charger les épreuves disponibles.");
-        }
-        const data = await resp.json();
-        setAssessments(data.items || []);
-      } catch (err: any) {
-        setError(err.message || "Erreur de chargement.");
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchAssessments();
-  }, []);
+  if (!existingClient) {
+    return (
+      <QueryClientProvider client={fallbackClient}>
+        <AssessmentsListPageInner />
+      </QueryClientProvider>
+    )
+  }
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
-      <div className="max-w-6xl mx-auto space-y-8">
-        {/* Navigation & Header */}
-        <div>
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors mb-4"
-          >
-            <ChevronLeft className="size-4" />
-            <span>Retour au tableau de bord</span>
-          </button>
-
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 mb-2">
-                <Sparkles className="size-3.5" />
-                Simulations Officielles TEF
-              </div>
-              <h1 className="text-3xl font-extrabold text-white tracking-tight">
-                Catalogue des Épreuves de Simulation
-              </h1>
-              <p className="text-sm text-slate-400 mt-1">
-                Passez un test complet ou un diagnostic modulaire chronométré pour calibrer votre niveau.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Content State */}
-        {isLoading ? (
-          <div className="p-12 flex flex-col items-center justify-center gap-3">
-            <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-slate-400">Chargement des épreuves disponibles...</p>
-          </div>
-        ) : error ? (
-          <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-6 text-center max-w-md mx-auto space-y-3">
-            <AlertTriangle className="size-8 text-rose-400 mx-auto" />
-            <p className="text-sm text-rose-200">{error}</p>
-            <Button onClick={() => window.location.reload()} variant="outline" size="sm">
-              Réessayer
-            </Button>
-          </div>
-        ) : assessments.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-slate-900/40 p-12 text-center max-w-md mx-auto space-y-3">
-            <BookOpen className="size-10 text-slate-500 mx-auto" />
-            <h3 className="font-semibold text-white">Aucune épreuve publiée</h3>
-            <p className="text-xs text-slate-400">
-              De nouveaux tests de simulation seront bientôt disponibles.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {assessments.map((asmt) => {
-              const isListening = asmt.assessment_type === "listening";
-              const durationMins = Math.round(asmt.duration_seconds / 60);
-
-              return (
-                <div
-                  key={asmt.id}
-                  className="rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur-xl p-6 flex flex-col justify-between hover:border-indigo-500/40 transition-all group"
-                >
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 uppercase tracking-wider">
-                        {isListening ? (
-                          <Headphones className="size-3" />
-                        ) : (
-                          <BookOpen className="size-3" />
-                        )}
-                        {asmt.assessment_type}
-                      </span>
-
-                      <div className="flex items-center gap-1 text-xs text-slate-400">
-                        <Clock className="size-3.5" />
-                        <span>{durationMins} min</span>
-                      </div>
-                    </div>
-
-                    <h2 className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors">
-                      {asmt.title}
-                    </h2>
-
-                    <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-                      {asmt.description || "Épreuve officielle sous contraintes temporelles strictes."}
-                    </p>
-
-                    <div className="flex items-center gap-4 text-xs text-slate-400 pt-2 border-t border-white/5">
-                      <div className="flex items-center gap-1">
-                        <Layers className="size-3.5 text-slate-500" />
-                        <span>{asmt.section_count} sections</span>
-                      </div>
-                      <div>
-                        <span>{asmt.question_count} questions</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-6">
-                    <Button
-                      onClick={() => navigate(`/assessments/${asmt.id}`)}
-                      className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs py-2 rounded-lg flex items-center justify-center gap-2 group-hover:shadow-lg group-hover:shadow-indigo-600/20 transition-all"
-                    >
-                      <span>Commencer le test</span>
-                      <ArrowRight className="size-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+  return <AssessmentsListPageInner />
+}

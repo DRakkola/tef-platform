@@ -157,3 +157,25 @@ async def verify_csrf_if_cookie(request: Request) -> None:
                 code="CSRF_VALIDATION_FAILED",
                 status_code=403,
             )
+
+
+async def require_beta_access(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Verify that the user is authorized for private beta features."""
+    from app.core.config import settings
+
+    if not settings.BETA_ENABLED:
+        return current_user
+
+    if current_user.role in (UserRole.ADMIN, UserRole.TEACHER):
+        return current_user
+
+    if not getattr(current_user, "is_beta_user", False):
+        raise AppException(
+            message="Accès réservé aux participants de la Bêta Privée TEF Canada.",
+            code="BETA_ACCESS_REQUIRED",
+            status_code=403,
+        )
+
+    return current_user

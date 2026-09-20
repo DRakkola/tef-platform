@@ -55,6 +55,10 @@ class BookingService:
                 status_code=400,
             )
 
+        # Enforce server-side beta quota limits
+        from app.core.beta_limits import BetaLimitsService
+        await BetaLimitsService.check_and_increment(student.id, "teacher_booking")
+
         # Acquire process-level teacher lock to prevent race conditions on single-threaded/in-memory test engines,
         # complemented by database row-level locking (with_for_update) and exclusion constraints on PostgreSQL.
         async with _get_teacher_lock(payload.teacher_id):

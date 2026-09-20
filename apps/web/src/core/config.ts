@@ -9,7 +9,7 @@ export interface AppConfig {
 }
 
 export const config: AppConfig = {
-  apiUrl: import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1",
+  apiUrl: import.meta.env.VITE_API_URL || "/api/v1",
   environment: import.meta.env.MODE || "development",
   isProduction: import.meta.env.PROD,
 };

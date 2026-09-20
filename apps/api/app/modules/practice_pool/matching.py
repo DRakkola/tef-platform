@@ -56,3 +56,47 @@ def are_students_compatible(
         return False
 
     return is_practice_type_compatible(user_a_type, user_b_type)
+
+
+class PracticeMatchService:
+    """Deterministic matchmaking and candidate scoring engine with anti-repeat pairing."""
+
+    @staticmethod
+    def calculate_candidate_score(
+        target_level: str,
+        target_type: PracticeType,
+        candidate_level: str,
+        candidate_type: PracticeType,
+        wait_seconds: float = 0.0,
+        is_recent_partner: bool = False,
+    ) -> float:
+        """Compute matching priority score (higher is better).
+
+        Penalizes students who recently paired to promote conversational diversity.
+        """
+        score = 50.0
+
+        # 1. Level proximity
+        cand_level_clean = candidate_level.upper()
+        target_level_clean = target_level.upper()
+        if cand_level_clean == target_level_clean:
+            score += 25.0
+        elif is_level_compatible(cand_level_clean, target_level_clean, max_step_difference=1):
+            score += 10.0
+
+        # 2. Practice type alignment
+        if candidate_type == target_type:
+            score += 15.0
+        elif is_practice_type_compatible(candidate_type, target_type):
+            score += 8.0
+
+        # 3. FIFO fairness boost for waiting time (up to 15 points, 1 pt per 10s)
+        wait_bonus = min(15.0, wait_seconds / 10.0)
+        score += wait_bonus
+
+        # 4. Anti-repeat penalty if paired in last 48 hours
+        if is_recent_partner:
+            score -= 40.0
+
+        return score
+

@@ -4,11 +4,12 @@ import uuid
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AppException
+from app.modules.admin.models import AssessmentVersion
 from app.modules.assessments.enums import (
     AssessmentType,
     AttemptStatus,
@@ -20,9 +21,12 @@ from app.modules.assessments.models import (
     AttemptAnswer,
     AttemptScore,
     Question,
+    QuestionSkillTag,
 )
 from app.modules.assessments.schemas import AnswerSubmitRequest
 from app.modules.assessments.scoring import ScoringEngine
+from app.modules.learning.enums import RecommendationStatus
+from app.modules.learning.models import Exercise, Recommendation
 from app.modules.learning.service import LearningService
 
 logger = structlog.get_logger("tef-api.assessments")
@@ -83,6 +87,8 @@ class AssessmentService:
                     "description": a.description,
                     "assessment_type": a.assessment_type,
                     "duration_seconds": a.duration_seconds,
+                    "estimated_completion_time_minutes": max(5, round(a.duration_seconds / 60)),
+                    "level": "B1-C1",
                     "navigation_policy": a.navigation_policy,
                     "scoring_policy": a.scoring_policy,
                     "max_attempts": a.max_attempts,
@@ -178,9 +184,26 @@ class AssessmentService:
                 )
                 return existing_active
             else:
-                # Expire previous attempt
+                # Expire previous attempt and auto-finalize
                 existing_active.status = AttemptStatus.EXPIRED
                 await db.flush()
+                try:
+                    await AssessmentService.submit_attempt(
+                        db=db,
+                        attempt_id=existing_active.id,
+                        current_user_id=user_id,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("auto_submit_previous_attempt_failed", error=str(exc))
+
+        # Identify authoritative published AssessmentVersion snapshot
+        latest_version = await db.scalar(
+            select(AssessmentVersion)
+            .where(AssessmentVersion.assessment_id == assessment_id)
+            .order_by(AssessmentVersion.version.desc())
+        )
+        version_id = latest_version.id if latest_version else None
+        version_num = latest_version.version if latest_version else assessment.version
 
         # Initialize fresh attempt with server-controlled clock
         started_at = now
@@ -188,6 +211,8 @@ class AssessmentService:
 
         new_attempt = Attempt(
             assessment_id=assessment_id,
+            assessment_version_id=version_id,
+            assessment_version=version_num,
             user_id=user_id,
             status=AttemptStatus.STARTED,
             started_at=started_at,
@@ -208,6 +233,7 @@ class AssessmentService:
             "attempt_started",
             attempt_id=str(attempt.id),
             assessment_id=str(assessment_id),
+            version_id=str(version_id) if version_id else None,
             user_id=str(user_id),
             expires_at=expires_at.isoformat(),
         )
@@ -246,18 +272,131 @@ class AssessmentService:
         if attempt.status == AttemptStatus.STARTED and exp and now > exp:
             attempt.status = AttemptStatus.EXPIRED
             await db.flush()
+            try:
+                await AssessmentService.submit_attempt(
+                    db=db,
+                    attempt_id=attempt.id,
+                    current_user_id=attempt.user_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("auto_expire_attempt_failed", error=str(exc))
             logger.info("attempt_auto_expired", attempt_id=str(attempt.id))
 
         return attempt
+
+    @staticmethod
+    async def get_attempt_state(
+        db: AsyncSession,
+        attempt_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        is_admin: bool = False,
+    ) -> dict[str, Any]:
+        """Retrieve authoritative attempt synchronization state for taking/reconnecting."""
+        stmt = (
+            select(Attempt)
+            .where(Attempt.id == attempt_id)
+            .options(
+                selectinload(Attempt.answers),
+                selectinload(Attempt.assessment)
+                .selectinload(Assessment.sections)
+                .selectinload(AssessmentSection.questions),
+            )
+        )
+        result = await db.execute(stmt)
+        attempt = result.scalar_one_or_none()
+        if not attempt:
+            raise AppException(
+                message="Attempt not found",
+                code="ATTEMPT_NOT_FOUND",
+                status_code=404,
+            )
+
+        if not is_admin and attempt.user_id != current_user_id:
+            raise AppException(
+                message="You do not have permission to access this attempt",
+                code="FORBIDDEN_RESOURCE",
+                status_code=403,
+            )
+
+        now = datetime.datetime.now(datetime.UTC)
+        exp = _ensure_utc(attempt.expires_at)
+        is_expired = bool(exp and now > exp)
+
+        if attempt.status == AttemptStatus.STARTED and is_expired:
+            attempt.status = AttemptStatus.EXPIRED
+            await db.flush()
+            try:
+                await AssessmentService.submit_attempt(
+                    db=db,
+                    attempt_id=attempt_id,
+                    current_user_id=attempt.user_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("auto_submit_expired_state_failed", error=str(exc))
+            await db.refresh(attempt)
+
+        remaining = 0
+        if not is_expired and exp and exp > now and attempt.status == AttemptStatus.STARTED:
+            remaining = int((exp - now).total_seconds())
+
+        answers_map: dict[str, Any] = {}
+        for a in attempt.answers:
+            if a.selected_option_id:
+                answers_map[str(a.question_id)] = str(a.selected_option_id)
+            elif a.selected_option_ids:
+                answers_map[str(a.question_id)] = a.selected_option_ids
+            elif a.text_response:
+                answers_map[str(a.question_id)] = a.text_response
+
+        total_q = (
+            sum(len(s.questions) for s in attempt.assessment.sections)
+            if attempt.assessment
+            else 0
+        )
+
+        return {
+            "attempt_id": attempt.id,
+            "assessment_id": attempt.assessment_id,
+            "assessment_version_id": attempt.assessment_version_id,
+            "user_id": attempt.user_id,
+            "student_id": attempt.user_id,
+            "status": attempt.status,
+            "started_at": attempt.started_at,
+            "expires_at": attempt.expires_at,
+            "server_time": now,
+            "remaining_seconds": remaining,
+            "is_expired": is_expired or attempt.status in (AttemptStatus.EXPIRED, AttemptStatus.SUBMITTED),
+            "answered_count": len(attempt.answers),
+            "total_questions": total_q,
+            "answers": answers_map,
+        }
 
     @staticmethod
     async def submit_answer(
         db: AsyncSession,
         attempt_id: uuid.UUID,
         current_user_id: uuid.UUID,
-        req: AnswerSubmitRequest,
+        question_id: uuid.UUID | AnswerSubmitRequest,
+        selected_option_id: uuid.UUID | None = None,
+        selected_option_ids: list[uuid.UUID] | None = None,
+        text_response: str | None = None,
+        client_timestamp: datetime.datetime | None = None,
     ) -> AttemptAnswer:
-        """Record or update an answer idempotently within an active attempt."""
+        """Record or update an answer idempotently within an active attempt with stale write protection."""
+        if isinstance(question_id, AnswerSubmitRequest):
+            req = question_id
+            target_question_id = req.question_id
+            target_selected_option_id = req.selected_option_id
+            target_selected_option_ids = req.selected_option_ids
+            target_text_response = req.text_response
+            target_client_timestamp = req.client_timestamp
+        else:
+            target_question_id = question_id
+            target_selected_option_id = selected_option_id
+            target_selected_option_ids = selected_option_ids or []
+            target_text_response = text_response
+            target_client_timestamp = client_timestamp
+
         stmt = (
             select(Attempt)
             .where(Attempt.id == attempt_id)
@@ -297,6 +436,14 @@ class AssessmentService:
         if attempt.status == AttemptStatus.EXPIRED or (exp and now > exp):
             attempt.status = AttemptStatus.EXPIRED
             await db.flush()
+            try:
+                await AssessmentService.submit_attempt(
+                    db=db,
+                    attempt_id=attempt_id,
+                    current_user_id=current_user_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("auto_submit_expired_answer_failed", error=str(exc))
             raise AppException(
                 message="Attempt time has expired",
                 code="ATTEMPT_EXPIRED",
@@ -307,7 +454,7 @@ class AssessmentService:
         target_question: Question | None = None
         for section in attempt.assessment.sections:
             for q in section.questions:
-                if q.id == req.question_id:
+                if q.id == target_question_id:
                     target_question = q
                     break
             if target_question:
@@ -321,38 +468,51 @@ class AssessmentService:
             )
 
         # Validate selected option if applicable
-        if req.selected_option_id:
+        if target_selected_option_id:
             valid_opt_ids = {opt.id for opt in target_question.options}
-            if req.selected_option_id not in valid_opt_ids:
+            if target_selected_option_id not in valid_opt_ids:
                 raise AppException(
                     message="Selected option is not valid for this question",
                     code="INVALID_OPTION",
                     status_code=400,
                 )
 
-        # Upsert answer idempotently
+        # Upsert answer idempotently with stale protection
         existing_answer = await db.scalar(
             select(AttemptAnswer).where(
                 AttemptAnswer.attempt_id == attempt_id,
-                AttemptAnswer.question_id == req.question_id,
+                AttemptAnswer.question_id == target_question_id,
             )
         )
 
-        option_ids_str = [str(opt_id) for opt_id in req.selected_option_ids]
+        option_ids_str = [str(opt_id) for opt_id in target_selected_option_ids]
+
+        if existing_answer and target_client_timestamp:
+            ans_time = _ensure_utc(existing_answer.answered_at)
+            client_time = _ensure_utc(target_client_timestamp)
+            if ans_time and client_time and ans_time > client_time:
+                logger.info(
+                    "ignoring_stale_answer_write",
+                    attempt_id=str(attempt_id),
+                    question_id=str(target_question_id),
+                    existing_time=ans_time.isoformat(),
+                    client_time=client_time.isoformat(),
+                )
+                return existing_answer
 
         if existing_answer:
-            existing_answer.selected_option_id = req.selected_option_id
+            existing_answer.selected_option_id = target_selected_option_id
             existing_answer.selected_option_ids = option_ids_str
-            existing_answer.text_response = req.text_response
+            existing_answer.text_response = target_text_response
             existing_answer.answered_at = now
             answer = existing_answer
         else:
             answer = AttemptAnswer(
                 attempt_id=attempt_id,
-                question_id=req.question_id,
-                selected_option_id=req.selected_option_id,
+                question_id=target_question_id,
+                selected_option_id=target_selected_option_id,
                 selected_option_ids=option_ids_str,
-                text_response=req.text_response,
+                text_response=target_text_response,
                 answered_at=now,
             )
             db.add(answer)
@@ -477,7 +637,7 @@ class AssessmentService:
         current_user_id: uuid.UUID,
         is_admin: bool = False,
     ) -> dict[str, Any]:
-        """Fetch graded results, correct answers, and explanations after submission."""
+        """Fetch graded results, correct answers, explanations, mistake analysis, and recommendations."""
         stmt = (
             select(Attempt)
             .where(Attempt.id == attempt_id)
@@ -488,6 +648,11 @@ class AssessmentService:
                 .selectinload(Assessment.sections)
                 .selectinload(AssessmentSection.questions)
                 .selectinload(Question.options),
+                selectinload(Attempt.assessment)
+                .selectinload(Assessment.sections)
+                .selectinload(AssessmentSection.questions)
+                .selectinload(Question.skill_tags)
+                .selectinload(QuestionSkillTag.skill),
             )
         )
         result = await db.execute(stmt)
@@ -535,12 +700,27 @@ class AssessmentService:
         answer_map = {ans.question_id: ans for ans in attempt.answers}
 
         sections_data: list[dict[str, Any]] = []
+        mistakes_data: list[dict[str, Any]] = []
+
         for section in attempt.assessment.sections:
             questions_data: list[dict[str, Any]] = []
             for q in section.questions:
                 user_ans = answer_map.get(q.id)
                 ans_data = None
+                is_correct = False
+                user_ans_text = "Non répondu"
+                correct_ans_text = ""
+
+                for opt in q.options:
+                    if opt.is_correct:
+                        correct_ans_text = opt.content
+                    if user_ans and user_ans.selected_option_id == opt.id:
+                        user_ans_text = opt.content
+
                 if user_ans:
+                    if user_ans.text_response:
+                        user_ans_text = user_ans.text_response
+                    is_correct = bool(user_ans.is_correct)
                     ans_data = {
                         "id": user_ans.id,
                         "question_id": user_ans.question_id,
@@ -551,6 +731,26 @@ class AssessmentService:
                         "points_awarded": user_ans.points_awarded,
                         "answered_at": user_ans.answered_at,
                     }
+
+                # Record educational mistake detail if incorrect or unanswered
+                if not is_correct:
+                    primary_tag = q.skill_tags[0] if q.skill_tags else None
+                    tag_name = primary_tag.skill.name if primary_tag and primary_tag.skill else None
+                    subtag = primary_tag.subskill if primary_tag else None
+
+                    mistakes_data.append(
+                        {
+                            "question_id": q.id,
+                            "prompt": q.prompt,
+                            "level": q.level,
+                            "points": q.points,
+                            "user_answer": user_ans_text,
+                            "correct_answer": correct_ans_text,
+                            "explanation": q.explanation or "Consultez les notions méthodologiques et lexicales associées.",
+                            "skill_name": tag_name,
+                            "subskill": subtag,
+                        }
+                    )
 
                 options_data = [
                     {
@@ -592,6 +792,62 @@ class AssessmentService:
                 }
             )
 
+        # Strengths and weaknesses evaluation
+        strengths: list[str] = []
+        weaknesses: list[str] = []
+        for skill_key, s_data in (attempt.score.skill_scores or {}).items():
+            if isinstance(s_data, dict):
+                pct = float(s_data.get("percentage", 0.0))
+                s_name = s_data.get("name", skill_key)
+            else:
+                pct = float(s_data)
+                s_name = skill_key
+
+            if pct >= 75.0:
+                strengths.append(f"{s_name} ({int(pct)}%)")
+            elif pct < 70.0:
+                weaknesses.append(f"{s_name} ({int(pct)}%)")
+
+        # Fetch active recommendations for this student
+        recs_stmt = (
+            select(Recommendation)
+            .where(
+                Recommendation.user_id == attempt.user_id,
+                Recommendation.status == RecommendationStatus.ACTIVE,
+            )
+            .options(
+                selectinload(Recommendation.skill),
+            )
+            .order_by(Recommendation.priority.desc(), desc(Recommendation.generated_at))
+            .limit(5)
+        )
+        recs_result = await db.execute(recs_stmt)
+        recs = recs_result.scalars().all()
+
+        recommended_exercises_data = []
+        for r in recs:
+            ex = await db.get(Exercise, r.entity_id) if r.entity_type == "exercise" else None
+            ex_title = ex.title if ex else "Exercice de perfectionnement"
+            ex_level = ex.level if ex else "B1"
+            ex_diff = ex.difficulty if ex else 3
+            skill_name = r.skill.name if r.skill else "Compétence ciblée"
+            cat = ex.category.value if ex and hasattr(ex.category, "value") else "reading"
+            priority_val = (
+                "critical" if r.priority >= 80 else "high" if r.priority >= 60 else "medium"
+            )
+            recommended_exercises_data.append(
+                {
+                    "id": ex.id if ex else r.entity_id,
+                    "title": ex_title,
+                    "category": cat,
+                    "difficulty": ex_diff,
+                    "level": ex_level,
+                    "target_skill_name": skill_name,
+                    "reason": r.reason,
+                    "priority": priority_val,
+                }
+            )
+
         return {
             "attempt_id": attempt.id,
             "assessment_id": attempt.assessment_id,
@@ -612,4 +868,154 @@ class AssessmentService:
                 "scored_at": attempt.score.scored_at,
             },
             "sections": sections_data,
+            "disclaimer": (
+                "Ce résultat constitue une estimation indicative de performance basée sur notre algorithme de simulation. "
+                "Il ne s'agit en aucun cas d'une attestation ou certification officielle TEF délivrée par la CCI Paris Île-de-France."
+            ),
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "mistakes": mistakes_data,
+            "recommended_exercises": recommended_exercises_data,
+        }
+
+    @staticmethod
+    async def get_active_attempt_summary(
+        db: AsyncSession,
+        user_id: uuid.UUID,
+    ) -> dict[str, Any] | None:
+        """Fetch ongoing active attempt for student with calculated remaining time."""
+        now = datetime.datetime.now(datetime.UTC)
+        stmt = (
+            select(Attempt)
+            .where(
+                Attempt.user_id == user_id,
+                Attempt.status == AttemptStatus.STARTED,
+            )
+            .options(
+                selectinload(Attempt.assessment)
+                .selectinload(Assessment.sections)
+                .selectinload(AssessmentSection.questions),
+                selectinload(Attempt.answers),
+            )
+            .order_by(desc(Attempt.started_at))
+        )
+        attempt = (await db.execute(stmt)).scalars().first()
+        if not attempt:
+            return None
+
+        exp = _ensure_utc(attempt.expires_at)
+        if not exp or exp <= now:
+            return None
+
+        total_q = sum(len(s.questions) for s in attempt.assessment.sections) if attempt.assessment else 0
+        remaining = int((exp - now).total_seconds())
+
+        return {
+            "id": attempt.id,
+            "assessment_id": attempt.assessment_id,
+            "title": attempt.assessment.title if attempt.assessment else "Simulation TEF",
+            "assessment_type": attempt.assessment.assessment_type if attempt.assessment else AssessmentType.MIXED,
+            "level": "B1-C1",
+            "duration_seconds": attempt.assessment.duration_seconds if attempt.assessment else 3600,
+            "remaining_seconds": max(0, remaining),
+            "started_at": attempt.started_at,
+            "expires_at": attempt.expires_at,
+            "total_questions": total_q,
+            "answered_count": len(attempt.answers),
+        }
+
+    @staticmethod
+    async def get_assessment_history(
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Fetch past completed and expired assessment attempts for student history."""
+        stmt = (
+            select(Attempt)
+            .where(
+                Attempt.user_id == user_id,
+                Attempt.status.in_([AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED]),
+            )
+            .options(
+                selectinload(Attempt.assessment),
+                selectinload(Attempt.score),
+            )
+            .order_by(desc(Attempt.submitted_at), desc(Attempt.started_at))
+            .limit(limit)
+        )
+        attempts = (await db.execute(stmt)).scalars().all()
+        items: list[dict[str, Any]] = []
+        for a in attempts:
+            score_pct = round(a.score.percentage, 1) if a.score else None
+            passed = a.score.is_passed if a.score else None
+            dur = (
+                int((a.submitted_at - a.started_at).total_seconds())
+                if (a.submitted_at and a.started_at)
+                else None
+            )
+            est_level = None
+            if score_pct is not None:
+                if score_pct >= 85:
+                    est_level = "C1"
+                elif score_pct >= 70:
+                    est_level = "B2"
+                elif score_pct >= 55:
+                    est_level = "B1+"
+                elif score_pct >= 40:
+                    est_level = "B1"
+                else:
+                    est_level = "A2"
+
+            items.append(
+                {
+                    "id": a.id,
+                    "assessment_id": a.assessment_id,
+                    "title": a.assessment.title if a.assessment else "Simulation TEF",
+                    "assessment_type": a.assessment.assessment_type if a.assessment else AssessmentType.MIXED,
+                    "level": "B1-C1",
+                    "score_percentage": score_pct,
+                    "passed": passed,
+                    "estimated_level": est_level,
+                    "status": a.status,
+                    "started_at": a.started_at,
+                    "submitted_at": a.submitted_at,
+                    "duration_seconds": dur,
+                }
+            )
+        return items
+
+    @staticmethod
+    async def get_recommended_assessment(
+        db: AsyncSession,
+        user_id: uuid.UUID,
+    ) -> dict[str, Any] | None:
+        """Provide personalized assessment recommendation based on readiness and gaps."""
+        assessments, total = await AssessmentService.list_assessments(db, page=1, page_size=10)
+        if not assessments:
+            return None
+
+        history_count_stmt = select(func.count(Attempt.id)).where(
+            Attempt.user_id == user_id,
+            Attempt.status == AttemptStatus.SUBMITTED,
+        )
+        history_count = await db.scalar(history_count_stmt) or 0
+
+        first_asmt = assessments[0]
+        if history_count == 0:
+            reason = "Une évaluation initiale vous permettra d'étalonner votre niveau actuel et d'orienter vos priorités de révision."
+        else:
+            reason = "Une nouvelle évaluation complète vous aidera à mesurer votre progression récente vers le niveau B2."
+
+        return {
+            "assessment_id": first_asmt["id"],
+            "title": first_asmt["title"],
+            "assessment_type": first_asmt["assessment_type"],
+            "level": first_asmt["level"],
+            "duration_seconds": first_asmt["duration_seconds"],
+            "estimated_completion_time_minutes": first_asmt["estimated_completion_time_minutes"],
+            "question_count": first_asmt["question_count"],
+            "section_count": first_asmt["section_count"],
+            "reason": reason,
+            "recommendation_type": "simulation",
         }

@@ -1,1 +1,2 @@
-export * from './types';
+export * from "./types";
+export { ProgressPage } from "./ProgressPage";

@@ -14,8 +14,20 @@ from app.core.database import Base, get_db
 from app.core.security import create_access_token, hash_password
 from app.core.storage import StorageService, get_storage
 from app.main import app
-
 settings.ENVIRONMENT = "testing"
+
+from app.modules.admin.beta_models import (  # noqa: F401
+    BetaCohort,
+    BetaInvitation,
+)
+from app.modules.analytics.models import (  # noqa: F401
+    AnalyticsEvent,
+    Experiment,
+    ExperimentAssignment,
+    ExperimentVariant,
+    SupportTicket,
+    UserFeedback,
+)
 from app.modules.assessments.models import (  # noqa: F401
     Assessment,
     AssessmentSection,
@@ -27,6 +39,24 @@ from app.modules.assessments.models import (  # noqa: F401
     QuestionSkillTag,
     Skill,
 )
+from app.modules.billing.models import (  # noqa: F401
+    AIUsageRecord,
+    BillingLedgerEntry,
+    BookingReservation,
+    Coupon,
+    CreditAccount,
+    CreditConsumption,
+    CreditGrant,
+    Order,
+    OrderItem,
+    PaymentWebhookEvent,
+    Product,
+    ProductEntitlement,
+    ProductPrice,
+    Subscription,
+    TeacherEarning,
+    UserEntitlementGrant,
+)
 from app.modules.learning.models import (  # noqa: F401
     Exercise,
     ExerciseAttempt,
@@ -35,6 +65,11 @@ from app.modules.learning.models import (  # noqa: F401
     Recommendation,
     SkillAssessment,
     StudentSkill,
+)
+from app.modules.learning.readiness_models import (  # noqa: F401
+    ReadinessProfile,
+    ReadinessSnapshot,
+    SkillEvidence,
 )
 from app.modules.practice_pool.models import (  # noqa: F401
     PracticeBlock,
@@ -94,6 +129,7 @@ class MockStorageService(StorageService):
         content_type: str,
         folder: str = "general",
         file_extension: str = "",
+        filename: str | None = None,
     ) -> str:
         import io
 
@@ -124,7 +160,11 @@ class MockStorageService(StorageService):
                 code="INVALID_FOLDER_PATH",
                 status_code=400,
             )
-        key = f"{folder}/test-file{file_extension}"
+        clean_ext = f".{file_extension.lstrip('.')}" if file_extension else ""
+        if filename:
+            key = f"{folder}/{filename}{clean_ext}"
+        else:
+            key = f"{folder}/test-file{clean_ext}"
         self.files[key] = file_obj.read()
         return key
 

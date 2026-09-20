@@ -12,18 +12,21 @@ from app.modules.practice_pool.aliases import generate_anonymous_alias
 from app.modules.practice_pool.enums import (
     PracticeMatchStatus,
     PracticeQueueStatus,
+    PracticeReportStatus,
     PracticeRequestStatus,
     PracticeSessionStatus,
     PracticeType,
 )
-from app.modules.practice_pool.matching import are_students_compatible
+from app.modules.practice_pool.matching import PracticeMatchService, are_students_compatible
 from app.modules.practice_pool.models import (
     PracticeBlock,
     PracticeMatch,
+    PracticeParticipant,
     PracticeQueueEntry,
     PracticeReport,
     PracticeRequest,
     PracticeSession,
+    PracticeTopic,
 )
 from app.modules.practice_pool.presence import (
     QueueItem,
@@ -31,14 +34,13 @@ from app.modules.practice_pool.presence import (
 )
 from app.modules.practice_pool.schemas import (
     PracticeCandidate,
+    PracticeHeartbeatResponse,
     PracticeQueueJoin,
     PracticeQueueStatusResponse,
     PracticeReportCreate,
 )
-from app.modules.speaking.providers.mock import MockMediaRoomProvider
+from app.modules.practice_pool.transport import get_practice_media_transport
 from app.modules.users.models import User, UserRole
-
-media_room_provider = MockMediaRoomProvider()
 
 
 def _ensure_utc(dt: datetime.datetime | None) -> datetime.datetime | None:
@@ -50,8 +52,60 @@ def _ensure_utc(dt: datetime.datetime | None) -> datetime.datetime | None:
     return dt
 
 
+
 class PracticePoolService:
     """Core domain logic for anonymous student practice pool."""
+
+    @staticmethod
+    async def list_topics(
+        db: AsyncSession,
+        level: str | None = None,
+        category: str | None = None,
+    ) -> list[PracticeTopic]:
+        """Retrieve active speaking scenarios and topics for student practice."""
+        stmt = select(PracticeTopic).where(PracticeTopic.is_active == True)
+        if level:
+            stmt = stmt.where(PracticeTopic.level == level)
+        if category:
+            stmt = stmt.where(PracticeTopic.category == category)
+        stmt = stmt.order_by(PracticeTopic.created_at.asc())
+        return list((await db.execute(stmt)).scalars().all())
+
+    @staticmethod
+    async def heartbeat(
+        db: AsyncSession,
+        user: User,
+    ) -> PracticeHeartbeatResponse:
+        """Keep student presence alive in the matchmaking queue."""
+        presence = get_presence_manager()
+        refreshed = await presence.touch_presence(user.id, ttl_seconds=60)
+        if not refreshed:
+            stmt = (
+                select(PracticeQueueEntry)
+                .where(
+                    PracticeQueueEntry.user_id == user.id,
+                    PracticeQueueEntry.status == PracticeQueueStatus.WAITING,
+                )
+                .order_by(PracticeQueueEntry.joined_at.desc())
+            )
+            entry = (await db.execute(stmt)).scalar_one_or_none()
+            if entry:
+                await presence.add_to_queue(
+                    QueueItem(
+                        user_id=str(user.id),
+                        queue_id=str(entry.id),
+                        language=entry.language,
+                        level=entry.level,
+                        practice_type=entry.practice_type.value,
+                        anonymous_alias=entry.anonymous_alias,
+                        joined_at=entry.joined_at.isoformat(),
+                    ),
+                    ttl_seconds=60,
+                )
+                return PracticeHeartbeatResponse(in_queue=True, status="waiting", ttl_seconds=60)
+            return PracticeHeartbeatResponse(in_queue=False, status="not_in_queue", ttl_seconds=0)
+
+        return PracticeHeartbeatResponse(in_queue=True, status="waiting", ttl_seconds=60)
 
     @staticmethod
     async def join_queue(
@@ -62,7 +116,23 @@ class PracticePoolService:
         """Add student to matchmaking queue with an anonymous alias.
 
         Strictly prevents students from joining if already in an active session.
+        Rate-limited to prevent queue spam.
         """
+        presence = get_presence_manager()
+
+        # Rate limit check: max 10 queue joins per minute
+        allowed = await presence.check_rate_limit(f"join:{user.id}", max_requests=10, window_seconds=60)
+        if not allowed:
+            raise AppException(
+                message="Queue join rate limit exceeded. Please wait a moment.",
+                code="RATE_LIMIT_EXCEEDED",
+                status_code=429,
+            )
+
+        # Enforce server-side beta quota limits
+        from app.core.beta_limits import BetaLimitsService
+        await BetaLimitsService.check_and_increment(user.id, "practice_pool")
+
         # 1. Enforce single active session rule
         active_session_stmt = select(PracticeSession).where(
             or_(
@@ -82,8 +152,6 @@ class PracticePoolService:
                     code="USER_ALREADY_IN_ACTIVE_SESSION",
                     status_code=409,
                 )
-
-        presence = get_presence_manager()
 
         # 2. Deactivate any previous waiting queue entries in database
         prev_entries_stmt = select(PracticeQueueEntry).where(
@@ -111,7 +179,7 @@ class PracticePoolService:
         await db.commit()
         await db.refresh(entry)
 
-        # 4. Register in ephemeral presence queue
+        # 4. Register in ephemeral presence queue with 60s TTL
         await presence.add_to_queue(
             QueueItem(
                 user_id=str(user.id),
@@ -121,7 +189,8 @@ class PracticePoolService:
                 practice_type=payload.practice_type.value,
                 anonymous_alias=alias,
                 joined_at=now_utc.isoformat(),
-            )
+            ),
+            ttl_seconds=60,
         )
 
         # 5. Discover compatible waiting candidates
@@ -135,6 +204,7 @@ class PracticePoolService:
             language=entry.language,
             level=entry.level,
             practice_type=entry.practice_type,
+            topic_id=payload.topic_id,
             joined_at=entry.joined_at,
             candidates=candidates,
         )
@@ -193,7 +263,8 @@ class PracticePoolService:
                     practice_type=entry.practice_type.value,
                     anonymous_alias=entry.anonymous_alias,
                     joined_at=entry.joined_at.isoformat(),
-                )
+                ),
+                ttl_seconds=60,
             )
         else:
             entry = await db.get(PracticeQueueEntry, uuid.UUID(item.queue_id))
@@ -221,7 +292,10 @@ class PracticePoolService:
         user: User,
         user_entry: PracticeQueueEntry,
     ) -> list[PracticeCandidate]:
-        """Find compatible peers waiting in queue while filtering blocked users."""
+        """Find compatible peers waiting in queue while filtering blocked users.
+
+        Applies anti-repeat scoring based on recent 48-hour session pairing history.
+        """
         # Query blocked user IDs
         blocked_stmt = select(PracticeBlock.blocked_user_id).where(PracticeBlock.user_id == user.id)
         blocked_by_stmt = select(PracticeBlock.user_id).where(
@@ -231,10 +305,27 @@ class PracticePoolService:
             (await db.execute(blocked_by_stmt)).scalars().all()
         )
 
+        # Query recent pairing history in past 48 hours for anti-repeat penalty
+        recent_cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=48)
+        recent_sessions_stmt = select(PracticeSession).where(
+            or_(
+                PracticeSession.student_a_id == user.id,
+                PracticeSession.student_b_id == user.id,
+            ),
+            PracticeSession.created_at >= recent_cutoff,
+        )
+        recent_sessions = (await db.execute(recent_sessions_stmt)).scalars().all()
+        recent_partner_ids = {
+            s.student_b_id if s.student_a_id == user.id else s.student_a_id
+            for s in recent_sessions
+        }
+
         presence = get_presence_manager()
         all_waiting = await presence.get_all_waiting()
 
         candidates: list[PracticeCandidate] = []
+        now_utc = datetime.datetime.now(datetime.UTC)
+
         for waiting_item in all_waiting:
             cand_user_id = uuid.UUID(waiting_item.user_id)
             if cand_user_id == user.id:
@@ -252,6 +343,21 @@ class PracticePoolService:
                 user_b_type=cand_type,
                 blocked_user_ids=blocked_ids,
             ):
+                joined_dt = datetime.datetime.fromisoformat(waiting_item.joined_at)
+                if joined_dt.tzinfo is None:
+                    joined_dt = joined_dt.replace(tzinfo=datetime.UTC)
+                wait_seconds = max(0.0, (now_utc - joined_dt).total_seconds())
+
+                is_recent = cand_user_id in recent_partner_ids
+                score = PracticeMatchService.calculate_candidate_score(
+                    target_level=user_entry.level,
+                    target_type=user_entry.practice_type,
+                    candidate_level=waiting_item.level,
+                    candidate_type=cand_type,
+                    wait_seconds=wait_seconds,
+                    is_recent_partner=is_recent,
+                )
+
                 candidates.append(
                     PracticeCandidate(
                         queue_id=uuid.UUID(waiting_item.queue_id),
@@ -259,19 +365,35 @@ class PracticePoolService:
                         language=waiting_item.language,
                         level=waiting_item.level,
                         practice_type=cand_type,
-                        joined_at=datetime.datetime.fromisoformat(waiting_item.joined_at),
+                        joined_at=joined_dt,
+                        score=score,
                     )
                 )
 
+        # Rank candidates highest priority first
+        candidates.sort(key=lambda c: (c.score or 0.0), reverse=True)
         return candidates
+
 
     @staticmethod
     async def create_request(
         db: AsyncSession,
         sender: User,
         candidate_queue_id: uuid.UUID,
+        topic_id: uuid.UUID | None = None,
     ) -> PracticeRequest:
         """Send a 1-to-1 practice invitation to a queue candidate with a 60s expiration."""
+        presence = get_presence_manager()
+
+        # Rate limit check: max 5 requests per minute
+        allowed = await presence.check_rate_limit(f"request:{sender.id}", max_requests=5, window_seconds=60)
+        if not allowed:
+            raise AppException(
+                message="Practice request rate limit exceeded. Please wait a moment.",
+                code="RATE_LIMIT_EXCEEDED",
+                status_code=429,
+            )
+
         # 1. Verify sender not in active session
         sender_active_stmt = select(PracticeSession).where(
             or_(
@@ -377,7 +499,7 @@ class PracticePoolService:
         user: User,
         request_id: uuid.UUID,
     ) -> PracticeSession:
-        """Accept 1-to-1 practice invitation, create match, and start authoritative session."""
+        """Accept 1-to-1 practice invitation, create match, and start authoritative 25-minute session."""
         request = await db.get(PracticeRequest, request_id)
         if not request:
             raise AppException(
@@ -435,6 +557,17 @@ class PracticePoolService:
                         status_code=409,
                     )
 
+            # Select practice topic
+            t_stmt = select(PracticeTopic).where(
+                PracticeTopic.is_active == True,
+                PracticeTopic.level == request.level,
+            ).limit(1)
+            topic = (await db.execute(t_stmt)).scalar_one_or_none()
+            if not topic:
+                t_any_stmt = select(PracticeTopic).where(PracticeTopic.is_active == True).limit(1)
+                topic = (await db.execute(t_any_stmt)).scalar_one_or_none()
+            topic_id = topic.id if topic else None
+
             # Mark request accepted
             request.status = PracticeRequestStatus.ACCEPTED
 
@@ -453,12 +586,13 @@ class PracticePoolService:
             db.add(match)
             await db.flush()
 
-            # Create authoritative audio-only practice session (15 mins default)
-            duration_minutes = 15
+            # Create authoritative audio-only practice session (25 mins default)
+            duration_minutes = 25
             room_id = f"practice_room_{uuid.uuid4().hex[:16]}"
             session = PracticeSession(
                 match_id=match.id,
                 room_id=room_id,
+                topic_id=topic_id,
                 student_a_id=request.sender_id,
                 student_b_id=request.receiver_id,
                 student_a_alias=request.sender_alias,
@@ -473,6 +607,27 @@ class PracticePoolService:
                 audio_only=True,
             )
             db.add(session)
+            await db.flush()
+
+            # Create participant records
+            p_a = PracticeParticipant(
+                session_id=session.id,
+                user_id=request.sender_id,
+                anonymous_alias=request.sender_alias,
+                role="participant",
+                is_connected=False,
+                joined_at=now_utc,
+            )
+            p_b = PracticeParticipant(
+                session_id=session.id,
+                user_id=request.receiver_id,
+                anonymous_alias=request.receiver_alias,
+                role="participant",
+                is_connected=False,
+                joined_at=now_utc,
+            )
+            db.add(p_a)
+            db.add(p_b)
 
             # Mark both queue entries as MATCHED
             q_stmt = select(PracticeQueueEntry).where(
@@ -494,7 +649,8 @@ class PracticePoolService:
             await presence.set_user_active_session(request.receiver_id, session.id)
 
             # Initialize media room descriptor
-            media_room_provider.create_room(room_id=room_id, session_id=session.id)
+            transport = get_practice_media_transport()
+            transport.create_room(room_id=room_id, session_id=session.id)
 
             return session
 
@@ -585,7 +741,8 @@ class PracticePoolService:
         if session.status == PracticeSessionStatus.ACTIVE:
             session.status = PracticeSessionStatus.COMPLETED
             session.ended_at = datetime.datetime.now(datetime.UTC)
-            media_room_provider.close_room(session.room_id)
+            transport = get_practice_media_transport()
+            transport.close_room(session.room_id)
             await db.commit()
 
         presence = get_presence_manager()
@@ -602,7 +759,8 @@ class PracticePoolService:
             if now_utc > expires_at:
                 session.status = PracticeSessionStatus.EXPIRED
                 session.ended_at = expires_at
-                media_room_provider.close_room(session.room_id)
+                transport = get_practice_media_transport()
+                transport.close_room(session.room_id)
                 await db.commit()
 
                 presence = get_presence_manager()
@@ -619,6 +777,15 @@ class PracticePoolService:
         payload: PracticeReportCreate,
     ) -> PracticeReport:
         """Submit an anonymous safety report regarding a session peer."""
+        presence = get_presence_manager()
+        allowed = await presence.check_rate_limit(f"report:{reporter.id}", max_requests=5, window_seconds=3600)
+        if not allowed:
+            raise AppException(
+                message="Report rate limit exceeded. Please try again later.",
+                code="RATE_LIMIT_EXCEEDED",
+                status_code=429,
+            )
+
         session = await PracticePoolService.get_session_by_id(db, session_id, reporter)
         reported_id = (
             session.student_b_id if session.student_a_id == reporter.id else session.student_a_id
@@ -630,7 +797,7 @@ class PracticePoolService:
             session_id=session.id,
             reason=payload.reason,
             details=payload.details,
-            status="pending",
+            status=PracticeReportStatus.OPEN,
         )
         db.add(report)
         await db.commit()
@@ -674,6 +841,7 @@ class PracticePoolService:
     ) -> tuple[PracticeSession, User, str]:
         """Authorize WebSocket connection for audio-only WebRTC signaling.
 
+        Supports looking up by room_id or session_id UUID.
         Returns session, authenticated user, and their anonymous pseudonym.
         """
         token_payload = decode_access_token(token)
@@ -695,6 +863,13 @@ class PracticePoolService:
 
         stmt = select(PracticeSession).where(PracticeSession.room_id == room_id)
         session = (await db.execute(stmt)).scalar_one_or_none()
+        if not session:
+            try:
+                session_uuid = uuid.UUID(room_id)
+                session = await db.get(PracticeSession, session_uuid)
+            except (ValueError, TypeError):
+                pass
+
         if not session:
             raise AppException("Practice room not found", code="ROOM_NOT_FOUND", status_code=404)
 
@@ -723,3 +898,4 @@ class PracticePoolService:
             )
 
         return session, user, alias
+

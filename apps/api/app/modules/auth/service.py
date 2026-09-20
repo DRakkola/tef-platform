@@ -68,6 +68,57 @@ class AuthService:
         if role == UserRole.ADMIN:
             role = UserRole.STUDENT
 
+        # Controlled Beta Invitation check
+        beta_cohort_id = None
+        is_beta_user = False
+        if req.invitation_code:
+            import hashlib
+            from app.modules.admin.beta_models import BetaInvitation
+            code_hash = hashlib.sha256(req.invitation_code.strip().encode()).hexdigest()
+            inv_stmt = select(BetaInvitation).where(
+                BetaInvitation.token_hash == code_hash,
+                BetaInvitation.is_revoked.is_(False),
+            )
+            invitation = (await db.execute(inv_stmt)).scalar_one_or_none()
+            if not invitation:
+                raise AppException(
+                    message="Code d'invitation bêta invalide ou révoqué.",
+                    code="INVALID_BETA_INVITATION",
+                    status_code=400,
+                )
+            now = datetime.datetime.now(datetime.UTC)
+            exp_at = invitation.expires_at
+            if exp_at.tzinfo is None:
+                exp_at = exp_at.replace(tzinfo=datetime.UTC)
+            if exp_at < now:
+                raise AppException(
+                    message="Ce code d'invitation bêta a expiré.",
+                    code="BETA_INVITATION_EXPIRED",
+                    status_code=400,
+                )
+            if invitation.used_count >= invitation.max_uses:
+                raise AppException(
+                    message="Ce code d'invitation bêta a atteint son nombre maximal d'utilisations.",
+                    code="BETA_INVITATION_EXHAUSTED",
+                    status_code=400,
+                )
+
+            invitation.used_count += 1
+            beta_cohort_id = invitation.cohort_id
+            is_beta_user = True
+        elif settings.BETA_ENABLED:
+            # During production beta, require explicit invitation code unless running in dev/test
+            if settings.ENVIRONMENT not in ("testing", "development"):
+                raise AppException(
+                    message="La plateforme est en phase de Bêta Privée. Un code d'invitation valide est requis pour s'inscrire.",
+                    code="BETA_INVITATION_REQUIRED",
+                    status_code=403,
+                )
+            else:
+                is_beta_user = True
+        else:
+            is_beta_user = False
+
         hashed_pw = hash_password(req.password)
         new_user = User(
             email=clean_email,
@@ -75,6 +126,8 @@ class AuthService:
             role=role,
             is_active=True,
             is_verified=False,
+            is_beta_user=is_beta_user,
+            beta_cohort_id=beta_cohort_id,
         )
         db.add(new_user)
         await db.flush()  # populate new_user.id

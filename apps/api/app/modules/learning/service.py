@@ -17,12 +17,14 @@ from app.modules.assessments.models import (
     Skill,
 )
 from app.modules.assessments.scoring import ScoreCalculationResult
+from app.modules.learning.activity import ActivityTracker
 from app.modules.learning.engine import RecommendationEngine, SkillEngine
 from app.modules.learning.enums import (
     RecommendationStatus,
     RecommendationType,
     SkillCategory,
 )
+from app.modules.learning.levels import LevelEstimationService
 from app.modules.learning.models import (
     Exercise,
     ExerciseAttempt,
@@ -32,6 +34,8 @@ from app.modules.learning.models import (
     SkillAssessment,
     StudentSkill,
 )
+from app.modules.learning.readiness_engine import ReadinessEngine
+from app.modules.learning.recommendations_v2 import RecommendationEngineV2
 from app.modules.learning.schemas import ExerciseAttemptRequest
 
 logger = structlog.get_logger("tef-api.learning")
@@ -54,6 +58,19 @@ class LearningService:
         4. Triggers deterministic RecommendationEngine.
         """
         now = datetime.datetime.now(datetime.UTC)
+
+        # 0. Strict Idempotency: Check if this assessment attempt was already processed
+        already_processed = await db.scalar(
+            select(SkillAssessment.id)
+            .where(
+                SkillAssessment.source_id == attempt.id,
+                SkillAssessment.source_type == "assessment_attempt",
+            )
+            .limit(1)
+        )
+        if already_processed:
+            logger.info("assessment_submission_already_processed", attempt_id=str(attempt.id))
+            return
 
         # 1. Map questions and identify incorrect answers
         question_map: dict[uuid.UUID, Question] = {}
@@ -135,6 +152,7 @@ class LearningService:
                     skills_to_record.append((parent_obj, score_pct, pts_earned, pts_max))
 
         for target_skill, score_pct, pts_earned, pts_max in skills_to_record:
+            snap_level = LevelEstimationService.estimate_cefr(score_pct)
             # 2a. IMMUTABLE historical snapshot
             skill_assessment = SkillAssessment(
                 user_id=attempt.user_id,
@@ -144,9 +162,26 @@ class LearningService:
                 score=score_pct,
                 points_earned=pts_earned,
                 points_possible=pts_max,
+                estimated_level=snap_level,
+                confidence=0.8,
                 assessed_at=now,
             )
             db.add(skill_assessment)
+
+            # Ingest append-only SkillEvidence
+            await ReadinessEngine.ingest_evidence(
+                db=db,
+                student_id=attempt.user_id,
+                skill_id=target_skill.id,
+                source_type="assessment",
+                source_id=attempt.id,
+                raw_score=pts_earned,
+                normalized_score=score_pct,
+                confidence=0.85,
+                weight=1.0,
+                observed_at=now,
+                metadata_payload={"assessment_id": str(attempt.assessment_id), "points_possible": pts_max},
+            )
 
             # 2b. Rolling StudentSkill estimate update
             student_skill = await db.scalar(
@@ -160,16 +195,21 @@ class LearningService:
                     current_mastery=student_skill.mastery_score,
                     attempts_count=student_skill.attempts_count,
                     new_score=score_pct,
+                    source_type="assessment_attempt",
                 )
                 student_skill.mastery_score = new_mastery
                 student_skill.confidence = new_conf
                 student_skill.attempts_count += 1
+                if score_pct >= 60.0:
+                    student_skill.successful_attempts += 1
+                student_skill.estimated_level = LevelEstimationService.estimate_cefr(new_mastery)
                 student_skill.last_assessed_at = now
             else:
                 new_mastery, new_conf = SkillEngine.update_mastery(
                     current_mastery=0.0,
                     attempts_count=0,
                     new_score=score_pct,
+                    source_type="assessment_attempt",
                 )
                 student_skill = StudentSkill(
                     user_id=attempt.user_id,
@@ -177,17 +217,38 @@ class LearningService:
                     mastery_score=new_mastery,
                     confidence=new_conf,
                     attempts_count=1,
+                    successful_attempts=1 if score_pct >= 60.0 else 0,
+                    estimated_level=LevelEstimationService.estimate_cefr(new_mastery),
                     last_assessed_at=now,
                 )
                 db.add(student_skill)
 
         await db.flush()
 
-        # 3. Deterministic Recommendation Engine
-        await LearningService._generate_recommendations_for_student(
+        # 3. Deterministic Recommendation Engine V2
+        await RecommendationEngineV2.generate_recommendations(
             db=db,
             user_id=attempt.user_id,
         )
+
+        # 4. Activity Event Logging
+        await ActivityTracker.record_activity(
+            db=db,
+            user_id=attempt.user_id,
+            event_type="assessment_completed",
+            title=f"Épreuve terminée : {assessment.title}",
+            entity_type="assessment",
+            entity_id=assessment.id,
+            metadata={
+                "attempt_id": str(attempt.id),
+                "score_percentage": score_result.percentage,
+                "passed": score_result.is_passed,
+                "estimated_level": LevelEstimationService.estimate_cefr(score_result.percentage),
+            },
+        )
+
+        # 4. Trigger Readiness Engine recalculation & immutable snapshot
+        await ReadinessEngine.recalculate_student_readiness(db, attempt.user_id)
 
     @staticmethod
     async def _generate_recommendations_for_student(
@@ -244,7 +305,30 @@ class LearningService:
             )
 
             for ex in matching_exercises:
-                # Check for existing recommendation
+                # 1. Skip if dismissed within the last 14 days (respect learner feedback)
+                recently_dismissed = await db.scalar(
+                    select(Recommendation).where(
+                        Recommendation.user_id == user_id,
+                        Recommendation.entity_id == ex.id,
+                        Recommendation.status == RecommendationStatus.DISMISSED,
+                        Recommendation.generated_at >= now - datetime.timedelta(days=14),
+                    )
+                )
+                if recently_dismissed:
+                    continue
+
+                # 2. Skip if already completed
+                already_completed = await db.scalar(
+                    select(Recommendation).where(
+                        Recommendation.user_id == user_id,
+                        Recommendation.entity_id == ex.id,
+                        Recommendation.status == RecommendationStatus.COMPLETED,
+                    )
+                )
+                if already_completed:
+                    continue
+
+                # 3. Check for existing active recommendation
                 existing_rec = await db.scalar(
                     select(Recommendation).where(
                         Recommendation.user_id == user_id,
@@ -299,6 +383,8 @@ class LearningService:
                 "mastery_score": s.mastery_score,
                 "confidence": s.confidence,
                 "attempts_count": s.attempts_count,
+                "successful_attempts": s.successful_attempts,
+                "estimated_level": s.estimated_level or LevelEstimationService.estimate_cefr(s.mastery_score),
                 "last_assessed_at": s.last_assessed_at,
             }
             for s in skills
@@ -335,6 +421,8 @@ class LearningService:
                 "score": r.score,
                 "points_earned": r.points_earned,
                 "points_possible": r.points_possible,
+                "estimated_level": r.estimated_level or LevelEstimationService.estimate_cefr(r.score),
+                "confidence": r.confidence,
                 "assessed_at": r.assessed_at,
             }
             for r in records
@@ -453,6 +541,62 @@ class LearningService:
             "priority": rec.priority,
             "status": rec.status,
             "generated_at": rec.generated_at,
+        }
+
+    @staticmethod
+    async def submit_recommendation_feedback(
+        db: AsyncSession,
+        recommendation_id: uuid.UUID,
+        user_id: uuid.UUID,
+        relevance_rating: int,
+        reason: str | None = None,
+        dismiss_recommendation: bool = False,
+    ) -> dict[str, Any]:
+        """Record feedback on a recommendation, adjusting its status if dismissed or low-relevance."""
+        rec = await db.scalar(
+            select(Recommendation)
+            .where(
+                Recommendation.id == recommendation_id,
+                Recommendation.user_id == user_id,
+            )
+            .options(selectinload(Recommendation.skill))
+        )
+        if not rec:
+            raise AppException(
+                message="Recommendation not found",
+                code="RECOMMENDATION_NOT_FOUND",
+                status_code=404,
+            )
+
+        from app.modules.analytics.models import UserFeedback
+        from app.modules.analytics.enums import FeedbackCategory
+
+        feedback = UserFeedback(
+            user_id=user_id,
+            category=FeedbackCategory.CONTENT,
+            rating=relevance_rating,
+            message=reason or f"Recommendation relevance rating: {relevance_rating}/5",
+            context_url=f"/recommendations/{recommendation_id}",
+            metadata_payload={
+                "recommendation_id": str(recommendation_id),
+                "entity_type": rec.entity_type,
+                "entity_id": str(rec.entity_id),
+                "skill_id": str(rec.skill_id),
+                "rating": relevance_rating,
+            },
+        )
+        db.add(feedback)
+
+        if dismiss_recommendation or relevance_rating <= 2:
+            rec.status = RecommendationStatus.DISMISSED
+
+        await db.flush()
+        return {
+            "recommendation_id": rec.id,
+            "relevance_rating": relevance_rating,
+            "reason": reason,
+            "status": rec.status,
+            "message": "Feedback recorded and recommendation dismissed" if rec.status == RecommendationStatus.DISMISSED else "Feedback recorded successfully",
         }
 
     @staticmethod
@@ -594,6 +738,7 @@ class LearningService:
         # Update associated StudentSkills and record immutable SkillAssessments
         score_pct = 100.0 if is_correct else 0.0
         for es in ex.skills:
+            snap_level = LevelEstimationService.estimate_cefr(score_pct)
             # Historical snapshot
             snap = SkillAssessment(
                 user_id=user_id,
@@ -603,9 +748,26 @@ class LearningService:
                 score=score_pct,
                 points_earned=pts_awarded,
                 points_possible=float(ex.points),
+                estimated_level=snap_level,
+                confidence=0.5,
                 assessed_at=now,
             )
             db.add(snap)
+
+            # Ingest append-only SkillEvidence
+            await ReadinessEngine.ingest_evidence(
+                db=db,
+                student_id=user_id,
+                skill_id=es.skill_id,
+                source_type="exercise",
+                source_id=attempt.id,
+                raw_score=pts_awarded,
+                normalized_score=score_pct,
+                confidence=0.70,
+                weight=0.70,
+                observed_at=now,
+                metadata_payload={"exercise_id": str(ex.id), "is_correct": is_correct},
+            )
 
             # Rolling student skill
             student_skill = await db.scalar(
@@ -619,16 +781,21 @@ class LearningService:
                     current_mastery=student_skill.mastery_score,
                     attempts_count=student_skill.attempts_count,
                     new_score=score_pct,
+                    source_type="exercise_attempt",
                 )
                 student_skill.mastery_score = new_mastery
                 student_skill.confidence = new_conf
                 student_skill.attempts_count += 1
+                if is_correct:
+                    student_skill.successful_attempts += 1
+                student_skill.estimated_level = LevelEstimationService.estimate_cefr(new_mastery)
                 student_skill.last_assessed_at = now
             else:
                 new_mastery, new_conf = SkillEngine.update_mastery(
                     current_mastery=0.0,
                     attempts_count=0,
                     new_score=score_pct,
+                    source_type="exercise_attempt",
                 )
                 student_skill = StudentSkill(
                     user_id=user_id,
@@ -636,6 +803,8 @@ class LearningService:
                     mastery_score=new_mastery,
                     confidence=new_conf,
                     attempts_count=1,
+                    successful_attempts=1 if is_correct else 0,
+                    estimated_level=LevelEstimationService.estimate_cefr(new_mastery),
                     last_assessed_at=now,
                 )
                 db.add(student_skill)
@@ -663,13 +832,37 @@ class LearningService:
                 select(Recommendation).where(
                     Recommendation.user_id == user_id,
                     Recommendation.entity_id == exercise_id,
-                    Recommendation.status == RecommendationStatus.ACTIVE,
+                    Recommendation.status.in_(
+                        [
+                            RecommendationStatus.ACTIVE,
+                            RecommendationStatus.STARTED,
+                            RecommendationStatus.PENDING,
+                        ]
+                    ),
                 )
             )
             if active_rec:
                 active_rec.status = RecommendationStatus.COMPLETED
 
+        # Activity Event Logging
+        await ActivityTracker.record_activity(
+            db=db,
+            user_id=user_id,
+            event_type="exercise_completed",
+            title=f"Exercice : {ex.title}",
+            entity_type="exercise",
+            entity_id=exercise_id,
+            metadata={
+                "attempt_id": str(attempt.id),
+                "is_correct": is_correct,
+                "points_awarded": pts_awarded,
+            },
+        )
+
         await db.flush()
+
+        # Recalculate student readiness
+        await ReadinessEngine.recalculate_student_readiness(db, user_id)
 
         return {
             "id": attempt.id,
@@ -682,3 +875,163 @@ class LearningService:
             "explanation": ex.explanation,
             "attempted_at": attempt.attempted_at,
         }
+
+    @staticmethod
+    async def get_exercise_attempts(
+        db: AsyncSession,
+        exercise_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> list[dict[str, Any]]:
+        """Retrieve historical attempts by the student for a specific exercise."""
+        stmt = (
+            select(ExerciseAttempt)
+            .where(
+                ExerciseAttempt.exercise_id == exercise_id,
+                ExerciseAttempt.user_id == user_id,
+            )
+            .order_by(ExerciseAttempt.attempted_at.desc())
+        )
+        res = await db.execute(stmt)
+        attempts = res.scalars().all()
+
+        ex_stmt = select(Exercise).where(Exercise.id == exercise_id)
+        ex_res = await db.execute(ex_stmt)
+        ex = ex_res.scalar_one_or_none()
+        correct_content = ""
+        if ex:
+            for opt in ex.options_payload:
+                if opt.get("is_correct"):
+                    correct_content = opt.get("content", "")
+                    break
+
+        return [
+            {
+                "id": att.id,
+                "user_id": att.user_id,
+                "exercise_id": att.exercise_id,
+                "is_correct": att.is_correct,
+                "points_awarded": att.points_awarded,
+                "user_response": att.user_response,
+                "correct_answer": correct_content,
+                "explanation": ex.explanation if ex else None,
+                "attempted_at": att.attempted_at,
+            }
+            for att in attempts
+        ]
+
+    @staticmethod
+    async def get_exercise_attempt(
+        db: AsyncSession,
+        attempt_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Retrieve a specific exercise attempt with strict user isolation."""
+        stmt = (
+            select(ExerciseAttempt)
+            .where(
+                ExerciseAttempt.id == attempt_id,
+                ExerciseAttempt.user_id == user_id,
+            )
+        )
+        res = await db.execute(stmt)
+        attempt = res.scalar_one_or_none()
+        if not attempt:
+            raise AppException(
+                message="Exercise attempt not found",
+                code="ATTEMPT_NOT_FOUND",
+                status_code=404,
+            )
+
+        ex_stmt = select(Exercise).where(Exercise.id == attempt.exercise_id)
+        ex_res = await db.execute(ex_stmt)
+        ex = ex_res.scalar_one_or_none()
+        correct_content = ""
+        if ex:
+            for opt in ex.options_payload:
+                if opt.get("is_correct"):
+                    correct_content = opt.get("content", "")
+                    break
+
+        return {
+            "id": attempt.id,
+            "user_id": attempt.user_id,
+            "exercise_id": attempt.exercise_id,
+            "is_correct": attempt.is_correct,
+            "points_awarded": attempt.points_awarded,
+            "user_response": attempt.user_response,
+            "correct_answer": correct_content,
+            "explanation": ex.explanation if ex else None,
+            "attempted_at": attempt.attempted_at,
+        }
+
+    @staticmethod
+    async def record_external_skill_assessment(
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        skill_id: uuid.UUID,
+        source_type: str,
+        source_id: uuid.UUID,
+        score: float,
+        points_earned: float = 0.0,
+        points_possible: float = 100.0,
+    ) -> None:
+        """Record external score snapshot and update rolling StudentSkill (e.g. AI writing, teacher review)."""
+        now = datetime.datetime.now(datetime.UTC)
+        score_pct = max(0.0, min(100.0, score))
+        est_level = LevelEstimationService.estimate_cefr(score_pct)
+
+        snap = SkillAssessment(
+            user_id=user_id,
+            skill_id=skill_id,
+            source_type=source_type,
+            source_id=source_id,
+            score=score_pct,
+            points_earned=points_earned,
+            points_possible=points_possible,
+            estimated_level=est_level,
+            confidence=0.85,
+            assessed_at=now,
+        )
+        db.add(snap)
+
+        student_skill = await db.scalar(
+            select(StudentSkill).where(
+                StudentSkill.user_id == user_id,
+                StudentSkill.skill_id == skill_id,
+            )
+        )
+        if student_skill:
+            new_m, new_c = SkillEngine.update_mastery(
+                current_mastery=student_skill.mastery_score,
+                attempts_count=student_skill.attempts_count,
+                new_score=score_pct,
+                source_type=source_type,
+            )
+            student_skill.mastery_score = new_m
+            student_skill.confidence = new_c
+            student_skill.attempts_count += 1
+            if score_pct >= 60.0:
+                student_skill.successful_attempts += 1
+            student_skill.estimated_level = LevelEstimationService.estimate_cefr(new_m)
+            student_skill.last_assessed_at = now
+        else:
+            new_m, new_c = SkillEngine.update_mastery(
+                current_mastery=0.0,
+                attempts_count=0,
+                new_score=score_pct,
+                source_type=source_type,
+            )
+            student_skill = StudentSkill(
+                user_id=user_id,
+                skill_id=skill_id,
+                mastery_score=new_m,
+                confidence=new_c,
+                attempts_count=1,
+                successful_attempts=1 if score_pct >= 60.0 else 0,
+                estimated_level=LevelEstimationService.estimate_cefr(new_m),
+                last_assessed_at=now,
+            )
+            db.add(student_skill)
+
+        await db.flush()
+

@@ -10,6 +10,8 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import AppException
 from app.core.security import decode_access_token, is_token_revoked
 from app.modules.assessments.models import Skill
+from app.modules.learning.readiness_engine import ReadinessEngine
+from app.modules.learning.readiness_models import SkillEvidenceSourceType
 from app.modules.speaking.enums import (
     SpeakingEvaluatorType,
     SpeakingParticipantRole,
@@ -75,6 +77,9 @@ class SpeakingService:
 
         # 2. Add counter-participant depending on session type
         if payload.session_type == SpeakingSessionType.AI:
+            from app.core.beta_limits import BetaLimitsService
+            await BetaLimitsService.check_and_increment(user.id, "ai_oral")
+
             ai_participant = SpeakingParticipant(
                 session_id=session.id,
                 user_id=None,
@@ -283,6 +288,32 @@ class SpeakingService:
                 )
                 db.add(eval_skill)
 
+            # Ingest AI speaking evaluation into ReadinessEngine
+            now_ev = datetime.datetime.now(datetime.UTC)
+            for s in skills:
+                try:
+                    await ReadinessEngine.ingest_evidence(
+                        db=db,
+                        student_id=student_id,
+                        skill_id=s.id,
+                        source_type=SkillEvidenceSourceType.AI_EVALUATION.value,
+                        source_id=evaluation.id,
+                        raw_score=eval_result.overall_score,
+                        normalized_score=eval_result.overall_score,
+                        confidence=0.80,
+                        weight=1.0,
+                        observed_at=now_ev,
+                        metadata_payload={"session_id": str(session.id), "evaluator": "mock_speaking"},
+                    )
+                except Exception:
+                    pass
+
+            if skills:
+                try:
+                    await ReadinessEngine.recalculate_student_readiness(db, student_id)
+                except Exception:
+                    pass
+
         await db.commit()
         return await SpeakingService.get_session_by_id(db, session_id, user)
 
@@ -374,6 +405,44 @@ class SpeakingService:
         db.add(evaluation)
         await db.commit()
         await db.refresh(evaluation)
+
+        # Ingest teacher speaking evidence into ReadinessEngine
+        speaking_skill = (
+            await db.execute(
+                select(Skill).where(Skill.code.in_(["speaking", "expression_orale", "EO", "speaking_b2"]))
+            )
+        ).scalar_one_or_none()
+        if not speaking_skill:
+            speaking_skill = (
+                await db.execute(
+                    select(Skill).where(Skill.name.ilike("%speaking%") | Skill.name.ilike("%orale%"))
+                )
+            ).scalars().first()
+
+        now_te = datetime.datetime.now(datetime.UTC)
+        if speaking_skill and student_participant.user_id:
+            try:
+                await ReadinessEngine.ingest_evidence(
+                    db=db,
+                    student_id=student_participant.user_id,
+                    skill_id=speaking_skill.id,
+                    source_type=SkillEvidenceSourceType.TEACHER_EVALUATION.value,
+                    source_id=evaluation.id,
+                    raw_score=payload.overall_score,
+                    normalized_score=payload.overall_score,
+                    confidence=0.95,
+                    weight=1.0,
+                    observed_at=now_te,
+                    metadata_payload={
+                        "session_id": str(session.id),
+                        "evaluator": "teacher",
+                        "level": payload.estimated_level,
+                    },
+                )
+                await ReadinessEngine.recalculate_student_readiness(db, student_participant.user_id)
+            except Exception:
+                pass
+
         return evaluation
 
     @staticmethod

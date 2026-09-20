@@ -24,6 +24,9 @@ class RegisterRequest(BaseModel):
     bio: str | None = None
     hourly_price: int = 3500
 
+    # Controlled Beta Access Token
+    invitation_code: str | None = None
+
 
 class LoginRequest(BaseModel):
     """User login credentials."""

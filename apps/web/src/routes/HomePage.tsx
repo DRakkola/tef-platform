@@ -3,11 +3,13 @@
  */
 
 import React from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/core/api";
+import { useAuth } from "@/features/auth";
 import { LoadingState } from "@/components/LoadingState";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, AlertCircle, Database, Server, HardDrive, Cpu, RefreshCw } from "lucide-react";
+import { CheckCircle2, AlertCircle, Database, Server, HardDrive, Cpu, RefreshCw, ArrowRight, LogIn, UserPlus } from "lucide-react";
 
 interface SystemStatus {
   platform: string;
@@ -22,6 +24,7 @@ interface SystemStatus {
 }
 
 export const HomePage: React.FC = () => {
+  const { isAuthenticated, user } = useAuth();
   const {
     data: statusData,
     isLoading,
@@ -46,13 +49,40 @@ export const HomePage: React.FC = () => {
           <p className="text-muted-foreground max-w-lg mx-auto">
             Production-grade modular monolith architecture adhering to the engineering contract.
           </p>
-          <div className="pt-2">
-            <a
-              href="/dashboard"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors shadow-sm"
-            >
-              Accéder au Tableau de bord Étudiant &rarr;
-            </a>
+          <div className="pt-3 flex flex-wrap items-center justify-center gap-3">
+            {isAuthenticated ? (
+              <Link
+                to={user?.role === "admin" ? "/admin" : "/dashboard"}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors shadow-sm"
+              >
+                <span>Accéder au Tableau de bord {user?.role === "admin" ? "Admin" : "Étudiant"}</span>
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors shadow-sm"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Se connecter</span>
+                </Link>
+                <Link
+                  to="/register"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card text-foreground font-medium text-sm hover:bg-muted/40 transition-colors shadow-2xs"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Créer un compte</span>
+                </Link>
+                <Link
+                  to="/dashboard"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <span>Accès direct démo</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </>
+            )}
           </div>
         </div>
 

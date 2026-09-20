@@ -12,12 +12,15 @@ from app.core.exceptions import AppException
 from app.modules.auth.dependencies import require_role
 from app.modules.teachers.models import (
     TeacherAvailabilityException,
+    TeacherAvailabilityOverride,
     TeacherAvailabilityRule,
     TeacherBooking,
 )
 from app.modules.teachers.schemas import (
     AvailabilityExceptionCreate,
     AvailabilityExceptionResponse,
+    AvailabilityOverrideCreate,
+    AvailabilityOverrideResponse,
     AvailabilityRuleCreate,
     AvailabilityRuleResponse,
     TeacherListResponse,
@@ -333,6 +336,110 @@ async def delete_availability_exception(
     await db.commit()
 
 
+# --- Availability Overrides Endpoints ---
+
+
+@router.get(
+    "/{teacher_id}/availability/overrides",
+    response_model=list[AvailabilityOverrideResponse],
+    summary="Get teacher custom availability overrides",
+)
+async def get_teacher_availability_overrides(
+    teacher_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[AvailabilityOverrideResponse]:
+    """Retrieve custom availability overrides (date-specific additions or blackouts)."""
+    stmt = (
+        select(TeacherAvailabilityOverride)
+        .where(TeacherAvailabilityOverride.teacher_id == teacher_id)
+        .order_by(TeacherAvailabilityOverride.override_date, TeacherAvailabilityOverride.start_time)
+    )
+    overrides = (await db.execute(stmt)).scalars().all()
+    return [AvailabilityOverrideResponse.model_validate(o) for o in overrides]
+
+
+@router.post(
+    "/me/availability/overrides",
+    response_model=AvailabilityOverrideResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create custom availability override",
+)
+async def create_availability_override(
+    payload: AvailabilityOverrideCreate,
+    current_user: User = Depends(require_role(UserRole.TEACHER, UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> AvailabilityOverrideResponse:
+    """Teacher creates a date-specific custom availability window or blackout."""
+    stmt = select(TeacherProfile).where(TeacherProfile.user_id == current_user.id)
+    teacher = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not teacher:
+        raise AppException(
+            message="Teacher profile not found",
+            code="PROFILE_NOT_FOUND",
+            status_code=404,
+        )
+
+    override = TeacherAvailabilityOverride(
+        teacher_id=teacher.id,
+        override_date=payload.override_date,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        timezone=payload.timezone or teacher.timezone or "UTC",
+        is_available=payload.is_available,
+        notes=payload.notes,
+    )
+    db.add(override)
+    await db.commit()
+    await db.refresh(override)
+
+    return AvailabilityOverrideResponse.model_validate(override)
+
+
+@router.delete(
+    "/me/availability/overrides/{override_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete availability override",
+)
+async def delete_availability_override(
+    override_id: uuid.UUID,
+    current_user: User = Depends(require_role(UserRole.TEACHER, UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Teacher removes an availability override."""
+    stmt = select(TeacherProfile).where(TeacherProfile.user_id == current_user.id)
+    teacher = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not teacher and current_user.role != UserRole.ADMIN:
+        raise AppException(
+            message="Teacher profile not found",
+            code="PROFILE_NOT_FOUND",
+            status_code=404,
+        )
+
+    ov_stmt = select(TeacherAvailabilityOverride).where(
+        TeacherAvailabilityOverride.id == override_id
+    )
+    override = (await db.execute(ov_stmt)).scalar_one_or_none()
+
+    if not override:
+        raise AppException(
+            message="Availability override not found",
+            code="OVERRIDE_NOT_FOUND",
+            status_code=404,
+        )
+
+    if current_user.role != UserRole.ADMIN and teacher and override.teacher_id != teacher.id:
+        raise AppException(
+            message="Not authorized to delete this override",
+            code="FORBIDDEN",
+            status_code=403,
+        )
+
+    await db.delete(override)
+    await db.commit()
+
+
 # --- Slot Inspection Endpoints ---
 
 
@@ -395,7 +502,15 @@ async def get_teacher_slots(
     )
     exceptions = list((await db.execute(exc_stmt)).scalars().all())
 
-    # 3. Fetch existing active bookings that overlap this window
+    # 3. Fetch custom overrides in the date range
+    ov_stmt = select(TeacherAvailabilityOverride).where(
+        TeacherAvailabilityOverride.teacher_id == teacher.id,
+        TeacherAvailabilityOverride.override_date >= date_from,
+        TeacherAvailabilityOverride.override_date <= date_to,
+    )
+    overrides = list((await db.execute(ov_stmt)).scalars().all())
+
+    # 4. Fetch existing active bookings that overlap this window
     start_dt_utc = datetime.datetime.combine(date_from, datetime.time.min).replace(
         tzinfo=datetime.UTC
     )
@@ -415,6 +530,7 @@ async def get_teacher_slots(
         existing_bookings=existing_bookings,
         date_from=date_from,
         date_to=date_to,
+        overrides=overrides,
         student_timezone=student_timezone,
         slot_duration_minutes=slot_duration_minutes,
     )

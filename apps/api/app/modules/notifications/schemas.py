@@ -16,6 +16,15 @@ class NotificationType(str, Enum):
     WRITING_CORRECTION_READY = "writing_correction_ready"
     PRACTICE_MATCHED = "practice_matched"
     SYSTEM_ANNOUNCEMENT = "system_announcement"
+    PAYMENT_SUCCEEDED = "payment_succeeded"
+    PAYMENT_FAILED = "payment_failed"
+    SUBSCRIPTION_ACTIVATED = "subscription_activated"
+    SUBSCRIPTION_CANCELLED = "subscription_cancelled"
+    SUBSCRIPTION_RENEWED = "subscription_renewed"
+    CREDITS_GRANTED = "credits_granted"
+    CREDITS_LOW = "credits_low"
+    REFUND_COMPLETED = "refund_completed"
+    TEACHER_EARNING_CREATED = "teacher_earning_created"
 
 
 class NotificationResponse(BaseModel):

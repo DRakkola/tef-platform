@@ -1,4 +1,4 @@
-"""Pydantic schemas for Admin Content Management, Media Assets, and Audit Logging."""
+"""Pydantic schemas for Admin Content Management, Media Assets, Versioning, and Audit Logging."""
 
 import datetime
 import uuid
@@ -6,8 +6,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.modules.admin.enums import AuditAction, ContentStatus, MediaType
-from app.modules.assessments.enums import AssessmentType, NavigationPolicy, QuestionType, ScoringPolicy
+from app.modules.admin.enums import ContentStatus, MediaType, ReviewStatus
+from app.modules.assessments.enums import (
+    AssessmentType,
+    NavigationPolicy,
+    QuestionType,
+    ScoringPolicy,
+)
 from app.modules.learning.enums import SkillCategory
 from app.modules.users.models import UserRole
 from app.modules.writing.enums import WritingTaskType
@@ -45,6 +50,9 @@ class MediaAssetResponse(BaseModel):
     content_type: str
     file_size: int
     storage_object_key: str
+    bucket: str = "tef-private"
+    checksum: str | None = None
+    duration_seconds: float | None = None
     media_type: MediaType
     is_public: bool
     uploaded_by_user_id: uuid.UUID | None
@@ -63,6 +71,51 @@ class MediaPresignedUrlResponse(BaseModel):
     asset_id: uuid.UUID
     download_url: str
     expires_in_seconds: int
+
+
+# --- SubSkill & Skill Schemas ---
+class SubSkillCreate(BaseModel):
+    code: str
+    name: str
+    description: str | None = None
+
+
+class SubSkillUpdate(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    description: str | None = None
+
+
+class SubSkillResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    skill_id: uuid.UUID
+    code: str
+    name: str
+    description: str | None = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class AdminSkillCreate(BaseModel):
+    code: str
+    name: str
+    category: str | None = None
+    description: str | None = None
+    parent_id: uuid.UUID | None = None
+
+
+class AdminSkillResponse(BaseModel):
+    id: uuid.UUID
+    code: str
+    name: str
+    category: str | None = None
+    description: str | None = None
+    parent_id: uuid.UUID | None = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    subskills: list[SubSkillResponse] = Field(default_factory=list)
 
 
 # --- Question & Option Admin Schemas ---
@@ -98,11 +151,43 @@ class AdminQuestionCreate(BaseModel):
     media_url: str | None = None
     order_index: int = 0
     difficulty: int = 3
+    level: str = "B1"
     explanation: str | None = None
     points: int = 1
     penalty_points: int = 0
     options: list[AdminOptionCreate] = Field(default_factory=list)
     skill_tags: list[AdminQuestionSkillTagCreate] = Field(default_factory=list)
+
+
+class AdminStandaloneQuestionCreate(BaseModel):
+    section_id: uuid.UUID
+    question_type: QuestionType = QuestionType.SINGLE_CHOICE
+    prompt: str
+    stimulus_text: str | None = None
+    audio_url: str | None = None
+    media_url: str | None = None
+    order_index: int = 0
+    difficulty: int = 3
+    level: str = "B1"
+    explanation: str | None = None
+    points: int = 1
+    penalty_points: int = 0
+    options: list[AdminOptionCreate] = Field(default_factory=list)
+    skill_tags: list[AdminQuestionSkillTagCreate] = Field(default_factory=list)
+
+
+class AdminStandaloneQuestionUpdate(BaseModel):
+    prompt: str | None = None
+    question_type: QuestionType | None = None
+    difficulty: int | None = None
+    level: str | None = None
+    explanation: str | None = None
+    points: int | None = None
+    penalty_points: int | None = None
+    media_url: str | None = None
+    order_index: int | None = None
+    status: ContentStatus | None = None
+    options: list[AdminOptionCreate] | None = None
 
 
 class AdminQuestionResponse(BaseModel):
@@ -112,15 +197,29 @@ class AdminQuestionResponse(BaseModel):
     section_id: uuid.UUID
     question_type: QuestionType
     prompt: str
-    stimulus_text: str | None
-    audio_url: str | None
-    media_url: str | None
+    stimulus_text: str | None = None
+    audio_url: str | None = None
+    media_url: str | None = None
     order_index: int
     difficulty: int
-    explanation: str | None
+    level: str = "B1"
+    explanation: str | None = None
     points: int
     penalty_points: int
+    status: str = "published"
+    version: int = 1
+    created_by_user_id: uuid.UUID | None = None
+    updated_by_user_id: uuid.UUID | None = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
     options: list[AdminOptionResponse] = Field(default_factory=list)
+
+
+class AdminQuestionListResponse(BaseModel):
+    items: list[AdminQuestionResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 # --- Section Admin Schemas ---
@@ -129,6 +228,8 @@ class AdminSectionCreate(BaseModel):
     instructions: str | None = None
     order_index: int = 0
     time_limit_seconds: int | None = None
+    media_url: str | None = None
+    passage_text: str | None = None
 
 
 class AdminSectionResponse(BaseModel):
@@ -137,9 +238,12 @@ class AdminSectionResponse(BaseModel):
     id: uuid.UUID
     assessment_id: uuid.UUID
     title: str
-    instructions: str | None
+    instructions: str | None = None
     order_index: int
-    time_limit_seconds: int | None
+    duration_seconds: int | None = None
+    time_limit_seconds: int | None = None
+    media_url: str | None = None
+    passage_text: str | None = None
     questions: list[AdminQuestionResponse] = Field(default_factory=list)
 
 
@@ -172,16 +276,18 @@ class AdminAssessmentResponse(BaseModel):
 
     id: uuid.UUID
     title: str
-    description: str | None
+    description: str | None = None
     assessment_type: AssessmentType
     duration_seconds: int
     navigation_policy: NavigationPolicy
     scoring_policy: ScoringPolicy
-    max_attempts: int | None
-    pass_percentage: float | None
+    max_attempts: int | None = None
+    pass_percentage: float | None = None
     status: str
     version: int
     is_published: bool
+    created_by_user_id: uuid.UUID | None = None
+    updated_by_user_id: uuid.UUID | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
     sections: list[AdminSectionResponse] = Field(default_factory=list)
@@ -194,26 +300,123 @@ class AdminAssessmentListResponse(BaseModel):
     page_size: int
 
 
-# --- Skill Admin Schemas ---
-class AdminSkillCreate(BaseModel):
-    code: str
-    name: str
-    category: str | None = None
-    description: str | None = None
-    parent_id: uuid.UUID | None = None
-
-
-class AdminSkillResponse(BaseModel):
+# --- Version History Snapshots ---
+class AssessmentVersionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    code: str
-    name: str
-    category: str | None
-    description: str | None
-    parent_id: uuid.UUID | None
+    assessment_id: uuid.UUID
+    version: int
+    title: str
+    description: str | None = None
+    assessment_type: str
+    duration_seconds: int
+    navigation_policy: str
+    scoring_policy: str
+    pass_percentage: float | None = None
+    sections_snapshot: list[dict[str, Any]] = Field(default_factory=list)
+    created_by_user_id: uuid.UUID | None = None
+    created_at: datetime.datetime
+
+
+class QuestionVersionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    question_id: uuid.UUID
+    version: int
+    prompt: str
+    explanation: str | None = None
+    question_type: str
+    difficulty: int
+    level: str
+    points: int
+    options_snapshot: list[dict[str, Any]] = Field(default_factory=list)
+    media_asset_id: uuid.UUID | None = None
+    created_by_user_id: uuid.UUID | None = None
+    created_at: datetime.datetime
+
+
+class ExerciseVersionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    exercise_id: uuid.UUID
+    version: int
+    title: str
+    instructions: str | None = None
+    category: str
+    level: str
+    difficulty: int
+    prompt: str
+    explanation: str | None = None
+    points: int
+    options_payload: list[dict[str, Any]] = Field(default_factory=list)
+    created_by_user_id: uuid.UUID | None = None
+    created_at: datetime.datetime
+
+
+class WritingTaskVersionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    writing_task_id: uuid.UUID
+    version: int
+    title: str
+    instructions: str | None = None
+    prompt: str
+    task_type: str
+    level: str
+    min_words: int
+    max_words: int
+    duration_minutes: int
+    evaluation_criteria: list[dict[str, Any]] = Field(default_factory=list)
+    created_by_user_id: uuid.UUID | None = None
+    created_at: datetime.datetime
+
+
+# --- Content Review Schemas ---
+class ContentReviewCreate(BaseModel):
+    comments: str | None = None
+
+
+class ContentReviewDecision(BaseModel):
+    status: ReviewStatus  # APPROVED or REJECTED
+    comments: str | None = None
+
+
+class ContentReviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    entity_type: str
+    entity_id: uuid.UUID
+    version: int
+    reviewer_id: uuid.UUID | None = None
+    status: str
+    comments: str | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+class ContentReviewListResponse(BaseModel):
+    items: list[ContentReviewResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+# --- Publishing Validation Engine Schemas ---
+class ValidationIssue(BaseModel):
+    field: str
+    message: str
+    severity: str = "error"  # "error" or "warning"
+
+
+class PublishValidationResponse(BaseModel):
+    is_valid: bool
+    errors: list[ValidationIssue] = Field(default_factory=list)
+    warnings: list[ValidationIssue] = Field(default_factory=list)
 
 
 # --- Exercise Admin Schemas ---
@@ -232,6 +435,21 @@ class AdminExerciseCreate(BaseModel):
     skill_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
+class AdminExerciseUpdate(BaseModel):
+    title: str | None = None
+    prompt: str | None = None
+    category: SkillCategory | None = None
+    level: str | None = None
+    difficulty: int | None = None
+    question_type: QuestionType | None = None
+    instructions: str | None = None
+    explanation: str | None = None
+    points: int | None = None
+    options_payload: list[dict[str, Any]] | None = None
+    status: ContentStatus | None = None
+    skill_ids: list[uuid.UUID] | None = None
+
+
 class AdminExerciseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -242,15 +460,24 @@ class AdminExerciseResponse(BaseModel):
     level: str
     difficulty: int
     question_type: QuestionType
-    instructions: str | None
-    explanation: str | None
+    instructions: str | None = None
+    explanation: str | None = None
     points: int
     options_payload: list[dict[str, Any]]
     status: str
     version: int
     is_published: bool
+    created_by_user_id: uuid.UUID | None = None
+    updated_by_user_id: uuid.UUID | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+class AdminExerciseListResponse(BaseModel):
+    items: list[AdminExerciseResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 # --- Writing Task Admin Schemas ---
@@ -264,6 +491,20 @@ class AdminWritingTaskCreate(BaseModel):
     duration_minutes: int = 60
     target_level: str = "B2"
     status: ContentStatus = ContentStatus.DRAFT
+    evaluation_criteria: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AdminWritingTaskUpdate(BaseModel):
+    title: str | None = None
+    task_type: WritingTaskType | None = None
+    prompt: str | None = None
+    stimulus_text: str | None = None
+    min_words: int | None = None
+    max_words: int | None = None
+    duration_minutes: int | None = None
+    target_level: str | None = None
+    status: ContentStatus | None = None
+    evaluation_criteria: list[dict[str, Any]] | None = None
 
 
 class AdminWritingTaskResponse(BaseModel):
@@ -273,7 +514,7 @@ class AdminWritingTaskResponse(BaseModel):
     title: str
     task_type: WritingTaskType
     prompt: str
-    stimulus_text: str | None
+    stimulus_text: str | None = None
     min_words: int
     max_words: int
     duration_minutes: int
@@ -281,8 +522,17 @@ class AdminWritingTaskResponse(BaseModel):
     status: str
     version: int
     is_published: bool
+    created_by_user_id: uuid.UUID | None = None
+    updated_by_user_id: uuid.UUID | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+class AdminWritingTaskListResponse(BaseModel):
+    items: list[AdminWritingTaskResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 # --- User Admin Schemas ---

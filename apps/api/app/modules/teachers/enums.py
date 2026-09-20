@@ -8,6 +8,8 @@ class BookingStatus(str, Enum):
 
     REQUESTED = "requested"
     CONFIRMED = "confirmed"
-    CANCELLED = "cancelled"
+    CANCELLED = "cancelled"  # Generic fallback
+    CANCELLED_BY_STUDENT = "cancelled_by_student"
+    CANCELLED_BY_TEACHER = "cancelled_by_teacher"
     COMPLETED = "completed"
     NO_SHOW = "no_show"

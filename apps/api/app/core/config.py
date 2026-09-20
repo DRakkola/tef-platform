@@ -68,6 +68,16 @@ class Settings(BaseSettings):
         description="Async SQLAlchemy database connection string",
     )
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def assemble_database_url(cls, v: Any) -> str:
+        if isinstance(v, str):
+            if v.startswith("postgres://"):
+                return v.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
+                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return str(v)
+
     # Redis (Ephemeral cache and queue broker)
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
@@ -82,6 +92,12 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://:tef_redis_password@localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://:tef_redis_password@localhost:6379/2"
 
+    # Database Connection Pool & Performance
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
+    DB_STATEMENT_TIMEOUT_MS: int = 30000
+
     # Storage (MinIO / S3 compatible)
     STORAGE_ENDPOINT: str = "localhost:9000"
     STORAGE_ACCESS_KEY: str = "minioadmin"
@@ -90,6 +106,46 @@ class Settings(BaseSettings):
     STORAGE_USE_SSL: bool = False
     STORAGE_REGION: str = "us-east-1"
 
+    # Payment Provider Integration
+    PAYMENT_PROVIDER: str = "mock"
+    STRIPE_SECRET_KEY: str | None = None
+    STRIPE_PUBLISHABLE_KEY: str | None = None
+    STRIPE_WEBHOOK_SECRET: str | None = None
+
+    # AI Provider Integration
+    AI_PROVIDER: str = "mock"
+    DEEPSEEK_API_KEY: str | None = None
+    OPENAI_API_KEY: str | None = None
+
+    # Server-Side Feature Flags & Emergency Safety Switches
+    BETA_ENABLED: bool = True
+    PRACTICE_POOL_ENABLED: bool = True
+    AI_SPEAKING_ENABLED: bool = True
+    AI_WRITING_ENABLED: bool = True
+    BOOKINGS_ENABLED: bool = True
+    CHECKOUT_ENABLED: bool = True
+    MAINTENANCE_MODE: bool = False
+    BILLING_PRODUCTION_ENABLED: bool = False
+
+    # Private Beta Operational Limits (Server-enforced quotas)
+    BETA_MAX_AI_SESSIONS_PER_DAY: int = 5
+    BETA_MAX_AI_WRITING_PER_DAY: int = 3
+    BETA_MAX_PRACTICE_POOL_PER_DAY: int = 4
+    BETA_MAX_TEACHER_BOOKINGS_PER_WEEK: int = 2
+    BETA_MAX_UPLOADS_PER_DAY: int = 10
+
+    # Feature Flags & Emergency Kill Switches
+    FEATURE_FLAG_AI_SPEAKING: bool = True
+    FEATURE_FLAG_AI_WRITING: bool = True
+    FEATURE_FLAG_PRACTICE_POOL: bool = True
+    FEATURE_FLAG_TEACHER_BOOKINGS: bool = True
+    FEATURE_FLAG_CHECKOUT: bool = True
+
+    # System Release Metadata
+    APP_VERSION: str = "0.1.0-beta.1"
+    GIT_COMMIT: str = "HEAD"
+    BUILD_TIMESTAMP: str = "2026-09-18T17:00:00Z"
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def is_production(self) -> bool:
@@ -97,28 +153,58 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def is_staging(self) -> bool:
+        return self.ENVIRONMENT == "staging"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def cookie_secure(self) -> bool:
-        return self.is_production
+        return self.is_production or self.is_staging
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> Self:
-        if self.ENVIRONMENT == "production":
+        # If CELERY URLs are left at defaults but REDIS_URL was supplied, reuse REDIS_URL
+        default_celery_broker = "redis://:tef_redis_password@localhost:6379/1"
+        default_celery_backend = "redis://:tef_redis_password@localhost:6379/2"
+        default_redis = "redis://:tef_redis_password@localhost:6379/0"
+        if self.CELERY_BROKER_URL == default_celery_broker and self.REDIS_URL != default_redis:
+            self.CELERY_BROKER_URL = self.REDIS_URL
+        if self.CELERY_RESULT_BACKEND == default_celery_backend and self.REDIS_URL != default_redis:
+            self.CELERY_RESULT_BACKEND = self.REDIS_URL
+
+        if self.ENVIRONMENT in ("production", "staging"):
             insecure_defaults = [
                 "dev-secret-key-change-in-production-must-be-32-chars-long",
                 "secret",
                 "changeme",
+                "test",
+                "password",
             ]
             if self.SECRET_KEY in insecure_defaults or len(self.SECRET_KEY) < 32:
                 raise ValueError(
                     "Insecure or too short SECRET_KEY configured for production environment. "
                     "Must be a high-entropy secret of at least 32 characters."
                 )
-            if self.POSTGRES_PASSWORD == "tef_app_password":  # nosec B105
-                raise ValueError("Default POSTGRES_PASSWORD must not be used in production.")
-            if self.REDIS_PASSWORD == "tef_redis_password":  # nosec B105
-                raise ValueError("Default REDIS_PASSWORD must not be used in production.")
-            if "minioadmin" in (self.STORAGE_ACCESS_KEY, self.STORAGE_SECRET_KEY):
+            default_db_url = "postgresql+asyncpg://tef_app:tef_app_password@localhost:5432/tef_platform"
+            if self.DATABASE_URL == default_db_url and self.POSTGRES_PASSWORD in ("tef_app_password", "password", "postgres", "admin"):
+                raise ValueError("Default POSTGRES_PASSWORD and default DATABASE_URL must not be used in production.")
+            if self.REDIS_URL == default_redis and self.REDIS_PASSWORD in ("tef_redis_password", "password", "redis"):
+                raise ValueError("Default REDIS_PASSWORD and default REDIS_URL must not be used in production.")
+            if self.STORAGE_ENDPOINT == "localhost:9000" and any(
+                default in (self.STORAGE_ACCESS_KEY, self.STORAGE_SECRET_KEY)
+                for default in ("minioadmin", "minioadmin_dev_secret", "minio")
+            ):
                 raise ValueError("Default MinIO credentials must not be used in production.")
+
+            if self.ENVIRONMENT == "production":
+                # Ensure CORS does not allow localhost or wildcard in production
+                origins = self.CORS_ORIGINS if isinstance(self.CORS_ORIGINS, list) else [self.CORS_ORIGINS]
+                for origin in origins:
+                    if "localhost" in origin or "127.0.0.1" in origin or origin == "*":
+                        raise ValueError(
+                            f"Insecure CORS origin '{origin}' configured for production environment. "
+                            "Wildcards and localhost origins are strictly forbidden."
+                        )
         return self
 
 

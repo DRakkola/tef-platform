@@ -45,3 +45,27 @@ class ExerciseService:
             user_id=user.id,
             req=payload,
         )
+
+    @staticmethod
+    async def get_exercise_attempts(
+        db: AsyncSession,
+        exercise_id: uuid.UUID,
+        user: User,
+    ) -> list[Any]:
+        return await LearningService.get_exercise_attempts(
+            db=db,
+            exercise_id=exercise_id,
+            user_id=user.id,
+        )
+
+    @staticmethod
+    async def get_exercise_attempt(
+        db: AsyncSession,
+        attempt_id: uuid.UUID,
+        user: User,
+    ) -> Any:
+        return await LearningService.get_exercise_attempt(
+            db=db,
+            attempt_id=attempt_id,
+            user_id=user.id,
+        )

@@ -76,3 +76,44 @@ async def submit_exercise_attempt(
         payload=payload,
     )
     return ExerciseAttemptResponse.model_validate(attempt)
+
+
+@router.get(
+    "/{exercise_id}/attempts",
+    response_model=list[ExerciseAttemptResponse],
+    summary="List student's historical attempts for this exercise",
+)
+async def get_exercise_attempts(
+    exercise_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ExerciseAttemptResponse]:
+    """Retrieve chronological attempts by the authenticated student for this exercise."""
+    attempts = await ExerciseService.get_exercise_attempts(
+        db=db,
+        exercise_id=exercise_id,
+        user=current_user,
+    )
+    return [ExerciseAttemptResponse.model_validate(att) for att in attempts]
+
+
+exercise_attempts_router = APIRouter(prefix="/exercise-attempts", tags=["Exercise Attempts"])
+
+
+@exercise_attempts_router.get(
+    "/{attempt_id}",
+    response_model=ExerciseAttemptResponse,
+    summary="Get single exercise attempt by ID",
+)
+async def get_exercise_attempt_by_id(
+    attempt_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ExerciseAttemptResponse:
+    """Retrieve an exercise attempt by ID with student data isolation."""
+    attempt = await ExerciseService.get_exercise_attempt(
+        db=db,
+        attempt_id=attempt_id,
+        user=current_user,
+    )
+    return ExerciseAttemptResponse.model_validate(attempt)

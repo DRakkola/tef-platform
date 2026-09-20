@@ -1,10 +1,11 @@
 /**
  * Production error boundary component.
+ * Catches unhandled React render errors and displays a resilient, localized French recovery screen.
  */
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw, Home, HelpCircle } from "lucide-react";
 
 interface Props {
   children: ReactNode;
@@ -35,6 +36,11 @@ export class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   };
 
+  public handleNavigate = (path: string): void => {
+    this.setState({ hasError: false, error: null });
+    window.location.href = path;
+  };
+
   public render(): ReactNode {
     if (this.state.hasError) {
       if (this.props.fallback) {
@@ -47,17 +53,35 @@ export class ErrorBoundary extends Component<Props, State> {
           className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-background text-foreground"
         >
           <div className="w-16 h-16 mb-4 rounded-full bg-destructive/10 flex items-center justify-center text-destructive">
-            <AlertTriangle className="w-8 h-8" />
+            <AlertTriangle className="w-8 h-8" aria-hidden="true" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">Something went wrong</h1>
-          <p className="text-muted-foreground max-w-md mb-6">
-            An unexpected error occurred in the application. Our engineering team
-            has been notified.
+          <h1 className="text-2xl font-bold mb-2">Une erreur inattendue est survenue</h1>
+          <p className="text-muted-foreground max-w-md mb-6 leading-relaxed">
+            Une anomalie temporaire est survenue dans l'application. Notre équipe technique
+            a été automatiquement notifiée pour résoudre la situation.
           </p>
-          <Button onClick={this.handleReset} variant="default" className="gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Reload Page
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button onClick={this.handleReset} variant="default" className="gap-2 cursor-pointer">
+              <RefreshCw className="w-4 h-4" />
+              Recharger la page
+            </Button>
+            <Button
+              onClick={() => this.handleNavigate("/dashboard")}
+              variant="outline"
+              className="gap-2 cursor-pointer"
+            >
+              <Home className="w-4 h-4" />
+              Retour au tableau de bord
+            </Button>
+            <Button
+              onClick={() => this.handleNavigate("/help")}
+              variant="ghost"
+              className="gap-2 cursor-pointer"
+            >
+              <HelpCircle className="w-4 h-4" />
+              Centre d'aide
+            </Button>
+          </div>
         </div>
       );
     }

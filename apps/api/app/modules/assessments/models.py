@@ -2,7 +2,10 @@
 
 import datetime
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.modules.admin.models import AssessmentVersion, QuestionVersion, SubSkill
 
 from sqlalchemy import (
     JSON,
@@ -77,6 +80,11 @@ class Skill(TimeStampedUUIDModel):
         "QuestionSkillTag",
         back_populates="skill",
     )
+    subskills_table: Mapped[list[SubSkill]] = relationship(
+        "SubSkill",
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
 
 
 class Assessment(TimeStampedUUIDModel):
@@ -136,6 +144,16 @@ class Assessment(TimeStampedUUIDModel):
         default=1,
         nullable=False,
     )
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     sections: Mapped[list[AssessmentSection]] = relationship(
         "AssessmentSection",
@@ -145,6 +163,11 @@ class Assessment(TimeStampedUUIDModel):
     )
     attempts: Mapped[list[Attempt]] = relationship(
         "Attempt",
+        back_populates="assessment",
+        cascade="all, delete-orphan",
+    )
+    versions: Mapped[list[AssessmentVersion]] = relationship(
+        "AssessmentVersion",
         back_populates="assessment",
         cascade="all, delete-orphan",
     )
@@ -252,6 +275,27 @@ class Question(TimeStampedUUIDModel):
         String(512),
         nullable=True,
     )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="published",
+        nullable=False,
+        index=True,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     section: Mapped[AssessmentSection] = relationship(
         "AssessmentSection",
@@ -265,6 +309,11 @@ class Question(TimeStampedUUIDModel):
     )
     skill_tags: Mapped[list[QuestionSkillTag]] = relationship(
         "QuestionSkillTag",
+        back_populates="question",
+        cascade="all, delete-orphan",
+    )
+    versions: Mapped[list[QuestionVersion]] = relationship(
+        "QuestionVersion",
         back_populates="question",
         cascade="all, delete-orphan",
     )
@@ -384,10 +433,20 @@ class Attempt(TimeStampedUUIDModel):
         default=1,
         nullable=False,
     )
+    assessment_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("assessment_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     assessment: Mapped[Assessment] = relationship(
         "Assessment",
         back_populates="attempts",
+    )
+    version_snapshot: Mapped[AssessmentVersion | None] = relationship(
+        "AssessmentVersion",
+        foreign_keys=[assessment_version_id],
     )
     user: Mapped[User] = relationship(
         "User",
@@ -403,6 +462,10 @@ class Attempt(TimeStampedUUIDModel):
         uselist=False,
         cascade="all, delete-orphan",
     )
+
+    @property
+    def student_id(self) -> uuid.UUID:
+        return self.user_id
 
 
 class AttemptAnswer(TimeStampedUUIDModel):

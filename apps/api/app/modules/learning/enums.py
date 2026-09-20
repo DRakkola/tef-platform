@@ -26,6 +26,8 @@ class RecommendationType(str, Enum):
 class RecommendationStatus(str, Enum):
     """Lifecycle status of a recommendation."""
 
+    PENDING = "pending"
+    STARTED = "started"
     ACTIVE = "active"
     COMPLETED = "completed"
     DISMISSED = "dismissed"

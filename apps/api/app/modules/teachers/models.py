@@ -125,6 +125,55 @@ class TeacherAvailabilityException(TimeStampedUUIDModel):
     __table_args__ = (Index("ix_teacher_exception_date", "teacher_id", "exception_date"),)
 
 
+class TeacherAvailabilityOverride(TimeStampedUUIDModel):
+    """Specific date custom window or slot override."""
+
+    __tablename__ = "teacher_availability_overrides"
+
+    teacher_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("teacher_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    override_date: Mapped[datetime.date] = mapped_column(
+        Date,
+        nullable=False,
+        index=True,
+    )
+    start_time: Mapped[datetime.time] = mapped_column(
+        Time,
+        nullable=False,
+    )
+    end_time: Mapped[datetime.time] = mapped_column(
+        Time,
+        nullable=False,
+    )
+    timezone: Mapped[str] = mapped_column(
+        String(50),
+        default="UTC",
+        nullable=False,
+    )
+    is_available: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+    notes: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    teacher: Mapped[TeacherProfile] = relationship(
+        "TeacherProfile",
+        back_populates="availability_overrides",
+    )
+
+    __table_args__ = (
+        Index("ix_teacher_override_date", "teacher_id", "override_date"),
+    )
+
+
 class TeacherBooking(TimeStampedUUIDModel):
     """Booking session between a student and a teacher.
 
@@ -155,11 +204,21 @@ class TeacherBooking(TimeStampedUUIDModel):
         nullable=False,
         index=True,
     )
+    timezone: Mapped[str] = mapped_column(
+        String(50),
+        default="UTC",
+        nullable=False,
+    )
     status: Mapped[BookingStatus] = mapped_column(
         SQLEnum(BookingStatus, name="booking_status", native_enum=False),
         default=BookingStatus.CONFIRMED,
         nullable=False,
         index=True,
+    )
+    payment_status: Mapped[str] = mapped_column(
+        String(20),
+        default="unpaid",
+        nullable=False,
     )
     notes: Mapped[str | None] = mapped_column(
         Text,
@@ -182,6 +241,23 @@ class TeacherBooking(TimeStampedUUIDModel):
         String(255),
         nullable=True,
     )
+
+    # Property aliases for domain API naming parity
+    @property
+    def start_at(self) -> datetime.datetime:
+        return self.start_time
+
+    @start_at.setter
+    def start_at(self, val: datetime.datetime) -> None:
+        self.start_time = val
+
+    @property
+    def end_at(self) -> datetime.datetime:
+        return self.end_time
+
+    @end_at.setter
+    def end_at(self, val: datetime.datetime) -> None:
+        self.end_time = val
 
     # Relationships
     teacher: Mapped[TeacherProfile] = relationship(
@@ -210,7 +286,7 @@ class TeacherBooking(TimeStampedUUIDModel):
             "teacher_id",
             "start_time",
             unique=True,
-            sqlite_where=(column("status") != "cancelled"),
-            postgresql_where=(column("status") != "cancelled"),
+            sqlite_where=(column("status").in_(["requested", "confirmed"])),
+            postgresql_where=(column("status").in_(["requested", "confirmed"])),
         ),
     )

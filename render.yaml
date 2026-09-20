@@ -1,0 +1,101 @@
+# Render Blueprint Specification for TEF Platform
+# Reference: https://render.com/docs/blueprint-spec
+
+services:
+  # --------------------------------------------------------------------------
+  # 1. FastAPI Web Service (Backend API)
+  # --------------------------------------------------------------------------
+  - type: web
+    name: tef-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    plan: starter
+    healthCheckPath: /health/live
+    preDeployCommand: alembic upgrade head
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PORT
+        value: 8000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tef-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: tef-redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: STORAGE_BUCKET_NAME
+        value: tef-private
+      - key: STORAGE_ENDPOINT
+        value: s3.amazonaws.com
+      - key: STORAGE_ACCESS_KEY
+        generateValue: true
+      - key: STORAGE_SECRET_KEY
+        generateValue: true
+
+  # --------------------------------------------------------------------------
+  # 2. Celery Background Worker (Async scoring, cleanup, queues)
+  # --------------------------------------------------------------------------
+  - type: worker
+    name: tef-celery-worker
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    dockerCommand: celery -A app.core.celery_app worker -l INFO -c 2
+    plan: starter
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tef-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: tef-redis
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: tef-api
+          envVarKey: SECRET_KEY
+      - key: STORAGE_BUCKET_NAME
+        value: tef-private
+      - key: STORAGE_ENDPOINT
+        value: s3.amazonaws.com
+      - key: STORAGE_ACCESS_KEY
+        fromService:
+          type: web
+          name: tef-api
+          envVarKey: STORAGE_ACCESS_KEY
+      - key: STORAGE_SECRET_KEY
+        fromService:
+          type: web
+          name: tef-api
+          envVarKey: STORAGE_SECRET_KEY
+
+  # --------------------------------------------------------------------------
+  # 3. Redis Instance (Cache & Queue Broker)
+  # --------------------------------------------------------------------------
+  - type: redis
+    name: tef-redis
+    plan: starter
+    ipAllowList: []
+
+databases:
+  # --------------------------------------------------------------------------
+  # 4. Managed PostgreSQL Database
+  # --------------------------------------------------------------------------
+  - name: tef-postgres
+    databaseName: tef_platform
+    user: tef_app
+    plan: starter
+    postgresMajorVersion: 16

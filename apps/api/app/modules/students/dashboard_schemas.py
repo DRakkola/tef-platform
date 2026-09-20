@@ -1,7 +1,6 @@
-"""Pydantic schemas for the student dashboard and progress analytics."""
-
 import datetime
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,7 +19,10 @@ class SkillSummaryMetric(BaseModel):
     confidence: float
     confidence_label: str = "Low"  # High, Medium, Low, Calibration
     insufficient_data: bool = False
+    trend: str = "stable"  # improving, declining, stable, insufficient_data
+    estimated_level: str | None = None
     attempts_count: int = 0
+    successful_attempts: int = 0
     last_assessed_at: datetime.datetime | None = None
 
 
@@ -111,18 +113,34 @@ class StudentDashboardResponse(BaseModel):
 
     target_exam: str | None = None
     target_level: str | None = None
+    target_cefr_level: str | None = None
+    target_nclc_level: str | None = None
+    target_date: str | None = None
+    days_remaining: int | None = None
+    target_urgency: str = "none"
+    score_gap: float = 0.0
+    level_distance: int = 0
+    is_target_met: bool = False
+    target_disclaimer: str = ""
     native_language: str | None = None
     overall_readiness: float | None = None
+    current_cefr_level: str | None = None
+    current_nclc_level: str | None = None
     total_assessments_taken: int = 0
     total_practice_minutes: int = 0
     skills: list[SkillSummaryMetric] = Field(default_factory=list)
     progress_history: list[ProgressDataPoint] = Field(default_factory=list)
     weakest_skills: list[WeakestSkillSummary] = Field(default_factory=list)
+    strongest_skills: list[WeakestSkillSummary] = Field(default_factory=list)
+    daily_plan: dict[str, Any] | None = None
     recommended_exercises: list[RecommendedExerciseSummary] = Field(default_factory=list)
     recent_assessments: list[RecentAssessmentSummary] = Field(default_factory=list)
     recent_writing_corrections: list[RecentWritingSummary] = Field(default_factory=list)
     upcoming_bookings: list[UpcomingBookingSummary] = Field(default_factory=list)
     recent_speaking_sessions: list[RecentSpeakingSummary] = Field(default_factory=list)
+    recent_activity: list[dict[str, Any]] = Field(default_factory=list)
+    segment: str = "new_student"
+    engagement_status: dict[str, Any] = Field(default_factory=dict)
 
 
 class StudentProgressResponse(BaseModel):
@@ -130,3 +148,8 @@ class StudentProgressResponse(BaseModel):
 
     timeline: list[ProgressDataPoint] = Field(default_factory=list)
     skills: list[SkillSummaryMetric] = Field(default_factory=list)
+    overall_score: float | None = None
+    estimated_cefr_level: str | None = None
+    estimated_nclc_level: str | None = None
+    disclaimer: str = ""
+

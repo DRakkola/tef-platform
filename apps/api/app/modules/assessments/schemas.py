@@ -75,6 +75,8 @@ class AssessmentListItemResponse(BaseModel):
     description: str | None = None
     assessment_type: AssessmentType
     duration_seconds: int
+    estimated_completion_time_minutes: int = 40
+    level: str = "B1-C1"
     navigation_policy: NavigationPolicy
     scoring_policy: ScoringPolicy
     max_attempts: int | None = None
@@ -99,6 +101,8 @@ class AssessmentDetailResponse(BaseModel):
     description: str | None = None
     assessment_type: AssessmentType
     duration_seconds: int
+    estimated_completion_time_minutes: int = 40
+    level: str = "B1-C1"
     navigation_policy: NavigationPolicy
     scoring_policy: ScoringPolicy
     max_attempts: int | None = None
@@ -113,6 +117,16 @@ class AnswerSubmitRequest(BaseModel):
     selected_option_id: uuid.UUID | None = None
     selected_option_ids: list[uuid.UUID] = Field(default_factory=list)
     text_response: str | None = None
+    client_timestamp: datetime.datetime | None = None
+
+
+class PutAnswerRequest(BaseModel):
+    """Payload for PUT /api/v1/attempts/{id}/answers/{question_id}."""
+
+    selected_option_id: uuid.UUID | None = None
+    selected_option_ids: list[uuid.UUID] = Field(default_factory=list)
+    text_response: str | None = None
+    client_timestamp: datetime.datetime | None = None
 
 
 class AttemptAnswerStudentResponse(BaseModel):
@@ -132,13 +146,34 @@ class AttemptDetailResponse(BaseModel):
 
     id: uuid.UUID
     assessment_id: uuid.UUID
+    assessment_version_id: uuid.UUID | None = None
     user_id: uuid.UUID
+    student_id: uuid.UUID | None = None
     status: AttemptStatus
     started_at: datetime.datetime | None = None
     expires_at: datetime.datetime | None = None
     submitted_at: datetime.datetime | None = None
     remaining_seconds: int
     answers: list[AttemptAnswerStudentResponse] = []
+
+
+class AttemptStateResponse(BaseModel):
+    """Server-authoritative state for active attempt sync and reconnection."""
+
+    attempt_id: uuid.UUID
+    assessment_id: uuid.UUID
+    assessment_version_id: uuid.UUID | None = None
+    user_id: uuid.UUID
+    student_id: uuid.UUID
+    status: AttemptStatus
+    started_at: datetime.datetime | None = None
+    expires_at: datetime.datetime | None = None
+    server_time: datetime.datetime
+    remaining_seconds: int
+    is_expired: bool
+    answered_count: int
+    total_questions: int
+    answers: dict[str, str | list[str] | None] = Field(default_factory=dict)
 
 
 # ==========================================
@@ -209,6 +244,33 @@ class AttemptScoreResponse(BaseModel):
     scored_at: datetime.datetime
 
 
+class MistakeItemResponse(BaseModel):
+    """Educational breakdown of an incorrectly answered question."""
+
+    question_id: uuid.UUID
+    prompt: str
+    level: str
+    points: int
+    user_answer: str | None = None
+    correct_answer: str | None = None
+    explanation: str | None = None
+    skill_name: str | None = None
+    subskill: str | None = None
+
+
+class RecommendedExerciseResultResponse(BaseModel):
+    """Targeted exercise suggestion generated after grading."""
+
+    id: uuid.UUID
+    title: str
+    category: str
+    difficulty: int
+    level: str
+    target_skill_name: str
+    reason: str
+    priority: str = "medium"
+
+
 class AttemptResultsResponse(BaseModel):
     attempt_id: uuid.UUID
     assessment_id: uuid.UUID
@@ -219,3 +281,59 @@ class AttemptResultsResponse(BaseModel):
     submitted_at: datetime.datetime | None = None
     score: AttemptScoreResponse
     sections: list[SectionResultResponse] = []
+    disclaimer: str = (
+        "Ce résultat constitue une estimation indicative de performance basée sur notre algorithme de simulation. "
+        "Il ne s'agit en aucun cas d'une attestation ou certification officielle TEF délivrée par la CCI Paris Île-de-France."
+    )
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    mistakes: list[MistakeItemResponse] = Field(default_factory=list)
+    recommended_exercises: list[RecommendedExerciseResultResponse] = Field(default_factory=list)
+
+
+class ActiveAttemptResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    assessment_id: uuid.UUID
+    title: str
+    assessment_type: AssessmentType
+    level: str = "B1-C1"
+    duration_seconds: int
+    remaining_seconds: int
+    started_at: datetime.datetime
+    expires_at: datetime.datetime
+    total_questions: int = 0
+    answered_count: int = 0
+
+
+class AttemptHistoryItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    assessment_id: uuid.UUID
+    title: str
+    assessment_type: AssessmentType
+    level: str = "B1-C1"
+    score_percentage: float | None = None
+    passed: bool | None = None
+    estimated_level: str | None = None
+    status: AttemptStatus
+    started_at: datetime.datetime
+    submitted_at: datetime.datetime | None = None
+    duration_seconds: int | None = None
+
+
+class AssessmentRecommendationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    assessment_id: uuid.UUID
+    title: str
+    assessment_type: AssessmentType
+    level: str = "B2"
+    duration_seconds: int
+    estimated_completion_time_minutes: int
+    question_count: int = 0
+    section_count: int = 0
+    reason: str
+    recommendation_type: str = "simulation"

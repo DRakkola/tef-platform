@@ -22,6 +22,12 @@ SENSITIVE_KEYS = {
     "session",
     "student_writing",
     "audio_content",
+    "card",
+    "cvv",
+    "account_number",
+    "transcript",
+    "client_secret",
+    "stripe_signature",
 }
 
 

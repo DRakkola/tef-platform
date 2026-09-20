@@ -43,6 +43,8 @@ class PracticeMatchStatus(StrEnum):
 class PracticeSessionStatus(StrEnum):
     """Lifecycle status of an authoritative practice session."""
 
+    CREATED = "created"
+    WAITING = "waiting"
     ACTIVE = "active"
     COMPLETED = "completed"
     ABANDONED = "abandoned"
@@ -55,6 +57,18 @@ class PracticeReportReason(StrEnum):
 
     INAPPROPRIATE_BEHAVIOR = "inappropriate_behavior"
     HARASSMENT = "harassment"
+    SPAM = "spam"
     AUDIO_ISSUES = "audio_issues"
     OFFENSIVE_LANGUAGE = "offensive_language"
+    TECHNICAL_ABUSE = "technical_abuse"
     OTHER = "other"
+
+
+class PracticeReportStatus(StrEnum):
+    """Lifecycle status of a moderation report."""
+
+    OPEN = "open"
+    REVIEWING = "reviewing"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"
+

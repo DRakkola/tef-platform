@@ -67,4 +67,4 @@ class Notification(UUIDModel):
         nullable=True,
     )
 
-    user: Mapped["User"] = relationship("User")
+    user: Mapped[User] = relationship("User")

@@ -13,9 +13,11 @@ from app.modules.users.models import User, UserRole
 from app.modules.writing.enums import WritingSubmissionStatus
 from app.modules.writing.schemas import (
     TeacherCorrectionRequest,
+    WritingAssignmentResponse,
     WritingAttemptDraftUpdate,
     WritingAttemptResponse,
     WritingCorrectionResponse,
+    WritingResultResponse,
     WritingSubmissionDetailResponse,
     WritingSubmissionResponse,
     WritingTaskDetail,
@@ -140,26 +142,34 @@ async def get_writing_attempt(
     response_model=WritingAttemptResponse,
     summary="Save live draft editor content",
 )
+@router.put(
+    "/writing/attempts/{attempt_id}/draft",
+    response_model=WritingAttemptResponse,
+    summary="Save live draft editor content with stale revision rejection",
+)
 async def save_writing_draft(
     attempt_id: uuid.UUID,
     req: WritingAttemptDraftUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> WritingAttemptResponse:
-    """Save editor draft content and recalculate French word count."""
+    """Save editor draft content, record revision snapshot, and reject stale revisions."""
     attempt, rem_sec = await WritingService.save_draft(
         db=db,
         attempt_id=attempt_id,
         user_id=current_user.id,
         content=req.content,
+        revision_number=req.revision_number,
     )
     return WritingAttemptResponse(
         id=attempt.id,
         task_id=attempt.task_id,
+        writing_task_version_id=attempt.writing_task_version_id,
         user_id=attempt.user_id,
         status=attempt.status,
         content=attempt.content,
         word_count=attempt.word_count,
+        current_revision=attempt.current_revision,
         started_at=attempt.started_at,
         expires_at=attempt.expires_at,
         remaining_seconds=rem_sec,
@@ -189,6 +199,7 @@ async def submit_writing_attempt(
         id=submission.id,
         attempt_id=submission.attempt_id,
         task_id=submission.task_id,
+        writing_task_version_id=submission.writing_task_version_id,
         user_id=submission.user_id,
         assigned_teacher_id=submission.assigned_teacher_id,
         status=submission.status,
@@ -196,6 +207,29 @@ async def submit_writing_attempt(
         submitted_at=submission.submitted_at,
         correction=None,
     )
+
+
+@router.get(
+    "/writing/attempts/{attempt_id}/result",
+    response_model=WritingResultResponse,
+    summary="Get submitted writing attempt results and correction breakdown",
+)
+async def get_writing_attempt_result(
+    attempt_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: StorageService = Depends(get_storage),
+) -> WritingResultResponse:
+    """Retrieve official submission result, teacher evaluation, mistake items, and simulation disclaimer."""
+    is_admin = current_user.role == UserRole.ADMIN
+    result = await WritingService.get_attempt_result(
+        db=db,
+        attempt_id=attempt_id,
+        current_user_id=current_user.id,
+        is_admin=is_admin,
+        storage=storage,
+    )
+    return WritingResultResponse.model_validate(result)
 
 
 @router.get(
@@ -257,6 +291,79 @@ async def trigger_mock_correction(
 
 
 @router.get(
+    "/teacher/writing/queue",
+    response_model=list[WritingSubmissionResponse],
+    summary="Get unassigned submissions in teacher review queue",
+)
+@router.get(
+    "/teachers/writing/queue",
+    response_model=list[WritingSubmissionResponse],
+    summary="Get unassigned submissions in teacher review queue (alias)",
+)
+async def get_teacher_writing_queue(
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    db: AsyncSession = Depends(get_db),
+    _teacher_user: User = Depends(require_role(UserRole.TEACHER, UserRole.ADMIN)),
+) -> list[WritingSubmissionResponse]:
+    """Retrieve unassigned submissions waiting in the correction queue."""
+    items, _ = await WritingService.list_teacher_queue(db=db, page=page, page_size=page_size)
+    return [
+        WritingSubmissionResponse(
+            id=s.id,
+            attempt_id=s.attempt_id,
+            task_id=s.task_id,
+            writing_task_version_id=s.writing_task_version_id,
+            user_id=s.user_id,
+            assigned_teacher_id=s.assigned_teacher_id,
+            status=s.status,
+            word_count=s.word_count,
+            submitted_at=s.submitted_at,
+            correction=None,
+        )
+        for s in items
+    ]
+
+
+@router.get(
+    "/teacher/writing/assignments",
+    response_model=list[WritingSubmissionResponse],
+    summary="List submissions claimed or assigned to this teacher",
+)
+@router.get(
+    "/teachers/writing/assignments",
+    response_model=list[WritingSubmissionResponse],
+    summary="List submissions claimed or assigned to this teacher (alias)",
+)
+async def get_teacher_writing_assignments(
+    status_filter: WritingSubmissionStatus | None = None,
+    db: AsyncSession = Depends(get_db),
+    teacher_user: User = Depends(require_role(UserRole.TEACHER, UserRole.ADMIN)),
+) -> list[WritingSubmissionResponse]:
+    """Retrieve submissions currently assigned to or claimed by the authenticated teacher."""
+    items = await WritingService.list_teacher_assignments(
+        db=db,
+        teacher_id=teacher_user.id,
+        status_filter=status_filter,
+    )
+    return [
+        WritingSubmissionResponse(
+            id=s.id,
+            attempt_id=s.attempt_id,
+            task_id=s.task_id,
+            writing_task_version_id=s.writing_task_version_id,
+            user_id=s.user_id,
+            assigned_teacher_id=s.assigned_teacher_id,
+            status=s.status,
+            word_count=s.word_count,
+            submitted_at=s.submitted_at,
+            correction=None,
+        )
+        for s in items
+    ]
+
+
+@router.get(
     "/teachers/writing/submissions",
     response_model=list[WritingSubmissionResponse],
     summary="List unassigned queue and teacher's assigned submissions",
@@ -277,6 +384,7 @@ async def list_teacher_submissions(
             id=s.id,
             attempt_id=s.attempt_id,
             task_id=s.task_id,
+            writing_task_version_id=s.writing_task_version_id,
             user_id=s.user_id,
             assigned_teacher_id=s.assigned_teacher_id,
             status=s.status,
@@ -288,10 +396,55 @@ async def list_teacher_submissions(
     ]
 
 
+@router.post(
+    "/teacher/writing/{submission_id}/claim",
+    response_model=WritingSubmissionResponse,
+    summary="Claim submission for review (with row-level concurrency lock)",
+)
+@router.post(
+    "/teachers/writing/{submission_id}/claim",
+    response_model=WritingSubmissionResponse,
+    summary="Claim submission for review (alias)",
+)
+@router.post(
+    "/teachers/writing/submissions/{submission_id}/assign",
+    response_model=WritingSubmissionResponse,
+    summary="Assign submission to teacher (legacy alias)",
+)
+async def claim_writing_submission(
+    submission_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    teacher_user: User = Depends(require_role(UserRole.TEACHER, UserRole.ADMIN)),
+) -> WritingSubmissionResponse:
+    """Claim an unassigned submission for correction using pessimistic row-locking."""
+    submission = await WritingService.claim_submission(
+        db=db,
+        submission_id=submission_id,
+        teacher_id=teacher_user.id,
+    )
+    return WritingSubmissionResponse(
+        id=submission.id,
+        attempt_id=submission.attempt_id,
+        task_id=submission.task_id,
+        writing_task_version_id=submission.writing_task_version_id,
+        user_id=submission.user_id,
+        assigned_teacher_id=submission.assigned_teacher_id,
+        status=submission.status,
+        word_count=submission.word_count,
+        submitted_at=submission.submitted_at,
+        correction=None,
+    )
+
+
+@router.get(
+    "/teacher/writing/{submission_id}",
+    response_model=WritingSubmissionDetailResponse,
+    summary="Get submission text and prompt for teacher review",
+)
 @router.get(
     "/teachers/writing/submissions/{submission_id}",
     response_model=WritingSubmissionDetailResponse,
-    summary="Get submission text for teacher review",
+    summary="Get submission text for teacher review (alias)",
 )
 async def get_teacher_submission_detail(
     submission_id: uuid.UUID,
@@ -309,35 +462,6 @@ async def get_teacher_submission_detail(
         storage=storage,
     )
     return WritingSubmissionDetailResponse.model_validate(detail)
-
-
-@router.post(
-    "/teachers/writing/submissions/{submission_id}/assign",
-    response_model=WritingSubmissionResponse,
-    summary="Assign submission to teacher",
-)
-async def assign_teacher_submission(
-    submission_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    teacher_user: User = Depends(require_role(UserRole.TEACHER, UserRole.ADMIN)),
-) -> WritingSubmissionResponse:
-    """Self-assign an unassigned submission for correction."""
-    submission = await WritingService.assign_teacher_submission(
-        db=db,
-        submission_id=submission_id,
-        teacher_id=teacher_user.id,
-    )
-    return WritingSubmissionResponse(
-        id=submission.id,
-        attempt_id=submission.attempt_id,
-        task_id=submission.task_id,
-        user_id=submission.user_id,
-        assigned_teacher_id=submission.assigned_teacher_id,
-        status=submission.status,
-        word_count=submission.word_count,
-        submitted_at=submission.submitted_at,
-        correction=None,
-    )
 
 
 @router.post(
@@ -360,6 +484,7 @@ async def start_teacher_review(
         id=submission.id,
         attempt_id=submission.attempt_id,
         task_id=submission.task_id,
+        writing_task_version_id=submission.writing_task_version_id,
         user_id=submission.user_id,
         assigned_teacher_id=submission.assigned_teacher_id,
         status=submission.status,
@@ -370,9 +495,14 @@ async def start_teacher_review(
 
 
 @router.post(
+    "/teacher/writing/{submission_id}/evaluate",
+    response_model=WritingCorrectionResponse,
+    summary="Submit structured teacher evaluation, criteria scores, and mistake items",
+)
+@router.post(
     "/teachers/writing/submissions/{submission_id}/correct",
     response_model=WritingCorrectionResponse,
-    summary="Submit teacher correction and return to student",
+    summary="Submit teacher correction and return to student (legacy alias)",
 )
 async def submit_teacher_correction(
     submission_id: uuid.UUID,
@@ -380,7 +510,7 @@ async def submit_teacher_correction(
     db: AsyncSession = Depends(get_db),
     teacher_user: User = Depends(require_role(UserRole.TEACHER, UserRole.ADMIN)),
 ) -> WritingCorrectionResponse:
-    """Record teacher evaluation, score, feedback, and return submission to student."""
+    """Record teacher evaluation, criteria scores, fine-grained mistakes, and update student learning profile."""
     correction = await WritingService.submit_teacher_correction(
         db=db,
         submission_id=submission_id,

@@ -13,6 +13,8 @@ from app.modules.learning.schemas import (
     ExerciseAttemptResponse,
     ExerciseResponse,
     MistakeResponse,
+    RecommendationFeedbackRequest,
+    RecommendationFeedbackResponse,
     RecommendationResponse,
     SkillAssessmentResponse,
     StudentSkillResponse,
@@ -133,6 +135,29 @@ async def complete_recommendation(
         new_status=RecommendationStatus.COMPLETED,
     )
     return RecommendationResponse.model_validate(updated)
+
+
+@router.post(
+    "/recommendations/{recommendation_id}/feedback",
+    response_model=RecommendationFeedbackResponse,
+    summary="Submit student feedback and relevance rating for a recommendation",
+)
+async def submit_recommendation_feedback(
+    recommendation_id: uuid.UUID,
+    payload: RecommendationFeedbackRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RecommendationFeedbackResponse:
+    """Record student feedback on recommendation quality and relevance."""
+    result = await LearningService.submit_recommendation_feedback(
+        db=db,
+        recommendation_id=recommendation_id,
+        user_id=current_user.id,
+        relevance_rating=payload.relevance_rating,
+        reason=payload.reason,
+        dismiss_recommendation=payload.dismiss_recommendation,
+    )
+    return RecommendationFeedbackResponse.model_validate(result)
 
 
 @router.get(

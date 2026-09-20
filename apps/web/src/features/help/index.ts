@@ -1,0 +1,13 @@
+export { HelpPage } from "./HelpPage";
+export { ArticleDetailPage } from "./ArticleDetailPage";
+export { HelpSearchHeader } from "./components/HelpSearchHeader";
+export { HelpCategoriesGrid } from "./components/HelpCategoriesGrid";
+export { FaqAccordion } from "./components/FaqAccordion";
+export { SearchResultsView } from "./components/SearchResultsView";
+export { ContactSupportDialog } from "./components/ContactSupportDialog";
+export { MyRequestsSection } from "./components/MyRequestsSection";
+export { TicketDetailDialog } from "./components/TicketDetailDialog";
+export { useHelpSearch, useMySupportTickets, useSubmitSupportTicket } from "./useHelp";
+export { HELP_CATEGORIES, HELP_ARTICLES, FAQ_ITEMS } from "./content";
+export * from "./types";
+export * from "./api";

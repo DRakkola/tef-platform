@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy import (
     Enum as SQLEnum,
@@ -24,11 +25,14 @@ from app.core.database import TimeStampedUUIDModel
 from app.modules.writing.enums import (
     CorrectionProviderType,
     WritingAttemptStatus,
+    WritingCorrectionStatus,
     WritingSubmissionStatus,
     WritingTaskType,
 )
 
 if TYPE_CHECKING:
+    from app.modules.admin.models import WritingTaskVersion
+    from app.modules.learning.models import Skill
     from app.modules.users.models import User
 
 
@@ -92,6 +96,16 @@ class WritingTask(TimeStampedUUIDModel):
         default=1,
         nullable=False,
     )
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     attempts: Mapped[list[WritingAttempt]] = relationship(
         "WritingAttempt",
@@ -101,6 +115,11 @@ class WritingTask(TimeStampedUUIDModel):
     submissions: Mapped[list[WritingSubmission]] = relationship(
         "WritingSubmission",
         back_populates="task",
+        cascade="all, delete-orphan",
+    )
+    versions: Mapped[list[WritingTaskVersion]] = relationship(
+        "WritingTaskVersion",
+        back_populates="writing_task",
         cascade="all, delete-orphan",
     )
 
@@ -138,6 +157,17 @@ class WritingAttempt(TimeStampedUUIDModel):
         default=0,
         nullable=False,
     )
+    writing_task_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("writing_task_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    current_revision: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
     started_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -155,11 +185,19 @@ class WritingAttempt(TimeStampedUUIDModel):
         "WritingTask",
         back_populates="attempts",
     )
+    task_version: Mapped[WritingTaskVersion | None] = relationship(
+        "WritingTaskVersion",
+    )
     user: Mapped[User] = relationship("User")
     submission: Mapped[WritingSubmission | None] = relationship(
         "WritingSubmission",
         back_populates="attempt",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+    draft_revisions: Mapped[list[WritingDraftRevision]] = relationship(
+        "WritingDraftRevision",
+        back_populates="attempt",
         cascade="all, delete-orphan",
     )
 
@@ -180,6 +218,12 @@ class WritingSubmission(TimeStampedUUIDModel):
         UUID(as_uuid=True),
         ForeignKey("writing_tasks.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+    writing_task_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("writing_task_versions.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -222,6 +266,9 @@ class WritingSubmission(TimeStampedUUIDModel):
         "WritingTask",
         back_populates="submissions",
     )
+    task_version: Mapped[WritingTaskVersion | None] = relationship(
+        "WritingTaskVersion",
+    )
     student: Mapped[User] = relationship(
         "User",
         foreign_keys=[user_id],
@@ -236,10 +283,15 @@ class WritingSubmission(TimeStampedUUIDModel):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    assignments: Mapped[list[WritingAssignment]] = relationship(
+        "WritingAssignment",
+        back_populates="submission",
+        cascade="all, delete-orphan",
+    )
 
 
 class WritingCorrection(TimeStampedUUIDModel):
-    """Graded evaluation with provenance, scores, and linguistic recommendations."""
+    """Graded evaluation with provenance, scores, criteria breakdown, and linguistic recommendations."""
 
     __tablename__ = "writing_corrections"
 
@@ -261,6 +313,12 @@ class WritingCorrection(TimeStampedUUIDModel):
         nullable=True,
         index=True,
     )
+    status: Mapped[WritingCorrectionStatus] = mapped_column(
+        SQLEnum(WritingCorrectionStatus, name="writing_correction_status", native_enum=False),
+        default=WritingCorrectionStatus.SUBMITTED,
+        nullable=False,
+        index=True,
+    )
     score: Mapped[float] = mapped_column(
         Float,
         nullable=False,
@@ -269,6 +327,14 @@ class WritingCorrection(TimeStampedUUIDModel):
         String(20),
         nullable=False,
     )
+    task_completion: Mapped[float | None] = mapped_column(Float, nullable=True)
+    coherence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    vocabulary: Mapped[float | None] = mapped_column(Float, nullable=True)
+    grammar: Mapped[float | None] = mapped_column(Float, nullable=True)
+    syntax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spelling: Mapped[float | None] = mapped_column(Float, nullable=True)
+    register: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     strengths: Mapped[list[str]] = mapped_column(
         JSON,
         default=list,
@@ -300,4 +366,174 @@ class WritingCorrection(TimeStampedUUIDModel):
     corrected_by: Mapped[User | None] = relationship(
         "User",
         foreign_keys=[corrected_by_user_id],
+    )
+    items: Mapped[list[WritingCorrectionItem]] = relationship(
+        "WritingCorrectionItem",
+        back_populates="correction",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    skills: Mapped[list[WritingCorrectionSkill]] = relationship(
+        "WritingCorrectionSkill",
+        back_populates="correction",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class WritingDraftRevision(TimeStampedUUIDModel):
+    """Immutable snapshot of student draft autosaves protecting against stale writes."""
+
+    __tablename__ = "writing_draft_revisions"
+    __table_args__ = (
+        UniqueConstraint("attempt_id", "revision_number", name="uq_draft_revision_attempt_number"),
+    )
+
+    attempt_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("writing_attempts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision_number: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+    word_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    attempt: Mapped[WritingAttempt] = relationship(
+        "WritingAttempt",
+        back_populates="draft_revisions",
+    )
+
+
+class WritingCorrectionItem(TimeStampedUUIDModel):
+    """Fine-grained linguistic correction item for inline suggestions and mistake analysis."""
+
+    __tablename__ = "writing_correction_items"
+
+    correction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("writing_corrections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    original_text: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+    corrected_text: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+    category: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+    )
+    skill_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    explanation: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    correction: Mapped[WritingCorrection] = relationship(
+        "WritingCorrection",
+        back_populates="items",
+    )
+
+
+class WritingCorrectionSkill(TimeStampedUUIDModel):
+    """Skill-level evaluation score and qualitative feedback."""
+
+    __tablename__ = "writing_correction_skills"
+
+    correction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("writing_corrections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+    level: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+    )
+    feedback: Mapped[str] = mapped_column(
+        Text,
+        default="",
+        nullable=False,
+    )
+
+    correction: Mapped[WritingCorrection] = relationship(
+        "WritingCorrection",
+        back_populates="skills",
+    )
+
+
+class WritingAssignment(TimeStampedUUIDModel):
+    """Assignment audit log tracking teacher claiming and workflow transitions."""
+
+    __tablename__ = "writing_assignments"
+
+    submission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("writing_submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    teacher_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default="assigned",
+        nullable=False,
+        index=True,
+    )
+    assigned_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+    )
+    claimed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    submission: Mapped[WritingSubmission] = relationship(
+        "WritingSubmission",
+        back_populates="assignments",
+    )
+    teacher: Mapped[User] = relationship(
+        "User",
+        foreign_keys=[teacher_id],
     )

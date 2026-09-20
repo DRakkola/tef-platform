@@ -125,3 +125,20 @@ make check
 # Windows PowerShell
 powershell -ExecutionPolicy Bypass -File scripts/check.ps1
 ```
+
+---
+
+## 🧠 Student Learning Loop & Intelligence System
+
+The TEF platform incorporates an end-to-end pedagogical intelligence engine:
+- **Time-Decayed Bayesian Mastery**: Deterministic, sample-calibrated rolling skill mastery calculation.
+- **CEFR & Canadian NCLC Levels**: Real-time indicative level estimation with official simulation disclaimers.
+- **Target Gap Analysis**: Score gap, level step distance, and exam countdown urgency classification.
+- **Personalized Daily Study Plan**: Real-time 4-part practice recommendations with progress tracking.
+- **Recommendation Engine V2**: Weakness remediation, target gap priority boosts (+25), and 48-hour exercise cooldown.
+- **Immutable Progress Timeline**: Append-only activity and assessment snapshots guaranteeing audit integrity.
+
+For technical deep-dives:
+- [Student Assessment Experience Specification](docs/STUDENT_ASSESSMENT_EXPERIENCE.md)
+- [Learning Engine & Skill Intelligence Specification](docs/LEARNING_ENGINE.md)
+

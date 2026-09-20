@@ -9,8 +9,13 @@ from sqlalchemy.orm import selectinload
 
 from app.modules.assessments.enums import AttemptStatus
 from app.modules.assessments.models import Attempt
+from app.modules.learning.activity import ActivityTracker
+from app.modules.learning.daily_plan import DailyPlanService
 from app.modules.learning.enums import RecommendationStatus
-from app.modules.learning.models import Exercise, Recommendation, SkillAssessment, StudentSkill
+from app.modules.learning.levels import LevelEstimationService
+from app.modules.learning.models import Exercise, Recommendation
+from app.modules.learning.strengths_weaknesses import StrengthsWeaknessesService
+from app.modules.learning.targets import TargetGapService
 from app.modules.practice_pool.enums import PracticeSessionStatus
 from app.modules.practice_pool.models import PracticeSession
 from app.modules.speaking.enums import SpeakingSessionState
@@ -33,20 +38,6 @@ from app.modules.writing.enums import WritingSubmissionStatus
 from app.modules.writing.models import WritingCorrection, WritingSubmission
 
 
-def _determine_confidence_label(confidence: float, attempts_count: int) -> tuple[str, bool]:
-    """Determine confidence label and whether there is insufficient data.
-
-    Avoids misleading percentages when attempts < 2 or confidence < 0.25.
-    """
-    if attempts_count < 2 or confidence < 0.25:
-        return "Calibration", True
-    if confidence >= 0.75:
-        return "High", False
-    if confidence >= 0.50:
-        return "Medium", False
-    return "Low", False
-
-
 class StudentDashboardService:
     """Core domain aggregation service for student dashboard and progress."""
 
@@ -58,104 +49,71 @@ class StudentDashboardService:
         """Aggregate complete student dashboard payload optimized for single-call loading."""
         now_utc = datetime.datetime.now(datetime.UTC)
 
-        # 1. Student Profile
-        profile_stmt = select(StudentProfile).where(StudentProfile.user_id == user.id)
-        profile = (await db.execute(profile_stmt)).scalar_one_or_none()
-        target_exam = profile.target_exam if profile else "TEF Canada"
-        target_level = profile.target_level if profile else "B2"
-        native_lang = profile.native_language if profile else None
+        # 1. Target Gap and Readiness Analysis
+        target_gap = await TargetGapService.get_target_gap(db, user.id)
 
-        # 2. Student Skills & Change
-        skills_stmt = (
-            select(StudentSkill)
-            .where(StudentSkill.user_id == user.id)
-            .options(selectinload(StudentSkill.skill))
-            .order_by(StudentSkill.mastery_score.asc())
-        )
-        student_skills = (await db.execute(skills_stmt)).scalars().all()
+        # 2. Student Skills and Trajectory Analysis
+        analysis = await StrengthsWeaknessesService.analyze_skills(db, user.id)
 
-        skill_metrics: list[SkillSummaryMetric] = []
-        scores_for_readiness: list[float] = []
-
-        for ss in student_skills:
-            conf_label, is_insufficient = _determine_confidence_label(
-                ss.confidence, ss.attempts_count
+        skill_metrics: list[SkillSummaryMetric] = [
+            SkillSummaryMetric(
+                skill_id=s["skill_id"],
+                skill_name=s["skill_name"],
+                category=s["category"],
+                current_score=s["mastery_score"],
+                previous_score=s["previous_score"],
+                change=s["change"],
+                confidence=s["confidence"],
+                confidence_label=s["confidence_label"],
+                insufficient_data=s["insufficient_data"],
+                trend=s["trend"],
+                estimated_level=LevelEstimationService.estimate_cefr(s["mastery_score"]),
+                attempts_count=s["attempts_count"],
+                last_assessed_at=s["last_assessed_at"],
             )
+            for s in analysis["all_skills"]
+        ]
 
-            # Query previous assessment score from SkillAssessment audit log
-            prev_stmt = (
-                select(SkillAssessment)
-                .where(
-                    SkillAssessment.user_id == user.id,
-                    SkillAssessment.skill_id == ss.skill_id,
-                )
-                .order_by(desc(SkillAssessment.assessed_at))
-                .offset(1)
-                .limit(1)
+        # 3. Weakest and Strongest Skills Summaries
+        weakest_skills: list[WeakestSkillSummary] = [
+            WeakestSkillSummary(
+                skill_id=w["skill_id"],
+                skill_name=w["skill_name"],
+                category=w["category"],
+                mastery_score=w["mastery_score"],
+                reason=f"Maîtrise estimée à {w['mastery_score']:.0f}% (seuil cible {target_gap['target_cefr_level']} : {target_gap['target_threshold_score']:.0f}%)",
+                recommended_exercise_id=None,
             )
-            prev_assessment = (await db.execute(prev_stmt)).scalar_one_or_none()
-            previous_score = round(prev_assessment.score, 1) if prev_assessment else None
-            change = (
-                round(ss.mastery_score - previous_score, 1) if previous_score is not None else None
+            for w in analysis["weakest_skills"][:3]
+        ]
+
+        strongest_skills: list[WeakestSkillSummary] = [
+            WeakestSkillSummary(
+                skill_id=s["skill_id"],
+                skill_name=s["skill_name"],
+                category=s["category"],
+                mastery_score=s["mastery_score"],
+                reason=f"Compétence solide ({s['mastery_score']:.0f}%)",
+                recommended_exercise_id=None,
             )
+            for s in analysis["strongest_skills"][:3]
+        ]
 
-            skill_name = ss.skill.name if ss.skill else "Compétence"
-            category = ss.skill.category.value if ss.skill and ss.skill.category else "general"
+        # 4. Daily Practice Plan
+        daily_plan = await DailyPlanService.get_daily_plan(db, user.id)
 
-            if not is_insufficient:
-                scores_for_readiness.append(ss.mastery_score)
-
-            skill_metrics.append(
-                SkillSummaryMetric(
-                    skill_id=ss.skill_id,
-                    skill_name=skill_name,
-                    category=category,
-                    current_score=round(ss.mastery_score, 1),
-                    previous_score=previous_score,
-                    change=change,
-                    confidence=round(ss.confidence, 2),
-                    confidence_label=conf_label,
-                    insufficient_data=is_insufficient,
-                    attempts_count=ss.attempts_count,
-                    last_assessed_at=ss.last_assessed_at,
-                )
-            )
-
-        overall_readiness = (
-            round(sum(scores_for_readiness) / len(scores_for_readiness), 1)
-            if scores_for_readiness
-            else (
-                round(sum(ss.mastery_score for ss in student_skills) / len(student_skills), 1)
-                if student_skills
-                else None
-            )
-        )
-
-        # 3. Weakest Skills
-        weakest_skills: list[WeakestSkillSummary] = []
-        for ss in student_skills:
-            if ss.mastery_score < 75.0 or ss.attempts_count >= 1:
-                skill_name = ss.skill.name if ss.skill else "Compétence"
-                category = ss.skill.category.value if ss.skill and ss.skill.category else "general"
-                weakest_skills.append(
-                    WeakestSkillSummary(
-                        skill_id=ss.skill_id,
-                        skill_name=skill_name,
-                        category=category,
-                        mastery_score=round(ss.mastery_score, 1),
-                        reason=f"Score sous le seuil B2 ({round(ss.mastery_score, 1)}%)",
-                        recommended_exercise_id=None,
-                    )
-                )
-            if len(weakest_skills) >= 3:
-                break
-
-        # 4. Recommended Exercises from Learning Intelligence
+        # 5. Recommended Exercises from Learning Intelligence
         recs_stmt = (
             select(Recommendation)
             .where(
                 Recommendation.user_id == user.id,
-                Recommendation.status == RecommendationStatus.ACTIVE,
+                Recommendation.status.in_(
+                    [
+                        RecommendationStatus.ACTIVE,
+                        RecommendationStatus.STARTED,
+                        RecommendationStatus.PENDING,
+                    ]
+                ),
             )
             .options(
                 selectinload(Recommendation.skill),
@@ -189,7 +147,7 @@ class StudentDashboardService:
                 )
             )
 
-        # 5. Recent Completed Assessments (Reading & Listening)
+        # 6. Recent Completed Assessments (Reading & Listening)
         attempts_stmt = (
             select(Attempt)
             .where(
@@ -221,7 +179,7 @@ class StudentDashboardService:
                     )
                 )
 
-        # 6. Recent Writing Submissions & Corrections
+        # 7. Recent Writing Submissions & Corrections
         writing_stmt = (
             select(WritingSubmission)
             .where(
@@ -263,7 +221,7 @@ class StudentDashboardService:
                 )
             )
 
-        # 7. Upcoming Teacher Bookings
+        # 8. Upcoming Teacher Bookings
         booking_stmt = (
             select(TeacherBooking)
             .where(
@@ -290,7 +248,7 @@ class StudentDashboardService:
                 )
             )
 
-        # 8. Recent Speaking Sessions (AI, Teacher, Peer Practice)
+        # 9. Recent Speaking Sessions
         speaking_stmt = (
             select(SpeakingSession)
             .where(
@@ -305,7 +263,6 @@ class StudentDashboardService:
         )
         speaking_sessions = (await db.execute(speaking_stmt)).scalars().unique().all()
         recent_speaking_summaries: list[RecentSpeakingSummary] = []
-
         total_practice_mins = 0
 
         for sp in speaking_sessions:
@@ -357,8 +314,11 @@ class StudentDashboardService:
                 )
             )
 
-        # 9. Historical Progress Timeline
+        # 10. Historical Progress Timeline
         history_points = await StudentDashboardService._get_historical_timeline(db, user.id)
+
+        # 11. Recent Activity Events
+        activity_data = await ActivityTracker.get_student_activities(db, user.id, limit=5)
 
         # Total assessments taken
         count_stmt = select(func.count(Attempt.id)).where(
@@ -366,39 +326,88 @@ class StudentDashboardService:
         )
         total_assessments = (await db.execute(count_stmt)).scalar() or len(recent_assessments)
 
+        profile = await db.scalar(select(StudentProfile).where(StudentProfile.user_id == user.id))
+        native_lang = profile.native_language if profile else None
+        has_skills = len(skill_metrics) > 0
+        overall_readiness = target_gap["current_score"] if has_skills else None
+        curr_cefr = target_gap["current_cefr_level"] if has_skills else None
+        curr_nclc = target_gap["current_nclc_level"] if has_skills else None
+        # 12. Deterministic Behavioral Segment & Engagement Health Status
+        from app.modules.students.segmentation_service import StudentSegmentationService
+
+        segment = await StudentSegmentationService.evaluate_student_segment(db, user.id)
+        engagement_status = await StudentSegmentationService.compute_engagement_status(db, user.id)
+
         return StudentDashboardResponse(
-            target_exam=target_exam,
-            target_level=target_level,
+            target_exam=target_gap["target_exam"],
+            target_level=target_gap["target_cefr_level"],
+            target_cefr_level=target_gap["target_cefr_level"],
+            target_nclc_level=target_gap["target_nclc_level"],
+            target_date=target_gap["target_date"],
+            days_remaining=target_gap["days_remaining"],
+            target_urgency=target_gap["urgency"],
+            score_gap=target_gap["score_gap"],
+            level_distance=target_gap["level_distance"],
+            is_target_met=target_gap["is_target_met"],
+            target_disclaimer=target_gap["disclaimer"],
             native_language=native_lang,
             overall_readiness=overall_readiness,
+            current_cefr_level=curr_cefr,
+            current_nclc_level=curr_nclc,
             total_assessments_taken=total_assessments,
             total_practice_minutes=total_practice_mins,
             skills=skill_metrics,
             progress_history=history_points,
-            weakest_skills=weakest_skills,
+            weakest_skills=weakest_skills if has_skills else [],
+            strongest_skills=strongest_skills if has_skills else [],
+            daily_plan=daily_plan,
             recommended_exercises=recommended_exercises,
             recent_assessments=recent_assessments,
             recent_writing_corrections=recent_writing_summaries,
             upcoming_bookings=upcoming_bookings,
             recent_speaking_sessions=recent_speaking_summaries,
+            recent_activity=activity_data["items"],
+            segment=segment,
+            engagement_status=engagement_status,
         )
 
     @staticmethod
     async def get_progress(
         db: AsyncSession,
         user: User,
+        time_range: str = "all",
     ) -> StudentProgressResponse:
-        """Retrieve historical measurement timeline and skill trajectories."""
-        timeline = await StudentDashboardService._get_historical_timeline(db, user.id)
+        """Retrieve historical measurement timeline and skill trajectories filtered by time range."""
+        timeline = await StudentDashboardService._get_historical_timeline(
+            db, user.id, time_range=time_range
+        )
         dashboard = await StudentDashboardService.get_dashboard(db, user)
-        return StudentProgressResponse(timeline=timeline, skills=dashboard.skills)
+
+        return StudentProgressResponse(
+            timeline=timeline,
+            skills=dashboard.skills,
+            overall_score=dashboard.overall_readiness,
+            estimated_cefr_level=dashboard.current_cefr_level,
+            estimated_nclc_level=dashboard.current_nclc_level,
+            disclaimer=LevelEstimationService.DISCLAIMER,
+        )
 
     @staticmethod
     async def _get_historical_timeline(
         db: AsyncSession,
         user_id: uuid.UUID,
+        time_range: str = "all",
     ) -> list[ProgressDataPoint]:
         """Aggregate immutable historical measurement events over time (never overwriting)."""
+        cutoff: datetime.datetime | None = None
+        now = datetime.datetime.now(datetime.UTC)
+        if time_range == "7d":
+            cutoff = now - datetime.timedelta(days=7)
+        elif time_range == "30d":
+            cutoff = now - datetime.timedelta(days=30)
+        elif time_range == "90d":
+            cutoff = now - datetime.timedelta(days=90)
+
         timeline: list[ProgressDataPoint] = []
 
         # 1. Assessment attempts with scores
@@ -412,9 +421,11 @@ class StudentDashboardService:
                 selectinload(Attempt.score),
                 selectinload(Attempt.assessment),
             )
-            .order_by(Attempt.submitted_at.asc())
-            .limit(20)
         )
+        if cutoff:
+            attempts_stmt = attempts_stmt.where(Attempt.submitted_at >= cutoff)
+        attempts_stmt = attempts_stmt.order_by(Attempt.submitted_at.asc()).limit(50)
+
         attempts = (await db.execute(attempts_stmt)).scalars().all()
         for a in attempts:
             if a.score and a.submitted_at:
@@ -437,9 +448,11 @@ class StudentDashboardService:
             .options(
                 selectinload(WritingCorrection.submission).selectinload(WritingSubmission.task)
             )
-            .order_by(WritingCorrection.created_at.asc())
-            .limit(10)
         )
+        if cutoff:
+            writing_stmt = writing_stmt.where(WritingCorrection.created_at >= cutoff)
+        writing_stmt = writing_stmt.order_by(WritingCorrection.created_at.asc()).limit(30)
+
         corrections = (await db.execute(writing_stmt)).scalars().all()
         for c in corrections:
             task_title = (
@@ -462,9 +475,11 @@ class StudentDashboardService:
             select(SpeakingEvaluation)
             .where(SpeakingEvaluation.student_id == user_id)
             .options(selectinload(SpeakingEvaluation.session))
-            .order_by(SpeakingEvaluation.created_at.asc())
-            .limit(10)
         )
+        if cutoff:
+            speaking_stmt = speaking_stmt.where(SpeakingEvaluation.created_at >= cutoff)
+        speaking_stmt = speaking_stmt.order_by(SpeakingEvaluation.created_at.asc()).limit(30)
+
         evaluations = (await db.execute(speaking_stmt)).scalars().all()
         for ev in evaluations:
             topic = ev.session.topic if ev.session else "Expression Orale"

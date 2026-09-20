@@ -110,6 +110,42 @@ class AvailabilityExceptionResponse(BaseModel):
     created_at: datetime.datetime
 
 
+# Availability Override Schemas
+class AvailabilityOverrideCreate(BaseModel):
+    """Payload to create a date-specific custom availability window or blackout."""
+
+    override_date: datetime.date
+    start_time: datetime.time
+    end_time: datetime.time
+    timezone: str = Field(default="UTC", description="IANA timezone string")
+    is_available: bool = True
+    notes: str | None = Field(None, max_length=255)
+
+    @field_validator("end_time")
+    @classmethod
+    def validate_override_times(cls, end_time: datetime.time, info: Any) -> datetime.time:
+        start_time = info.data.get("start_time")
+        if start_time and end_time <= start_time:
+            raise ValueError("end_time must be strictly after start_time")
+        return end_time
+
+
+class AvailabilityOverrideResponse(BaseModel):
+    """Availability override response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    teacher_id: uuid.UUID
+    override_date: datetime.date
+    start_time: datetime.time
+    end_time: datetime.time
+    timezone: str
+    is_available: bool
+    notes: str | None
+    created_at: datetime.datetime
+
+
 # Slot Inspection Schemas
 class TimeSlot(BaseModel):
     """Individual available bookable slot."""
@@ -180,6 +216,8 @@ class TeacherBookingResponse(BaseModel):
     start_time: datetime.datetime
     end_time: datetime.datetime
     status: BookingStatus
+    timezone: str = "UTC"
+    payment_status: str = "unpaid"
     notes: str | None = None
     meeting_link: str | None = None
     cancellation_reason: str | None = None

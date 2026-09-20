@@ -14,7 +14,9 @@ class WritingTaskType(StrEnum):
 class WritingAttemptStatus(StrEnum):
     """Lifecycle status of a student's writing attempt."""
 
-    DRAFT = "draft"
+    CREATED = "created"
+    STARTED = "started"
+    DRAFT = "draft"  # Backward compatibility alias
     SUBMITTED = "submitted"
     EXPIRED = "expired"
     ABANDONED = "abandoned"
@@ -26,9 +28,18 @@ class WritingSubmissionStatus(StrEnum):
     SUBMITTED = "submitted"
     QUEUED = "queued"
     ASSIGNED = "assigned"
-    PROCESSING = "processing"
-    REVIEWING = "reviewing"
+    IN_REVIEW = "in_review"
+    PROCESSING = "processing"  # Backward compatibility alias
+    REVIEWING = "reviewing"  # Backward compatibility alias
     CORRECTED = "corrected"
+    RETURNED = "returned"
+
+
+class WritingCorrectionStatus(StrEnum):
+    """Lifecycle status of a teacher or provider writing correction."""
+
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
     RETURNED = "returned"
 
 

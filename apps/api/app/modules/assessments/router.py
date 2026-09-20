@@ -10,13 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.assessments.enums import AssessmentType
 from app.modules.assessments.schemas import (
+    ActiveAttemptResponse,
     AnswerSubmitRequest,
     AssessmentDetailResponse,
     AssessmentListItemResponse,
+    AssessmentRecommendationResponse,
     AttemptAnswerStudentResponse,
     AttemptDetailResponse,
+    AttemptHistoryItemResponse,
     AttemptResultsResponse,
+    AttemptStateResponse,
     PaginatedAssessmentsResponse,
+    PutAnswerRequest,
 )
 from app.modules.assessments.service import AssessmentService
 from app.modules.auth.dependencies import get_current_user
@@ -50,6 +55,57 @@ async def list_assessments(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get(
+    "/assessments/me/active-attempt",
+    response_model=ActiveAttemptResponse | None,
+    summary="Get current active attempt for authenticated student",
+)
+async def get_my_active_attempt(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ActiveAttemptResponse | None:
+    """Retrieve ongoing active attempt for student with remaining time."""
+    active = await AssessmentService.get_active_attempt_summary(db=db, user_id=current_user.id)
+    if not active:
+        return None
+    return ActiveAttemptResponse(**active)
+
+
+@router.get(
+    "/assessments/me/history",
+    response_model=list[AttemptHistoryItemResponse],
+    summary="Get completed assessment history for student",
+)
+async def get_my_assessment_history(
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AttemptHistoryItemResponse]:
+    """Retrieve chronological completed and expired assessment attempts."""
+    history = await AssessmentService.get_assessment_history(
+        db=db,
+        user_id=current_user.id,
+        limit=limit,
+    )
+    return [AttemptHistoryItemResponse(**h) for h in history]
+
+
+@router.get(
+    "/assessments/me/recommendation",
+    response_model=AssessmentRecommendationResponse | None,
+    summary="Get personalized assessment recommendation for student",
+)
+async def get_my_assessment_recommendation(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AssessmentRecommendationResponse | None:
+    """Retrieve prioritized assessment recommendation based on student goals and history."""
+    rec = await AssessmentService.get_recommended_assessment(db=db, user_id=current_user.id)
+    if not rec:
+        return None
+    return AssessmentRecommendationResponse(**rec)
 
 
 @router.get(
@@ -100,7 +156,9 @@ async def start_attempt(
     return AttemptDetailResponse(
         id=attempt.id,
         assessment_id=attempt.assessment_id,
+        assessment_version_id=attempt.assessment_version_id,
         user_id=attempt.user_id,
+        student_id=attempt.user_id,
         status=attempt.status,
         started_at=attempt.started_at,
         expires_at=attempt.expires_at,
@@ -141,7 +199,9 @@ async def get_attempt(
     return AttemptDetailResponse(
         id=attempt.id,
         assessment_id=attempt.assessment_id,
+        assessment_version_id=attempt.assessment_version_id,
         user_id=attempt.user_id,
+        student_id=attempt.user_id,
         status=attempt.status,
         started_at=attempt.started_at,
         expires_at=attempt.expires_at,
@@ -149,6 +209,53 @@ async def get_attempt(
         remaining_seconds=remaining,
         answers=[AttemptAnswerStudentResponse.model_validate(a) for a in attempt.answers],
     )
+
+
+@router.get(
+    "/attempts/{attempt_id}/state",
+    response_model=AttemptStateResponse,
+    summary="Get authoritative attempt sync state, timer, and answers",
+)
+async def get_attempt_state(
+    attempt_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AttemptStateResponse:
+    """Retrieve authoritative attempt synchronization state for taking, reconnecting, and autosave."""
+    is_admin = current_user.role == UserRole.ADMIN
+    state = await AssessmentService.get_attempt_state(
+        db=db,
+        attempt_id=attempt_id,
+        current_user_id=current_user.id,
+        is_admin=is_admin,
+    )
+    return AttemptStateResponse(**state)
+
+
+@router.put(
+    "/attempts/{attempt_id}/answers/{question_id}",
+    response_model=AttemptAnswerStudentResponse,
+    summary="Idempotently save or update an answer for a specific question",
+)
+async def put_answer(
+    attempt_id: uuid.UUID,
+    question_id: uuid.UUID,
+    body: PutAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AttemptAnswerStudentResponse:
+    """Save or update an answer to a question within an active attempt with stale write protection."""
+    answer = await AssessmentService.submit_answer(
+        db=db,
+        attempt_id=attempt_id,
+        current_user_id=current_user.id,
+        question_id=question_id,
+        selected_option_id=body.selected_option_id,
+        selected_option_ids=body.selected_option_ids,
+        text_response=body.text_response,
+        client_timestamp=body.client_timestamp,
+    )
+    return AttemptAnswerStudentResponse.model_validate(answer)
 
 
 @router.post(
@@ -167,7 +274,11 @@ async def submit_answer(
         db=db,
         attempt_id=attempt_id,
         current_user_id=current_user.id,
-        req=body,
+        question_id=body.question_id,
+        selected_option_id=body.selected_option_id,
+        selected_option_ids=body.selected_option_ids,
+        text_response=body.text_response,
+        client_timestamp=body.client_timestamp,
     )
     return AttemptAnswerStudentResponse.model_validate(answer)
 

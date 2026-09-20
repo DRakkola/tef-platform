@@ -28,8 +28,8 @@ describe("Frontend Foundation Components", () => {
       </BrowserRouter>
     );
     expect(screen.getByText("404")).toBeInTheDocument();
-    expect(screen.getByText("Page Not Found")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Back to Dashboard/i })).toBeInTheDocument();
+    expect(screen.getByText("Page introuvable")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /retour au tableau de bord/i })).toBeInTheDocument();
   });
 
   it("renders ErrorBoundary fallback when a child crashes", () => {
@@ -48,7 +48,7 @@ describe("Frontend Foundation Components", () => {
     );
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    expect(screen.getByText("Une erreur inattendue est survenue")).toBeInTheDocument();
 
     console.error = originalError;
   });

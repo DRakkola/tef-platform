@@ -69,10 +69,29 @@ export async function apiClient<T>(
       // Body not JSON
     }
 
+    if (response.status === 401 && typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("auth_token");
+      } catch {
+        // Sandboxed storage error
+      }
+      window.dispatchEvent(
+        new CustomEvent("tef:auth-expired", {
+          detail: { status: 401, endpoint: cleanEndpoint },
+        })
+      );
+    }
+
+    const defaultCode = response.status === 401 ? "AUTH_REQUIRED" : "HTTP_ERROR";
+    const defaultMessage =
+      response.status === 401
+        ? "Votre session a expiré ou une authentification est requise."
+        : `Request failed with status ${response.status}`;
+
     throw new ApiError(
       response.status,
-      errorData?.error?.code || "HTTP_ERROR",
-      errorData?.error?.message || `Request failed with status ${response.status}`,
+      errorData?.error?.code || defaultCode,
+      errorData?.error?.message || defaultMessage,
       errorData?.error?.request_id || response.headers.get("X-Request-ID") || undefined,
       errorData?.error?.details
     );

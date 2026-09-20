@@ -1,0 +1,256 @@
+# ==============================================================================
+# TEF Platform — Production Compose Stack
+# ==============================================================================
+# Architecture:
+# - Reverse Proxy (Nginx) terminates TLS (443) and redirects HTTP (80)
+# - Dual isolated networks: tef-public-net (DMZ) & tef-internal-net (isolated private)
+# - Zero host-exposed database, redis, or object storage ports
+# - Strict container security (drop all capabilities, non-root users, resource constraints)
+# ==============================================================================
+
+services:
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: tef-prod-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/nginx.production.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - web
+      - api
+    deploy:
+      resources:
+        limits:
+          cpus: '2.00'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETGID
+      - SETUID
+    networks:
+      - tef-public-net
+
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+    container_name: tef-prod-web
+    restart: unless-stopped
+    # Exposed only to the internal public DMZ network, not the host directly
+    expose:
+      - "80"
+    depends_on:
+      - api
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
+    cap_drop:
+      - ALL
+    networks:
+      - tef-public-net
+
+  api:
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile
+    container_name: tef-prod-api
+    restart: unless-stopped
+    # Exposed only to proxy/web on tef-public-net
+    expose:
+      - "8000"
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tef_production}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+      STORAGE_ENDPOINT: minio:9000
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY}
+      STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-tef-production-private}
+      STORAGE_USE_SSL: "false"
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      SECRET_KEY: ${SECRET_KEY}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-stripe}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '4.00'
+          memory: 2048M
+        reservations:
+          cpus: '0.50'
+          memory: 512M
+    cap_drop:
+      - ALL
+    networks:
+      - tef-internal-net
+      - tef-public-net
+
+  celery-worker:
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile
+    container_name: tef-prod-celery-worker
+    restart: unless-stopped
+    command: ["celery", "-A", "app.core.celery_app", "worker", "-l", "INFO", "-c", "4"]
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tef_production}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+      STORAGE_ENDPOINT: minio:9000
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY}
+      STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-tef-production-private}
+      STORAGE_USE_SSL: "false"
+      SECRET_KEY: ${SECRET_KEY}
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '4.00'
+          memory: 2048M
+        reservations:
+          cpus: '0.50'
+          memory: 512M
+    cap_drop:
+      - ALL
+    networks:
+      - tef-internal-net
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: tef-prod-postgres
+    restart: unless-stopped
+    # Strictly NO host port binding in production
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tef_production}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-tef_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_APP_USER: ${POSTGRES_USER:-tef_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - prod_postgres_data:/var/lib/postgresql/data
+      - ../docker/postgres/init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-tef_admin} -d ${POSTGRES_DB:-tef_production}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '4.00'
+          memory: 2048M
+        reservations:
+          cpus: '0.50'
+          memory: 512M
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    networks:
+      - tef-internal-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: tef-prod-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--maxmemory", "384mb", "--maxmemory-policy", "noeviction"]
+    # Strictly NO host port binding in production
+    volumes:
+      - prod_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2.00'
+          memory: 512M
+        reservations:
+          cpus: '0.10'
+          memory: 128M
+    cap_drop:
+      - ALL
+    networks:
+      - tef-internal-net
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    container_name: tef-prod-minio
+    restart: unless-stopped
+    command: ["server", "/data"]
+    # Strictly NO host port binding in production
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY}
+    volumes:
+      - prod_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2.00'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    cap_drop:
+      - ALL
+    networks:
+      - tef-internal-net
+
+volumes:
+  prod_postgres_data:
+  prod_redis_data:
+  prod_minio_data:
+
+networks:
+  tef-public-net:
+    driver: bridge
+  tef-internal-net:
+    internal: true
+    driver: bridge

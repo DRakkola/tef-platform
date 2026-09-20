@@ -6,8 +6,10 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from app.modules.admin.beta_models import BetaCohort
     from app.modules.teachers.models import (
         TeacherAvailabilityException,
+        TeacherAvailabilityOverride,
         TeacherAvailabilityRule,
         TeacherBooking,
     )
@@ -15,6 +17,7 @@ if TYPE_CHECKING:
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -81,6 +84,25 @@ class User(TimeStampedUUIDModel):
     last_login_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+    is_beta_user: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+    )
+    beta_cohort_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("beta_cohorts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Beta Cohort Relationship
+    beta_cohort: Mapped["BetaCohort | None"] = relationship(
+        "BetaCohort",
+        back_populates="users",
+        lazy="selectin",
     )
 
     # 1-to-1 Profile Relationships
@@ -180,6 +202,18 @@ class StudentProfile(TimeStampedUUIDModel):
         default="B2",
         nullable=False,
     )
+    target_cefr_level: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+    )
+    target_nclc_level: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+    target_date: Mapped[datetime.date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
     timezone: Mapped[str] = mapped_column(
         String(50),
         default="UTC",
@@ -192,6 +226,21 @@ class StudentProfile(TimeStampedUUIDModel):
     learning_preferences: Mapped[dict[str, Any]] = mapped_column(
         JSON,
         default=dict,
+        nullable=False,
+    )
+    daily_minutes_available: Mapped[int] = mapped_column(
+        Integer,
+        default=30,
+        nullable=False,
+    )
+    onboarding_status: Mapped[str] = mapped_column(
+        String(20),
+        default="incomplete",
+        nullable=False,
+    )
+    onboarding_step: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
         nullable=False,
     )
 
@@ -256,6 +305,12 @@ class TeacherProfile(TimeStampedUUIDModel):
     )
     availability_exceptions: Mapped[list[TeacherAvailabilityException]] = relationship(
         "TeacherAvailabilityException",
+        back_populates="teacher",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    availability_overrides: Mapped[list[TeacherAvailabilityOverride]] = relationship(
+        "TeacherAvailabilityOverride",
         back_populates="teacher",
         cascade="all, delete-orphan",
         lazy="selectin",

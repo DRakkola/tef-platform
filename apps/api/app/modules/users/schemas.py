@@ -46,6 +46,7 @@ class UserResponse(BaseModel):
     role: UserRole
     is_active: bool
     is_verified: bool
+    is_beta_user: bool = False
     created_at: datetime.datetime
     updated_at: datetime.datetime
     last_login_at: datetime.datetime | None = None

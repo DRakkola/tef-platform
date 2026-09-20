@@ -25,4 +25,38 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,  # Retry connecting to broker on worker launch
     task_default_retry_delay=30,  # Default retry delay in seconds
     task_max_retries=3,  # Cap default retries
+    beat_schedule={
+        "cleanup-expired-practice-requests-every-minute": {
+            "task": "tasks.cleanup_expired_practice_requests",
+            "schedule": 60.0,
+        },
+        "cleanup-stale-practice-queue-every-minute": {
+            "task": "tasks.cleanup_stale_practice_queue",
+            "schedule": 60.0,
+        },
+        "cleanup-expired-practice-sessions-every-minute": {
+            "task": "tasks.cleanup_expired_practice_sessions",
+            "schedule": 60.0,
+        },
+        "cleanup-abandoned-practice-sessions-every-5-minutes": {
+            "task": "tasks.cleanup_abandoned_practice_sessions",
+            "schedule": 300.0,
+        },
+        "cleanup-expired-booking-reservations-every-5-minutes": {
+            "task": "tasks.cleanup_expired_booking_reservations",
+            "schedule": 300.0,
+        },
+        "reconcile-billing-daily": {
+            "task": "tasks.reconcile_billing_daily",
+            "schedule": 86400.0,  # Once per day
+        },
+        "cleanup-retention-artifacts-daily": {
+            "task": "tasks.cleanup_retention_artifacts",
+            "schedule": 86400.0,  # Once per day
+        },
+        "audit-exercise-effectiveness-daily": {
+            "task": "tasks.audit_exercise_effectiveness_daily",
+            "schedule": 86400.0,  # Once per day
+        },
+    },
 )

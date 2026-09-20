@@ -319,7 +319,7 @@ async def test_practice_request_accept_creates_authoritative_session(
     assert accept_res.status_code == 200
     session_data = accept_res.json()
     assert session_data["status"] == "active"
-    assert session_data["duration_minutes"] == 15
+    assert session_data["duration_minutes"] == 25
     assert session_data["audio_only"] is True
     assert session_data["room_id"].startswith("practice_room_")
     assert session_data["my_alias"] is not None
@@ -548,7 +548,7 @@ async def test_practice_session_details_and_ice_servers(
     data = res.json()
     assert data["audio_only"] is True
     assert len(data["ice_servers"]) > 0
-    assert 850 <= data["remaining_seconds"] <= 900  # 15 minutes = 900s
+    assert 1400 <= data["remaining_seconds"] <= 1500  # 25 minutes = 1500s
 
 
 @pytest.mark.asyncio
@@ -771,3 +771,236 @@ async def test_practice_room_authorization_unauthorized_fails(
         )
     assert exc_info.value.code == "FORBIDDEN"
     assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_list_practice_topics(client: AsyncClient, db_session: AsyncSession) -> None:
+    """Can list seeded practice topics with level filter."""
+    from app.modules.practice_pool.models import PracticeTopic
+
+    topic = PracticeTopic(
+        id=uuid.uuid4(),
+        title="Voyage en train",
+        description="Acheter un billet à la gare",
+        level="B1",
+        category="Transport",
+        prompts=["Bonjour, un billet pour Lyon svp"],
+        is_active=True,
+    )
+    db_session.add(topic)
+    await db_session.commit()
+
+    res = await client.get("/api/v1/practice/topics?level=B1")
+    assert res.status_code == 200
+    topics = res.json()
+    assert len(topics) >= 1
+    assert any(t["title"] == "Voyage en train" for t in topics)
+
+
+@pytest.mark.asyncio
+async def test_practice_queue_heartbeat(
+    client: AsyncClient,
+    student_auth_headers: dict[str, str],
+) -> None:
+    """Queue heartbeat returns renewal confirmation."""
+    # First join queue
+    join_res = await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_auth_headers,
+    )
+    assert join_res.status_code == 201
+
+    hb_res = await client.post(
+        "/api/v1/practice/queue/heartbeat",
+        headers=student_auth_headers,
+    )
+    assert hb_res.status_code == 200
+    hb_data = hb_res.json()
+    assert hb_data["in_queue"] is True
+    assert hb_data["status"] == "waiting"
+    assert hb_data["ttl_seconds"] == 60
+
+
+@pytest.mark.asyncio
+async def test_list_practice_candidates_endpoint(
+    client: AsyncClient,
+    student_auth_headers: dict[str, str],
+    student_b_auth_headers: dict[str, str],
+) -> None:
+    """GET /candidates endpoint returns compatible peers in queue."""
+    # Student B joins queue
+    await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_b_auth_headers,
+    )
+    # Student A joins queue
+    await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_auth_headers,
+    )
+
+    cand_res = await client.get("/api/v1/practice/candidates", headers=student_auth_headers)
+    assert cand_res.status_code == 200
+    candidates = cand_res.json()
+    assert len(candidates) == 1
+    assert candidates[0]["level"] == "B2"
+
+
+@pytest.mark.asyncio
+async def test_list_all_practice_requests(
+    client: AsyncClient,
+    student_auth_headers: dict[str, str],
+    student_b_auth_headers: dict[str, str],
+) -> None:
+    """GET /requests returns both incoming and outgoing pending requests."""
+    # Both join queue
+    b_join = await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_b_auth_headers,
+    )
+    await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_auth_headers,
+    )
+    # Student A sends request to B
+    req = await client.post(
+        "/api/v1/practice/requests",
+        json={"candidate_queue_id": b_join.json()["queue_id"]},
+        headers=student_auth_headers,
+    )
+    assert req.status_code == 201
+
+    # Student A lists requests (outgoing)
+    a_reqs = await client.get("/api/v1/practice/requests", headers=student_auth_headers)
+    assert a_reqs.status_code == 200
+    assert len(a_reqs.json()) == 1
+    assert a_reqs.json()[0]["is_incoming"] is False
+
+    # Student B lists requests (incoming)
+    b_reqs = await client.get("/api/v1/practice/requests", headers=student_b_auth_headers)
+    assert b_reqs.status_code == 200
+    assert len(b_reqs.json()) == 1
+    assert b_reqs.json()[0]["is_incoming"] is True
+
+
+@pytest.mark.asyncio
+async def test_end_practice_session_alias(
+    client: AsyncClient,
+    student_auth_headers: dict[str, str],
+    student_b_auth_headers: dict[str, str],
+) -> None:
+    """POST /sessions/{id}/end concludes session identically to leave."""
+    b_join = await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_b_auth_headers,
+    )
+    await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_auth_headers,
+    )
+    req = await client.post(
+        "/api/v1/practice/requests",
+        json={"candidate_queue_id": b_join.json()["queue_id"]},
+        headers=student_auth_headers,
+    )
+    session_res = await client.post(
+        f"/api/v1/practice/requests/{req.json()['id']}/accept",
+        headers=student_b_auth_headers,
+    )
+    session_id = session_res.json()["id"]
+
+    end_res = await client.post(
+        f"/api/v1/practice/sessions/{session_id}/end",
+        headers=student_auth_headers,
+    )
+    assert end_res.status_code == 200
+    assert end_res.json()["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_direct_report_and_block(
+    client: AsyncClient,
+    student_auth_headers: dict[str, str],
+    student_b_auth_headers: dict[str, str],
+    student_b: User,
+) -> None:
+    """Direct POST /reports and POST /blocks endpoints succeed."""
+    b_join = await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_b_auth_headers,
+    )
+    await client.post(
+        "/api/v1/practice/queue/join",
+        json={"language": "fr", "level": "B2", "practice_type": "free_conversation"},
+        headers=student_auth_headers,
+    )
+    req = await client.post(
+        "/api/v1/practice/requests",
+        json={"candidate_queue_id": b_join.json()["queue_id"]},
+        headers=student_auth_headers,
+    )
+    session_res = await client.post(
+        f"/api/v1/practice/requests/{req.json()['id']}/accept",
+        headers=student_b_auth_headers,
+    )
+    session_id = session_res.json()["id"]
+
+    # Direct report
+    report_res = await client.post(
+        "/api/v1/practice/reports",
+        json={"session_id": session_id, "reason": "inappropriate_behavior", "details": "Peer was rude"},
+        headers=student_auth_headers,
+    )
+    assert report_res.status_code == 201
+    assert report_res.json()["status"] == "open"
+
+    # Direct block
+    block_res = await client.post(
+        "/api/v1/practice/blocks",
+        json={"blocked_user_id": str(student_b.id), "reason": "Do not match"},
+        headers=student_auth_headers,
+    )
+    assert block_res.status_code == 201
+    assert block_res.json()["blocked_user_id"] == str(student_b.id)
+
+
+@pytest.mark.asyncio
+async def test_celery_cleanup_tasks_execution(db_session: AsyncSession) -> None:
+    """Practice Pool cleanup logic executes successfully and tasks are registered."""
+    from app.core.celery_app import celery_app
+    from app.workers.tasks import (
+        cleanup_abandoned_practice_sessions_core,
+        cleanup_expired_practice_requests_core,
+        cleanup_expired_practice_sessions_core,
+        cleanup_stale_practice_queue_core,
+    )
+
+    c1 = await cleanup_expired_practice_requests_core(db_session)
+    assert isinstance(c1, int)
+
+    c2 = await cleanup_stale_practice_queue_core(db_session)
+    assert isinstance(c2, int)
+
+    c3 = await cleanup_expired_practice_sessions_core(db_session)
+    assert isinstance(c3, int)
+
+    c4 = await cleanup_abandoned_practice_sessions_core(db_session)
+    assert isinstance(c4, int)
+
+    # Verify task registration in Celery app
+    registered_tasks = celery_app.tasks.keys()
+    assert "tasks.cleanup_expired_practice_requests" in registered_tasks
+    assert "tasks.cleanup_stale_practice_queue" in registered_tasks
+    assert "tasks.cleanup_expired_practice_sessions" in registered_tasks
+    assert "tasks.cleanup_abandoned_practice_sessions" in registered_tasks
+
+
+
