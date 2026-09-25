@@ -64,7 +64,14 @@ export const SpeakingSessionPage: React.FC = () => {
     sessionId,
   })
 
-  // 2. WebRTC & Audio Hook
+  // 2. WebRTC & Audio Hook - Only activate when candidate joins active session
+  const isSessionActive =
+    workspaceState !== "preparing" &&
+    workspaceState !== "microphone_required" &&
+    session?.status !== "scheduled" &&
+    session?.status !== "completed" &&
+    session?.status !== "expired"
+
   const {
     connectionState,
     isMuted,
@@ -73,13 +80,16 @@ export const SpeakingSessionPage: React.FC = () => {
     isReconnecting,
     aiState,
     activeTurn,
+    liveTranscript,
     requestMicPermission,
+    resumeAudioContext,
     toggleMute,
     reconnect,
     cleanup,
   } = useSpeakingWebRTC({
     roomId: session?.room_id,
     sessionId: session?.id,
+    enabled: isSessionActive,
     iceServers: session?.ice_servers,
   })
 
@@ -410,6 +420,7 @@ export const SpeakingSessionPage: React.FC = () => {
             hasPermission={hasMicPermission}
             onRequestPermission={requestMicPermission}
             onContinue={async () => {
+              await resumeAudioContext()
               await startSession()
             }}
           />
@@ -469,7 +480,7 @@ export const SpeakingSessionPage: React.FC = () => {
         />
 
         {/* Optional Collapsible Transcript */}
-        <SpeakingTranscript transcript={null} />
+        <SpeakingTranscript transcript={liveTranscript || null} />
 
         {/* Primary Controls & Audio Meter */}
         <SpeakingControls

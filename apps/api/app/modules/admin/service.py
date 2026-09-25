@@ -611,7 +611,7 @@ class AdminContentService:
                 message="Assessment validation failed before publishing",
                 code="PUBLISHING_VALIDATION_FAILED",
                 status_code=422,
-                details={"errors": [e.model_dump() for e in errors], "warnings": [w.model_dump() for w in warnings]},
+                details=[{"errors": [e.model_dump() for e in errors], "warnings": [w.model_dump() for w in warnings]}],
             )
 
         asmt = await AdminContentService.get_assessment_with_tree(db, assessment_id)

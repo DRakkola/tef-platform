@@ -569,3 +569,79 @@ async def test_teacher_booking_management(
         headers=teacher_auth_headers,
     )
     assert complete_again.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reschedule_booking_flow(
+    client: AsyncClient,
+    verified_teacher: tuple[User, TeacherProfile],
+    student_auth_headers: dict[str, str],
+) -> None:
+    """Test rescheduling a booking, conflict detection, and student display name serialization."""
+    teacher_user, teacher_profile = verified_teacher
+    teacher_token = create_access_token(teacher_user.id, UserRole.TEACHER.value)
+    teacher_auth_headers = {"Authorization": f"Bearer {teacher_token}"}
+
+    start_time = (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=7)).replace(
+        hour=10, minute=0, second=0, microsecond=0
+    )
+    end_time = start_time + datetime.timedelta(hours=1)
+
+    # 1. Student books
+    book_resp = await client.post(
+        "/api/v1/bookings",
+        headers=student_auth_headers,
+        json={
+            "teacher_id": str(teacher_profile.id),
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+        },
+    )
+    assert book_resp.status_code == 201
+    booking_id = book_resp.json()["id"]
+    assert "student_display_name" in book_resp.json()
+
+    # 2. Teacher reschedules booking to a new future slot
+    new_start = start_time + datetime.timedelta(hours=2)
+    new_end = new_start + datetime.timedelta(hours=1)
+
+    resched_resp = await client.post(
+        f"/api/v1/bookings/{booking_id}/reschedule",
+        headers=teacher_auth_headers,
+        json={
+            "new_start_time": new_start.isoformat(),
+            "new_end_time": new_end.isoformat(),
+            "reason": "Empêchement de dernière minute",
+        },
+    )
+    assert resched_resp.status_code == 200
+    resched_data = resched_resp.json()
+    assert resched_data["student_display_name"] is not None
+    assert "[Reprogrammation] Empêchement de dernière minute" in (resched_data["notes"] or "")
+
+    # 3. Create another booking on a third slot
+    slot3_start = start_time + datetime.timedelta(hours=5)
+    slot3_end = slot3_start + datetime.timedelta(hours=1)
+    book3_resp = await client.post(
+        "/api/v1/bookings",
+        headers=student_auth_headers,
+        json={
+            "teacher_id": str(teacher_profile.id),
+            "start_time": slot3_start.isoformat(),
+            "end_time": slot3_end.isoformat(),
+        },
+    )
+    assert book3_resp.status_code == 201
+    booking3_id = book3_resp.json()["id"]
+
+    # 4. Attempt to reschedule booking 3 to the exact slot of booking 1 -> 409 conflict
+    conflict_resp = await client.post(
+        f"/api/v1/bookings/{booking3_id}/reschedule",
+        headers=teacher_auth_headers,
+        json={
+            "new_start_time": new_start.isoformat(),
+            "new_end_time": new_end.isoformat(),
+        },
+    )
+    assert conflict_resp.status_code == 409
+

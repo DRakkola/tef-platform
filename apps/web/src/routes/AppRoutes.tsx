@@ -24,6 +24,15 @@ import {
   TeachersDirectoryPage,
   TeacherDetailPage,
 } from "@/features/teachers";
+import {
+  TeacherDashboardPage,
+  TeacherAvailabilityPage,
+} from "@/features/teacher-dashboard";
+import { TeacherBookingsPage } from "@/features/teacher-bookings";
+import {
+  TeacherCorrectionsPage,
+  TeacherCorrectionWorkspacePage,
+} from "@/features/teacher-corrections";
 import { BookingPage, MyBookingsPage } from "@/features/bookings";
 import {
   WritingEditorPage,
@@ -148,7 +157,14 @@ export const AppRoutes: React.FC = () => {
         <Route path="/billing/subscription" element={<SubscriptionManagePage />} />
         <Route path="/billing/orders" element={<OrderHistoryPage />} />
         <Route path="/billing/usage" element={<UsageLedgerPage />} />
+        {/* Teacher Portal Routes */}
+        <Route path="/teacher" element={<TeacherDashboardPage />} />
+        <Route path="/teacher/dashboard" element={<Navigate to="/teacher" replace />} />
+        <Route path="/teacher/bookings" element={<TeacherBookingsPage />} />
+        <Route path="/teacher/availability" element={<TeacherAvailabilityPage />} />
         <Route path="/teacher/earnings" element={<TeacherEarningsPage />} />
+        <Route path="/teacher/corrections" element={<TeacherCorrectionsPage />} />
+        <Route path="/teacher/corrections/:id" element={<TeacherCorrectionWorkspacePage />} />
 
         {/* Content Studio Admin Routes */}
         <Route path="/admin" element={<AdminDashboardPage />} />

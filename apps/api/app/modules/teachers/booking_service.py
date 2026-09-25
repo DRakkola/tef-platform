@@ -13,7 +13,7 @@ from app.core.exceptions import AppException
 from app.modules.notifications.service import NotificationService
 from app.modules.teachers.enums import BookingStatus
 from app.modules.teachers.models import TeacherBooking
-from app.modules.teachers.schemas import BookingCreateRequest
+from app.modules.teachers.schemas import BookingCreateRequest, BookingRescheduleRequest
 from app.modules.users.models import TeacherProfile, TeacherVerificationStatus, User, UserRole
 
 _teacher_locks: dict[uuid.UUID, asyncio.Lock] = {}
@@ -288,6 +288,133 @@ class BookingService:
             .options(selectinload(TeacherBooking.teacher), selectinload(TeacherBooking.student))
         )
         return (await db.execute(reload_stmt)).scalar_one()
+
+    @staticmethod
+    async def reschedule_booking(
+        db: AsyncSession,
+        booking_id: uuid.UUID,
+        user: User,
+        payload: BookingRescheduleRequest,
+    ) -> TeacherBooking:
+        """Reschedule an existing booking to a new slot with atomic locking."""
+        start_utc = (
+            payload.new_start_time.astimezone(datetime.UTC)
+            if payload.new_start_time.tzinfo
+            else payload.new_start_time.replace(tzinfo=datetime.UTC)
+        )
+        end_utc = (
+            payload.new_end_time.astimezone(datetime.UTC)
+            if payload.new_end_time.tzinfo
+            else payload.new_end_time.replace(tzinfo=datetime.UTC)
+        )
+
+        now_utc = datetime.datetime.now(datetime.UTC)
+        if start_utc <= now_utc:
+            raise AppException(
+                message="Cannot reschedule to a slot in the past",
+                code="CANNOT_BOOK_PAST_SLOT",
+                status_code=400,
+            )
+
+        stmt = (
+            select(TeacherBooking)
+            .where(TeacherBooking.id == booking_id)
+            .options(selectinload(TeacherBooking.teacher), selectinload(TeacherBooking.student))
+        )
+        booking = (await db.execute(stmt)).scalar_one_or_none()
+
+        if not booking:
+            raise AppException(
+                message="Booking not found",
+                code="BOOKING_NOT_FOUND",
+                status_code=404,
+            )
+
+        is_student = booking.student_id == user.id
+        is_teacher = booking.teacher.user_id == user.id
+        is_admin = user.role == UserRole.ADMIN
+
+        if not (is_student or is_teacher or is_admin):
+            raise AppException(
+                message="Not authorized to reschedule this booking",
+                code="FORBIDDEN",
+                status_code=403,
+            )
+
+        if booking.status not in (BookingStatus.REQUESTED, BookingStatus.CONFIRMED):
+            raise AppException(
+                message=f"Cannot reschedule a booking with status '{booking.status.value}'",
+                code="INVALID_BOOKING_STATE",
+                status_code=400,
+            )
+
+        async with _get_teacher_lock(booking.teacher_id):
+            teacher_overlap_stmt = select(TeacherBooking).where(
+                TeacherBooking.teacher_id == booking.teacher_id,
+                TeacherBooking.id != booking.id,
+                TeacherBooking.status.in_([BookingStatus.REQUESTED, BookingStatus.CONFIRMED]),
+                TeacherBooking.start_time < end_utc,
+                TeacherBooking.end_time > start_utc,
+            )
+            conflict_teacher = (await db.execute(teacher_overlap_stmt)).scalars().first()
+            if conflict_teacher:
+                raise AppException(
+                    message="The requested slot is already booked or conflicts with another session",
+                    code="SLOT_ALREADY_BOOKED",
+                    status_code=409,
+                )
+
+            student_overlap_stmt = select(TeacherBooking).where(
+                TeacherBooking.student_id == booking.student_id,
+                TeacherBooking.id != booking.id,
+                TeacherBooking.status.in_([BookingStatus.REQUESTED, BookingStatus.CONFIRMED]),
+                TeacherBooking.start_time < end_utc,
+                TeacherBooking.end_time > start_utc,
+            )
+            conflict_student = (await db.execute(student_overlap_stmt)).scalars().first()
+            if conflict_student:
+                raise AppException(
+                    message="The student already has an active booking during this time slot",
+                    code="STUDENT_SCHEDULE_CONFLICT",
+                    status_code=409,
+                )
+
+            booking.start_time = start_utc
+            booking.end_time = end_utc
+            if payload.reason:
+                booking.notes = (
+                    f"{booking.notes or ''}\n[Reprogrammation] {payload.reason}".strip()
+                )
+
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                raise AppException(
+                    message="The requested slot is already booked or conflicts with another session",
+                    code="SLOT_ALREADY_BOOKED",
+                    status_code=409,
+                )
+
+            try:
+                target_user_id = booking.teacher.user_id if is_student else booking.student_id
+                await NotificationService.notify_booking_confirmed(
+                    db=db,
+                    student_id=booking.student_id,
+                    teacher_id=booking.teacher.user_id,
+                    booking_id=booking.id,
+                    start_time=booking.start_time,
+                )
+                await db.commit()
+            except Exception:  # noqa: BLE001
+                pass
+
+            reload_stmt = (
+                select(TeacherBooking)
+                .where(TeacherBooking.id == booking.id)
+                .options(selectinload(TeacherBooking.teacher), selectinload(TeacherBooking.student))
+            )
+            return (await db.execute(reload_stmt)).scalar_one()
 
     @staticmethod
     async def complete_booking(

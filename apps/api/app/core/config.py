@@ -50,7 +50,7 @@ class Settings(BaseSettings):
                 import json
                 try:
                     return json.loads(v_stripped)
-                except Exception:
+                except (ValueError, TypeError):
                     pass
             return [i.strip() for i in v_stripped.split(",") if i.strip()]
         elif isinstance(v, list):
@@ -141,6 +141,11 @@ class Settings(BaseSettings):
     FEATURE_FLAG_TEACHER_BOOKINGS: bool = True
     FEATURE_FLAG_CHECKOUT: bool = True
 
+    # Gemini AI / Virtual Examiner
+    GEMINI_API_KEY: str | None = None
+    GEMINI_LIVE_MODEL: str = "models/gemini-3.8-live"
+    GEMINI_EVAL_MODEL: str = "models/gemini-3.5-flash"
+
     # System Release Metadata
     APP_VERSION: str = "0.1.0-beta.1"
     GIT_COMMIT: str = "HEAD"
@@ -185,11 +190,10 @@ class Settings(BaseSettings):
                     "Insecure or too short SECRET_KEY configured for production environment. "
                     "Must be a high-entropy secret of at least 32 characters."
                 )
-            default_db_url = "postgresql+asyncpg://tef_app:tef_app_password@localhost:5432/tef_platform"
-            if self.DATABASE_URL == default_db_url and self.POSTGRES_PASSWORD in ("tef_app_password", "password", "postgres", "admin"):
-                raise ValueError("Default POSTGRES_PASSWORD and default DATABASE_URL must not be used in production.")
-            if self.REDIS_URL == default_redis and self.REDIS_PASSWORD in ("tef_redis_password", "password", "redis"):
-                raise ValueError("Default REDIS_PASSWORD and default REDIS_URL must not be used in production.")
+            if self.POSTGRES_PASSWORD in ("tef_app_password", "password", "postgres", "admin"):
+                raise ValueError("Default POSTGRES_PASSWORD must not be used in production.")
+            if self.REDIS_PASSWORD in ("tef_redis_password", "password", "redis"):
+                raise ValueError("Default REDIS_PASSWORD must not be used in production.")
             if self.STORAGE_ENDPOINT == "localhost:9000" and any(
                 default in (self.STORAGE_ACCESS_KEY, self.STORAGE_SECRET_KEY)
                 for default in ("minioadmin", "minioadmin_dev_secret", "minio")

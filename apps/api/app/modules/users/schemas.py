@@ -34,6 +34,7 @@ class TeacherProfileResponse(BaseModel):
     teaching_levels: list[str] = []
     hourly_price: int
     verification_status: TeacherVerificationStatus
+    timezone: str = "UTC"
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

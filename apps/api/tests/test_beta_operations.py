@@ -1,16 +1,16 @@
 """Tests for Private Beta Operations, Access Control, Invitations, Quotas, and Kill-Switches."""
 
-import datetime
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.beta_limits import BetaLimitsService
-from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.feature_flags import FeatureFlagManager
-from app.modules.admin.beta_models import BetaCohort, BetaInvitation
+from app.modules.admin.beta_models import BetaCohort
 from app.modules.admin.models import AuditEvent
 from app.modules.users.models import User, UserRole
 
@@ -203,3 +203,206 @@ async def test_admin_beta_overview(
     assert "feature_flags" in data
     assert "ai_total_cost_usd" in data
     assert "server_timestamp" in data
+
+
+@pytest.mark.asyncio
+async def test_admin_beta_rates_config_and_authorization(
+    client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+    student_auth_headers: dict[str, str],
+) -> None:
+    """Admin can get beta rate configurations; students are forbidden."""
+    # Forbidden for students
+    forbidden_res = await client.get("/api/v1/admin/beta/rates", headers=student_auth_headers)
+    assert forbidden_res.status_code == 403
+
+    # Success for admin
+    res = await client.get("/api/v1/admin/beta/rates", headers=admin_auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert "actions" in data
+    assert "ai_oral" in data["actions"]
+    assert "ai_writing" in data["actions"]
+    assert "global_limits" in data
+    assert "cohort_limits" in data
+    assert "student_overrides" in data
+
+
+@pytest.mark.asyncio
+async def test_admin_adjust_global_rate(
+    client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    """Admin can adjust global beta rates, persist in DB, and reset to defaults."""
+    # 1. Update global rate for ai_writing to 8
+    res = await client.put(
+        "/api/v1/admin/beta/rates/global",
+        headers=admin_auth_headers,
+        json={"action": "ai_writing", "limit_value": 8},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["scope"] == "global"
+    assert data["action"] == "ai_writing"
+    assert data["limit_value"] == 8
+
+    # Verify effective limit reflects new global rate
+    fake_user_id = str(uuid.uuid4())
+    effective = await BetaLimitsService.get_effective_limit(fake_user_id, "ai_writing", db=db_session)
+    assert effective == 8
+
+    # 2. Check audit log
+    audit_stmt = select(AuditEvent).where(AuditEvent.action == "UPDATE_BETA_GLOBAL_RATE")
+    audit = (await db_session.execute(audit_stmt)).scalars().all()
+    assert len(audit) >= 1
+
+    # 3. Delete global override (revert to default)
+    del_res = await client.delete("/api/v1/admin/beta/rates/global/ai_writing", headers=admin_auth_headers)
+    assert del_res.status_code == 200
+
+    effective_after = await BetaLimitsService.get_effective_limit(fake_user_id, "ai_writing", db=db_session)
+    assert effective_after == 3  # Default value
+
+
+@pytest.mark.asyncio
+async def test_admin_adjust_cohort_rate(
+    client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    """Admin can adjust rate limit for a specific cohort."""
+    # 1. Create a test cohort
+    cohort = BetaCohort(
+        name="Cohorte Quota Test",
+        max_students=20,
+        max_teachers=5,
+        is_active=True,
+    )
+    db_session.add(cohort)
+    await db_session.flush()
+
+    # 2. Student in this cohort
+    student = User(
+        email="cohort_student_quota@example.com",
+        password_hash="hashed",
+        role=UserRole.STUDENT,
+        beta_cohort_id=cohort.id,
+        is_active=True,
+    )
+    db_session.add(student)
+    await db_session.commit()
+
+    # 3. Set cohort rate for ai_oral = 15
+    res = await client.put(
+        "/api/v1/admin/beta/rates/cohort",
+        headers=admin_auth_headers,
+        json={
+            "cohort_id": str(cohort.id),
+            "action": "ai_oral",
+            "limit_value": 15,
+        },
+    )
+    assert res.status_code == 200
+    assert res.json()["limit_value"] == 15
+
+    # Member student gets 15
+    student_limit = await BetaLimitsService.get_effective_limit(student.id, "ai_oral", db=db_session)
+    assert student_limit == 15
+
+    # Other student outside cohort gets default 5
+    other_user_id = str(uuid.uuid4())
+    other_limit = await BetaLimitsService.get_effective_limit(other_user_id, "ai_oral", db=db_session)
+    assert other_limit == 5
+
+    # 4. Clean up cohort override
+    del_res = await client.delete(
+        f"/api/v1/admin/beta/rates/cohort/{cohort.id}/ai_oral",
+        headers=admin_auth_headers,
+    )
+    assert del_res.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_adjust_student_rate_enforcement_and_reset(
+    client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    """Admin sets custom student rate, quota enforces it, and admin can reset consumption."""
+
+    student = User(
+        email="custom_limit_student@example.com",
+        password_hash="hashed",
+        role=UserRole.STUDENT,
+        is_active=True,
+    )
+    db_session.add(student)
+    await db_session.commit()
+    await db_session.refresh(student)
+
+    # 1. Admin sets student rate for ai_writing = 2
+    res = await client.put(
+        "/api/v1/admin/beta/rates/student",
+        headers=admin_auth_headers,
+        json={
+            "user_id": str(student.id),
+            "action": "ai_writing",
+            "limit_value": 2,
+            "notes": "Plan spécial entraînement intensif",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json()["limit_value"] == 2
+    assert res.json()["user_email"] == "custom_limit_student@example.com"
+
+    # 2. Check effective limit
+    eff = await BetaLimitsService.get_effective_limit(student.id, "ai_writing", db=db_session)
+    assert eff == 2
+
+    # 3. Consume quota
+    c1 = await BetaLimitsService.check_and_increment(student.id, "ai_writing", 1, db=db_session)
+    assert c1 == 1
+    c2 = await BetaLimitsService.check_and_increment(student.id, "ai_writing", 1, db=db_session)
+    assert c2 == 2
+
+    # 3rd consumption must fail with 429
+    with pytest.raises(AppException) as exc_info:
+        await BetaLimitsService.check_and_increment(student.id, "ai_writing", 1, db=db_session)
+    assert exc_info.value.status_code == 429
+
+    # 4. Admin resets student quota
+    reset_res = await client.post(
+        f"/api/v1/admin/beta/rates/student/{student.id}/reset",
+        headers=admin_auth_headers,
+        json={"action": "ai_writing", "reason": "Accident technique réinitialisé"},
+    )
+    assert reset_res.status_code == 200
+    data = reset_res.json()
+    assert data["quotas"]["ai_writing"]["consumed"] == 0
+    assert data["quotas"]["ai_writing"]["remaining"] == 2
+
+    # 5. After reset, student can consume again!
+    c_after = await BetaLimitsService.check_and_increment(student.id, "ai_writing", 1, db=db_session)
+    assert c_after == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_list_students_rates_status(
+    client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    """Admin can list all students with live consumption rates."""
+    res = await client.get("/api/v1/admin/beta/rates/students?limit=10", headers=admin_auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert "total" in data
+    assert "students" in data
+    assert isinstance(data["students"], list)
+    if data["students"]:
+        student_obj = data["students"][0]
+        assert "quotas" in student_obj
+        assert "ai_oral" in student_obj["quotas"]
+        assert "limit" in student_obj["quotas"]["ai_oral"]
+

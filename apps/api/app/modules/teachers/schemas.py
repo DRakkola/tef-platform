@@ -203,6 +203,35 @@ class BookingCancelRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=500, description="Reason for cancellation")
 
 
+class BookingRescheduleRequest(BaseModel):
+    """Payload to reschedule an existing booking."""
+
+    new_start_time: datetime.datetime = Field(..., description="New UTC start time")
+    new_end_time: datetime.datetime = Field(..., description="New UTC end time")
+    reason: str | None = Field(None, max_length=500, description="Optional reason for rescheduling")
+
+    @field_validator("new_start_time", "new_end_time")
+    @classmethod
+    def ensure_timezone_aware(cls, dt: datetime.datetime) -> datetime.datetime:
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=datetime.UTC)
+        return dt.astimezone(datetime.UTC)
+
+    @field_validator("new_end_time")
+    @classmethod
+    def validate_reschedule_times(
+        cls, new_end_time: datetime.datetime, info: Any
+    ) -> datetime.datetime:
+        new_start_time = info.data.get("new_start_time")
+        if new_start_time:
+            if new_end_time <= new_start_time:
+                raise ValueError("new_end_time must be strictly after new_start_time")
+            duration = (new_end_time - new_start_time).total_seconds() / 60
+            if duration < 15 or duration > 180:
+                raise ValueError("Booking duration must be between 15 and 180 minutes")
+        return new_end_time
+
+
 class TeacherBookingResponse(BaseModel):
     """Comprehensive booking details."""
 
@@ -212,6 +241,7 @@ class TeacherBookingResponse(BaseModel):
     teacher_id: uuid.UUID
     student_id: uuid.UUID
     teacher_display_name: str | None = None
+    student_display_name: str | None = None
     student_email: str | None = None
     start_time: datetime.datetime
     end_time: datetime.datetime

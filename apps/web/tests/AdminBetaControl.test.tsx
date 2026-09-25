@@ -174,4 +174,226 @@ describe("Admin Beta Control Panel", () => {
       expect(screen.getByText("tef_beta_secret_token_1234567890")).toBeInTheDocument();
     });
   });
+
+  it("renders student rates and allows admin to adjust student rate limit", async () => {
+    let putCalledWith: any = null;
+
+    vi.spyOn(global, "fetch").mockImplementation(async (url, opts) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/admin/beta/overview")) {
+        return {
+          ok: true,
+          json: async () => ({
+            total_beta_users: 15,
+            active_users_7d: 12,
+            recent_registrations_24h: 3,
+            assessment_completions: 8,
+            writing_submissions: 5,
+            speaking_sessions: 4,
+            practice_sessions: 3,
+            teacher_bookings: 2,
+            total_revenue_cents: 8000,
+            ai_total_cost_usd: 2.15,
+            open_support_tickets: 1,
+            unresolved_incidents_count: 0,
+            feature_flags: {},
+            server_timestamp: new Date().toISOString(),
+          }),
+        } as Response;
+      }
+      if (urlStr.includes("/admin/beta/cohorts")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      if (urlStr.includes("/admin/beta/invitations")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      if (urlStr.includes("/admin/beta/rates/students")) {
+        return {
+          ok: true,
+          json: async () => ({
+            total: 1,
+            students: [
+              {
+                user_id: "student-uuid-123",
+                email: "pilot_student@example.com",
+                cohort_id: "c1",
+                cohort_name: "Cohorte Pilote",
+                quotas: {
+                  ai_oral: { name: "IA Oral", limit: 5, consumed: 2, remaining: 3, window: "daily", is_custom: false },
+                  ai_writing: { name: "IA Rédaction", limit: 3, consumed: 3, remaining: 0, window: "daily", is_custom: false },
+                  practice_pool: { name: "Practice", limit: 4, consumed: 1, remaining: 3, window: "daily", is_custom: false },
+                  teacher_booking: { name: "Tuteur", limit: 2, consumed: 0, remaining: 2, window: "weekly", is_custom: false },
+                },
+                has_overrides: false,
+              },
+            ],
+          }),
+        } as Response;
+      }
+      if (urlStr.includes("/admin/beta/rates/student") && opts?.method === "PUT") {
+        putCalledWith = JSON.parse(String(opts?.body));
+        return {
+          ok: true,
+          json: async () => ({
+            id: "rate-ovr-1",
+            scope: "user",
+            action: putCalledWith.action,
+            action_name_fr: "Corrections de rédaction par IA",
+            limit_value: putCalledWith.limit_value,
+            window: "daily",
+            user_id: putCalledWith.user_id,
+            user_email: "pilot_student@example.com",
+            notes: putCalledWith.notes,
+            updated_at: new Date().toISOString(),
+          }),
+        } as Response;
+      }
+      if (urlStr.includes("/admin/beta/rates")) {
+        return {
+          ok: true,
+          json: async () => ({
+            actions: {
+              ai_oral: { name_fr: "Sessions orales avec jury IA", default: 5, window: "daily", current_global_limit: 5, is_overridden: false },
+              ai_writing: { name_fr: "Corrections de rédaction par IA", default: 3, window: "daily", current_global_limit: 3, is_overridden: false },
+            },
+            global_limits: [],
+            cohort_limits: [],
+            student_overrides: [],
+          }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+
+    render(
+      <BrowserRouter>
+        <AdminBetaControlPage />
+      </BrowserRouter>
+    );
+
+    // Wait for student table to load
+    await waitFor(() => {
+      expect(screen.getByText("pilot_student@example.com")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Contrôle & Ajustement des Plafonds Étudiants/i)).toBeInTheDocument();
+    expect(screen.getByText("Sessions orales avec jury IA")).toBeInTheDocument();
+    expect(screen.getByText("Cohorte Pilote")).toBeInTheDocument();
+
+    // Click "Ajuster" on student
+    const adjustBtns = screen.getAllByRole("button", { name: /Ajuster/i });
+    fireEvent.click(adjustBtns[adjustBtns.length - 1]); // Student quick action
+
+    expect(screen.getByText("Ajuster un Plafond d'Utilisation")).toBeInTheDocument();
+
+    // Submit adjustment
+    const saveBtn = screen.getByRole("button", { name: /Enregistrer le Plafond/i });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(putCalledWith).not.toBeNull();
+      expect(putCalledWith.user_id).toBe("student-uuid-123");
+    });
+  });
+
+  it("allows admin to reset student quota consumption", async () => {
+    let resetCalled = false;
+
+    vi.spyOn(global, "fetch").mockImplementation(async (url, opts) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/admin/beta/overview")) {
+        return {
+          ok: true,
+          json: async () => ({
+            total_beta_users: 5,
+            active_users_7d: 5,
+            recent_registrations_24h: 1,
+            assessment_completions: 2,
+            writing_submissions: 2,
+            speaking_sessions: 2,
+            practice_sessions: 1,
+            teacher_bookings: 1,
+            total_revenue_cents: 1000,
+            ai_total_cost_usd: 0.5,
+            open_support_tickets: 0,
+            unresolved_incidents_count: 0,
+            feature_flags: {},
+            server_timestamp: new Date().toISOString(),
+          }),
+        } as Response;
+      }
+      if (urlStr.includes("/admin/beta/cohorts") || urlStr.includes("/admin/beta/invitations")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      if (urlStr.includes("/admin/beta/rates/students")) {
+        return {
+          ok: true,
+          json: async () => ({
+            total: 1,
+            students: [
+              {
+                user_id: "student-reset-id",
+                email: "exhausted_student@example.com",
+                cohort_id: null,
+                cohort_name: null,
+                quotas: {
+                  ai_writing: { name: "IA Rédaction", limit: 3, consumed: 3, remaining: 0, window: "daily", is_custom: false },
+                },
+                has_overrides: false,
+              },
+            ],
+          }),
+        } as Response;
+      }
+      if (urlStr.includes("/reset") && opts?.method === "POST") {
+        resetCalled = true;
+        return {
+          ok: true,
+          json: async () => ({
+            message: "Quota réinitialisé pour l'étudiant",
+            user_id: "student-reset-id",
+            action: null,
+            quotas: {},
+          }),
+        } as Response;
+      }
+      if (urlStr.includes("/admin/beta/rates")) {
+        return {
+          ok: true,
+          json: async () => ({
+            actions: {},
+            global_limits: [],
+            cohort_limits: [],
+            student_overrides: [],
+          }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+
+    render(
+      <BrowserRouter>
+        <AdminBetaControlPage />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("exhausted_student@example.com")).toBeInTheDocument();
+    });
+
+    // Click "Réinitialiser"
+    const resetBtn = screen.getByRole("button", { name: /Réinitialiser/i });
+    fireEvent.click(resetBtn);
+
+    expect(screen.getByText("Réinitialiser les Quotas de Consommation")).toBeInTheDocument();
+
+    // Confirm
+    const confirmBtn = screen.getByRole("button", { name: /Confirmer la Réinitialisation/i });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(resetCalled).toBe(true);
+    });
+  });
 });
+

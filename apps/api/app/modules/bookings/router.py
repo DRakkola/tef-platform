@@ -15,6 +15,7 @@ from app.modules.teachers.schemas import (
     BookingCancelRequest,
     BookingCreateRequest,
     BookingListResponse,
+    BookingRescheduleRequest,
     TeacherBookingResponse,
 )
 from app.modules.users.models import User
@@ -24,11 +25,24 @@ router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
 def serialize_booking(b: TeacherBooking) -> TeacherBookingResponse:
     """Helper to convert TeacherBooking to response schema with related attributes."""
+    student_display_name = None
+    if b.student:
+        if getattr(b.student, "full_name", None):
+            student_display_name = b.student.full_name
+        elif getattr(b.student, "email", None):
+            prefix = b.student.email.split("@")[0]
+            student_display_name = f"Élève {prefix[:8].capitalize()}"
+        else:
+            student_display_name = f"Élève #{str(b.student_id)[:6]}"
+    else:
+        student_display_name = f"Élève #{str(b.student_id)[:6]}"
+
     return TeacherBookingResponse(
         id=b.id,
         teacher_id=b.teacher_id,
         student_id=b.student_id,
         teacher_display_name=b.teacher.display_name if b.teacher else None,
+        student_display_name=student_display_name,
         student_email=b.student.email if b.student else None,
         start_time=b.start_time,
         end_time=b.end_time,
@@ -146,6 +160,27 @@ async def cancel_booking(
         booking_id=booking_id,
         user=current_user,
         reason=payload.reason,
+    )
+    return serialize_booking(booking)
+
+
+@router.post(
+    "/{booking_id}/reschedule",
+    response_model=TeacherBookingResponse,
+    summary="Reschedule booking session to new slot",
+)
+async def reschedule_booking(
+    booking_id: uuid.UUID,
+    payload: BookingRescheduleRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TeacherBookingResponse:
+    """Reschedule an existing booking to a new start and end time."""
+    booking = await BookingService.reschedule_booking(
+        db=db,
+        booking_id=booking_id,
+        user=current_user,
+        payload=payload,
     )
     return serialize_booking(booking)
 

@@ -7,29 +7,38 @@ import uuid
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.beta_limits import LIMIT_DEFINITIONS, BetaLimitsService
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.feature_flags import FeatureFlagManager
-from app.modules.admin.beta_models import BetaCohort, BetaInvitation
+from app.modules.admin.beta_models import BetaCohort, BetaInvitation, BetaRateLimit
 from app.modules.admin.beta_schemas import (
     BetaCohortCreate,
+    BetaCohortRateUpdate,
     BetaCohortResponse,
+    BetaGlobalRateUpdate,
     BetaInvitationCreate,
     BetaInvitationResponse,
     BetaOverviewResponse,
+    BetaRateLimitItemResponse,
+    BetaRatesConfigResponse,
+    BetaStudentQuotaResetRequest,
+    BetaStudentRateListResponse,
+    BetaStudentRateStatus,
+    BetaStudentRateUpdate,
     BetaSuspendUserRequest,
     BetaToggleFeatureRequest,
 )
 from app.modules.admin.models import AuditEvent
 from app.modules.analytics.models import SupportTicket
 from app.modules.assessments.models import Attempt
-from app.modules.auth.dependencies import get_current_user, require_role
+from app.modules.auth.dependencies import require_role
 from app.modules.billing.models import AIUsageRecord, Order
 from app.modules.practice_pool.models import PracticeSession
 from app.modules.speaking.models import SpeakingSession
@@ -90,7 +99,7 @@ async def get_beta_overview(
         ai_records = (await db.execute(select(AIUsageRecord))).scalars().all()
         for rec in ai_records:
             ai_cost_usd += (rec.units * 0.02) + ((rec.audio_seconds or 0) * 0.001)
-    except Exception:
+    except Exception:  # noqa: BLE001
         ai_cost_usd = 0.0
 
     # 7. Support tickets
@@ -431,3 +440,531 @@ async def suspend_user(
         "user_id": str(target_user.id),
         "is_active": target_user.is_active,
     }
+
+
+# ==============================================================================
+# STUDENT RATE LIMITS & QUOTA CONTROL
+# ==============================================================================
+
+
+@router.get(
+    "/rates",
+    response_model=BetaRatesConfigResponse,
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+    summary="Get global, cohort, and student-level beta rate limit configurations",
+)
+async def get_beta_rates_config(
+    db: AsyncSession = Depends(get_db),
+) -> BetaRatesConfigResponse:
+    stmt = (
+        select(BetaRateLimit)
+        .options(
+            selectinload(BetaRateLimit.cohort),
+            selectinload(BetaRateLimit.user),
+        )
+        .order_by(BetaRateLimit.updated_at.desc())
+    )
+    all_limits = (await db.execute(stmt)).scalars().all()
+
+    global_limits: list[BetaRateLimitItemResponse] = []
+    cohort_limits: list[BetaRateLimitItemResponse] = []
+    student_overrides: list[BetaRateLimitItemResponse] = []
+
+    for item in all_limits:
+        def_info = LIMIT_DEFINITIONS.get(item.action, {})
+        name_fr = def_info.get("name_fr", item.action)
+        resp_item = BetaRateLimitItemResponse(
+            id=item.id,
+            scope=item.scope,
+            action=item.action,
+            action_name_fr=name_fr,
+            limit_value=item.limit_value,
+            window=item.window,
+            cohort_id=item.cohort_id,
+            cohort_name=item.cohort.name if item.cohort else None,
+            user_id=item.user_id,
+            user_email=item.user.email if item.user else None,
+            notes=item.notes,
+            updated_at=item.updated_at,
+        )
+        if item.scope == "global":
+            global_limits.append(resp_item)
+        elif item.scope == "cohort":
+            cohort_limits.append(resp_item)
+        elif item.scope == "user":
+            student_overrides.append(resp_item)
+
+    actions_meta: dict[str, Any] = {}
+    global_map = {g.action: g.limit_value for g in global_limits}
+    for action_key, cfg in LIMIT_DEFINITIONS.items():
+        actions_meta[action_key] = {
+            "name_fr": cfg["name_fr"],
+            "default": cfg["default"],
+            "window": cfg["window"],
+            "current_global_limit": global_map.get(action_key, cfg["default"]),
+            "is_overridden": action_key in global_map,
+        }
+
+    return BetaRatesConfigResponse(
+        actions=actions_meta,
+        global_limits=global_limits,
+        cohort_limits=cohort_limits,
+        student_overrides=student_overrides,
+    )
+
+
+@router.put(
+    "/rates/global",
+    response_model=BetaRateLimitItemResponse,
+    summary="Set or adjust global beta rate limit for an action",
+)
+async def update_global_rate(
+    payload: BetaGlobalRateUpdate,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> BetaRateLimitItemResponse:
+    if payload.action not in LIMIT_DEFINITIONS:
+        raise AppException(
+            f"Action inconnue '{payload.action}'. Actions valides : {list(LIMIT_DEFINITIONS.keys())}",
+            code="INVALID_ACTION",
+            status_code=400,
+        )
+
+    stmt = select(BetaRateLimit).where(
+        BetaRateLimit.scope == "global",
+        BetaRateLimit.action == payload.action,
+    )
+    rate_record = (await db.execute(stmt)).scalar_one_or_none()
+    old_value = rate_record.limit_value if rate_record else LIMIT_DEFINITIONS[payload.action]["default"]
+
+    if rate_record:
+        rate_record.limit_value = payload.limit_value
+        rate_record.created_by_user_id = current_user.id
+    else:
+        rate_record = BetaRateLimit(
+            scope="global",
+            action=payload.action,
+            limit_value=payload.limit_value,
+            window=LIMIT_DEFINITIONS[payload.action]["window"],
+            created_by_user_id=current_user.id,
+        )
+        db.add(rate_record)
+
+    await db.flush()
+
+    audit = AuditEvent(
+        actor_user_id=current_user.id,
+        action="UPDATE_BETA_GLOBAL_RATE",
+        entity_type="BetaRateLimit",
+        entity_id=rate_record.id,
+        payload={
+            "action": payload.action,
+            "old_value": old_value,
+            "new_value": payload.limit_value,
+        },
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(rate_record)
+
+    await BetaLimitsService.invalidate_cache()
+
+    name_fr = LIMIT_DEFINITIONS[payload.action]["name_fr"]
+    return BetaRateLimitItemResponse(
+        id=rate_record.id,
+        scope=rate_record.scope,
+        action=rate_record.action,
+        action_name_fr=name_fr,
+        limit_value=rate_record.limit_value,
+        window=rate_record.window,
+        notes=rate_record.notes,
+        updated_at=rate_record.updated_at,
+    )
+
+
+@router.delete(
+    "/rates/global/{action}",
+    response_model=dict[str, Any],
+    summary="Reset global beta rate limit to application defaults",
+)
+async def delete_global_rate(
+    action: str,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    if action not in LIMIT_DEFINITIONS:
+        raise AppException(f"Action inconnue '{action}'", code="INVALID_ACTION", status_code=400)
+
+    stmt = select(BetaRateLimit).where(
+        BetaRateLimit.scope == "global",
+        BetaRateLimit.action == action,
+    )
+    rate_record = (await db.execute(stmt)).scalar_one_or_none()
+    if not rate_record:
+        return {"message": "Plafond déjà configuré sur la valeur par défaut", "action": action}
+
+    await db.delete(rate_record)
+
+    audit = AuditEvent(
+        actor_user_id=current_user.id,
+        action="DELETE_BETA_GLOBAL_RATE",
+        entity_type="BetaRateLimit",
+        entity_id=rate_record.id,
+        payload={"action": action},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    db.add(audit)
+    await db.commit()
+
+    await BetaLimitsService.invalidate_cache()
+    return {"message": f"Plafond global '{action}' réinitialisé au défaut", "action": action}
+
+
+@router.put(
+    "/rates/cohort",
+    response_model=BetaRateLimitItemResponse,
+    summary="Set or adjust rate limit override for a beta cohort",
+)
+async def update_cohort_rate(
+    payload: BetaCohortRateUpdate,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> BetaRateLimitItemResponse:
+    if payload.action not in LIMIT_DEFINITIONS:
+        raise AppException(f"Action inconnue '{payload.action}'", code="INVALID_ACTION", status_code=400)
+
+    cohort = await db.get(BetaCohort, payload.cohort_id)
+    if not cohort:
+        raise AppException("Cohorte introuvable", code="COHORT_NOT_FOUND", status_code=404)
+
+    stmt = select(BetaRateLimit).where(
+        BetaRateLimit.scope == "cohort",
+        BetaRateLimit.cohort_id == payload.cohort_id,
+        BetaRateLimit.action == payload.action,
+    )
+    rate_record = (await db.execute(stmt)).scalar_one_or_none()
+
+    if rate_record:
+        rate_record.limit_value = payload.limit_value
+        rate_record.created_by_user_id = current_user.id
+    else:
+        rate_record = BetaRateLimit(
+            scope="cohort",
+            cohort_id=payload.cohort_id,
+            action=payload.action,
+            limit_value=payload.limit_value,
+            window=LIMIT_DEFINITIONS[payload.action]["window"],
+            created_by_user_id=current_user.id,
+        )
+        db.add(rate_record)
+
+    await db.flush()
+
+    audit = AuditEvent(
+        actor_user_id=current_user.id,
+        action="UPDATE_BETA_COHORT_RATE",
+        entity_type="BetaRateLimit",
+        entity_id=rate_record.id,
+        payload={
+            "cohort_id": str(payload.cohort_id),
+            "cohort_name": cohort.name,
+            "action": payload.action,
+            "new_value": payload.limit_value,
+        },
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(rate_record)
+
+    await BetaLimitsService.invalidate_cache()
+
+    name_fr = LIMIT_DEFINITIONS[payload.action]["name_fr"]
+    return BetaRateLimitItemResponse(
+        id=rate_record.id,
+        scope=rate_record.scope,
+        action=rate_record.action,
+        action_name_fr=name_fr,
+        limit_value=rate_record.limit_value,
+        window=rate_record.window,
+        cohort_id=cohort.id,
+        cohort_name=cohort.name,
+        notes=rate_record.notes,
+        updated_at=rate_record.updated_at,
+    )
+
+
+@router.delete(
+    "/rates/cohort/{cohort_id}/{action}",
+    response_model=dict[str, Any],
+    summary="Delete cohort rate limit override",
+)
+async def delete_cohort_rate(
+    cohort_id: uuid.UUID,
+    action: str,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    stmt = select(BetaRateLimit).where(
+        BetaRateLimit.scope == "cohort",
+        BetaRateLimit.cohort_id == cohort_id,
+        BetaRateLimit.action == action,
+    )
+    rate_record = (await db.execute(stmt)).scalar_one_or_none()
+    if not rate_record:
+        return {"message": "Aucun plafond spécifique pour cette cohorte", "cohort_id": str(cohort_id)}
+
+    await db.delete(rate_record)
+
+    audit = AuditEvent(
+        actor_user_id=current_user.id,
+        action="DELETE_BETA_COHORT_RATE",
+        entity_type="BetaRateLimit",
+        entity_id=rate_record.id,
+        payload={"cohort_id": str(cohort_id), "action": action},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    db.add(audit)
+    await db.commit()
+
+    await BetaLimitsService.invalidate_cache()
+    return {"message": "Plafond spécifique supprimé pour la cohorte", "cohort_id": str(cohort_id), "action": action}
+
+
+@router.put(
+    "/rates/student",
+    response_model=BetaRateLimitItemResponse,
+    summary="Set or adjust individual student rate limit override",
+)
+async def update_student_rate(
+    payload: BetaStudentRateUpdate,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> BetaRateLimitItemResponse:
+    if payload.action not in LIMIT_DEFINITIONS:
+        raise AppException(f"Action inconnue '{payload.action}'", code="INVALID_ACTION", status_code=400)
+
+    student = await db.get(User, payload.user_id)
+    if not student:
+        raise AppException("Étudiant introuvable", code="USER_NOT_FOUND", status_code=404)
+
+    stmt = select(BetaRateLimit).where(
+        BetaRateLimit.scope == "user",
+        BetaRateLimit.user_id == payload.user_id,
+        BetaRateLimit.action == payload.action,
+    )
+    rate_record = (await db.execute(stmt)).scalar_one_or_none()
+
+    if rate_record:
+        rate_record.limit_value = payload.limit_value
+        rate_record.notes = payload.notes
+        rate_record.created_by_user_id = current_user.id
+    else:
+        rate_record = BetaRateLimit(
+            scope="user",
+            user_id=payload.user_id,
+            action=payload.action,
+            limit_value=payload.limit_value,
+            window=LIMIT_DEFINITIONS[payload.action]["window"],
+            notes=payload.notes,
+            created_by_user_id=current_user.id,
+        )
+        db.add(rate_record)
+
+    await db.flush()
+
+    audit = AuditEvent(
+        actor_user_id=current_user.id,
+        action="UPDATE_BETA_STUDENT_RATE",
+        entity_type="BetaRateLimit",
+        entity_id=rate_record.id,
+        payload={
+            "user_id": str(student.id),
+            "email": student.email,
+            "action": payload.action,
+            "new_value": payload.limit_value,
+            "notes": payload.notes,
+        },
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(rate_record)
+
+    await BetaLimitsService.invalidate_cache(user_id=payload.user_id, action=payload.action)
+
+    name_fr = LIMIT_DEFINITIONS[payload.action]["name_fr"]
+    return BetaRateLimitItemResponse(
+        id=rate_record.id,
+        scope=rate_record.scope,
+        action=rate_record.action,
+        action_name_fr=name_fr,
+        limit_value=rate_record.limit_value,
+        window=rate_record.window,
+        user_id=student.id,
+        user_email=student.email,
+        notes=rate_record.notes,
+        updated_at=rate_record.updated_at,
+    )
+
+
+@router.delete(
+    "/rates/student/{user_id}/{action}",
+    response_model=dict[str, Any],
+    summary="Delete individual student rate limit override",
+)
+async def delete_student_rate(
+    user_id: uuid.UUID,
+    action: str,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    stmt = select(BetaRateLimit).where(
+        BetaRateLimit.scope == "user",
+        BetaRateLimit.user_id == user_id,
+        BetaRateLimit.action == action,
+    )
+    rate_record = (await db.execute(stmt)).scalar_one_or_none()
+    if not rate_record:
+        return {"message": "Aucun plafond spécifique pour cet étudiant", "user_id": str(user_id)}
+
+    await db.delete(rate_record)
+
+    audit = AuditEvent(
+        actor_user_id=current_user.id,
+        action="DELETE_BETA_STUDENT_RATE",
+        entity_type="BetaRateLimit",
+        entity_id=rate_record.id,
+        payload={"user_id": str(user_id), "action": action},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    db.add(audit)
+    await db.commit()
+
+    await BetaLimitsService.invalidate_cache(user_id=user_id, action=action)
+    return {"message": "Plafond spécifique supprimé pour l'étudiant", "user_id": str(user_id), "action": action}
+
+
+@router.get(
+    "/rates/students",
+    response_model=BetaStudentRateListResponse,
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+    summary="List beta students with their live consumption and limits",
+)
+async def list_students_rates_status(
+    search: str | None = Query(None, description="Search by student email"),
+    cohort_id: uuid.UUID | None = Query(None, description="Filter by cohort"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> BetaStudentRateListResponse:
+    query = select(User).options(selectinload(User.beta_cohort)).where(User.role == UserRole.STUDENT)
+
+    if search:
+        query = query.where(User.email.ilike(f"%{search.strip()}%"))
+    if cohort_id:
+        query = query.where(User.beta_cohort_id == cohort_id)
+
+    count_query = select(func.count(User.id)).where(User.role == UserRole.STUDENT)
+    if search:
+        count_query = count_query.where(User.email.ilike(f"%{search.strip()}%"))
+    if cohort_id:
+        count_query = count_query.where(User.beta_cohort_id == cohort_id)
+    total_count = (await db.scalar(count_query)) or 0
+
+    users = (
+        await db.execute(
+            query.order_by(User.created_at.desc()).offset(offset).limit(limit)
+        )
+    ).scalars().all()
+
+    user_ids = [u.id for u in users]
+    override_user_ids: set[uuid.UUID] = set()
+    if user_ids:
+        ovr_stmt = select(BetaRateLimit.user_id).where(
+            BetaRateLimit.scope == "user",
+            BetaRateLimit.user_id.in_(user_ids),
+        )
+        override_user_ids = {
+            uid for uid in (await db.execute(ovr_stmt)).scalars().all() if uid is not None
+        }
+
+    students_status: list[BetaStudentRateStatus] = []
+    for u in users:
+        quotas = await BetaLimitsService.get_user_status(u.id, db=db)
+        students_status.append(
+            BetaStudentRateStatus(
+                user_id=u.id,
+                email=u.email,
+                cohort_id=u.beta_cohort_id,
+                cohort_name=u.beta_cohort.name if u.beta_cohort else None,
+                quotas=quotas,
+                has_overrides=u.id in override_user_ids,
+            )
+        )
+
+    return BetaStudentRateListResponse(
+        total=total_count,
+        students=students_status,
+    )
+
+
+@router.post(
+    "/rates/student/{user_id}/reset",
+    response_model=dict[str, Any],
+    summary="Reset a student's consumption quota today/this week",
+)
+async def reset_student_quota(
+    user_id: uuid.UUID,
+    payload: BetaStudentQuotaResetRequest,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    student = await db.get(User, user_id)
+    if not student:
+        raise AppException("Étudiant introuvable", code="USER_NOT_FOUND", status_code=404)
+
+    if payload.action and payload.action not in LIMIT_DEFINITIONS:
+        raise AppException(f"Action inconnue '{payload.action}'", code="INVALID_ACTION", status_code=400)
+
+    await BetaLimitsService.reset_user_consumption(user_id, action=payload.action)
+
+    audit = AuditEvent(
+        actor_user_id=current_user.id,
+        action="RESET_BETA_STUDENT_QUOTA",
+        entity_type="User",
+        entity_id=student.id,
+        payload={
+            "student_email": student.email,
+            "action": payload.action or "all",
+            "reason": payload.reason,
+        },
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    db.add(audit)
+    await db.commit()
+
+    updated_status = await BetaLimitsService.get_user_status(user_id, db=db)
+
+    return {
+        "message": f"Quota réinitialisé pour l'étudiant {student.email}",
+        "user_id": str(user_id),
+        "action": payload.action,
+        "quotas": updated_status,
+    }
+

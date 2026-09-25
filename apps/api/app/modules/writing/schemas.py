@@ -145,7 +145,7 @@ class TeacherCorrectionRequest(BaseModel):
     grammar: float | None = Field(None, ge=0.0, le=100.0)
     syntax: float | None = Field(None, ge=0.0, le=100.0)
     spelling: float | None = Field(None, ge=0.0, le=100.0)
-    register: float | None = Field(None, ge=0.0, le=100.0)
+    language_register: float | None = Field(None, ge=0.0, le=100.0, alias="register")
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
     comments: str = Field(..., min_length=5)
@@ -153,6 +153,10 @@ class TeacherCorrectionRequest(BaseModel):
     recommendations: list[str] = Field(default_factory=list)
     items: list[CorrectionItemCreate] = Field(default_factory=list)
     skills: list[CorrectionSkillCreate] = Field(default_factory=list)
+
+    @property
+    def register(self) -> float | None:
+        return self.language_register
 
 
 class WritingCorrectionResponse(BaseModel):
@@ -170,7 +174,7 @@ class WritingCorrectionResponse(BaseModel):
     vocabulary: float | None = None
     grammar: float | None = None
     spelling: float | None = None
-    register: float | None = None
+    language_register: float | None = Field(None, alias="register")
     strengths: list[str]
     weaknesses: list[str]
     comments: str
@@ -181,6 +185,10 @@ class WritingCorrectionResponse(BaseModel):
     is_simulated: bool = True
     disclaimer: str = "Simulation score only. Not an official TEF score."
     created_at: datetime.datetime
+
+    @property
+    def register(self) -> float | None:
+        return self.language_register
 
 
 # ---------------------------------------------------------------------------

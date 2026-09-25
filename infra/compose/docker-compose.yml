@@ -130,6 +130,9 @@ services:
       STORAGE_USE_SSL: "false"
       CORS_ORIGINS: "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-must-be-32-chars-long}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_LIVE_MODEL: ${GEMINI_LIVE_MODEL:-models/gemini-3.8-live}
+      GEMINI_EVAL_MODEL: ${GEMINI_EVAL_MODEL:-models/gemini-3.5-flash}
     depends_on:
       postgres:
         condition: service_healthy
@@ -167,6 +170,9 @@ services:
       STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-tef-private}
       STORAGE_USE_SSL: "false"
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-must-be-32-chars-long}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_LIVE_MODEL: ${GEMINI_LIVE_MODEL:-models/gemini-3.8-live}
+      GEMINI_EVAL_MODEL: ${GEMINI_EVAL_MODEL:-models/gemini-3.5-flash}
     depends_on:
       postgres:
         condition: service_healthy

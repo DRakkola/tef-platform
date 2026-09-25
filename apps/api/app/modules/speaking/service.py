@@ -24,13 +24,15 @@ from app.modules.speaking.models import (
     SpeakingParticipant,
     SpeakingSession,
 )
+from app.core.config import settings
+from app.modules.speaking.providers.gemini_live import GeminiSpeakingEvaluator
 from app.modules.speaking.providers.mock import MockMediaRoomProvider, MockSpeakingProvider
 from app.modules.speaking.schemas import SpeakingSessionCreate, TeacherEvaluationCreate
 from app.modules.teachers.models import TeacherBooking
 from app.modules.users.models import User, UserRole
 
 media_room_provider = MockMediaRoomProvider()
-speaking_evaluator = MockSpeakingProvider()
+speaking_evaluator = GeminiSpeakingEvaluator()
 
 
 def _ensure_utc(dt: datetime.datetime | None) -> datetime.datetime | None:
@@ -249,17 +251,33 @@ class SpeakingService:
             )
             student_id = student_participant.user_id if student_participant else user.id
 
+            # Retrieve conversation transcript accumulated during live session
+            transcript = None
+            try:
+                from app.core.redis import RedisService
+                redis_svc = RedisService(settings.REDIS_URL)
+                transcript = await redis_svc.get(f"speaking_transcript:{session.id}")
+            except Exception:
+                pass
+
             eval_result = await speaking_evaluator.evaluate_session(
                 topic=session.topic,
                 level=session.level,
                 duration_seconds=session.duration_minutes * 60,
+                transcript=transcript,
+            )
+
+            evaluator_type = (
+                SpeakingEvaluatorType.AI
+                if settings.GEMINI_API_KEY
+                else SpeakingEvaluatorType.MOCK
             )
 
             evaluation = SpeakingEvaluation(
                 session_id=session.id,
                 student_id=student_id,
                 evaluator_user_id=None,
-                evaluator_type=SpeakingEvaluatorType.MOCK,
+                evaluator_type=evaluator_type,
                 estimated_level=eval_result.estimated_level,
                 fluency=eval_result.fluency,
                 vocabulary=eval_result.vocabulary,

@@ -14,6 +14,13 @@ import {
   HelpCircle,
   LogOut,
   ChevronsUpDown,
+  Calendar,
+  Video,
+  Clock,
+  Bell,
+  Mic,
+  ShieldAlert,
+  Sliders,
 } from "lucide-react"
 import {
   Sidebar,
@@ -53,6 +60,11 @@ const primaryNavigation = [
     icon: Dumbbell,
   },
   {
+    title: "Expression Orale",
+    url: "/speaking",
+    icon: Mic,
+  },
+  {
     title: "Progression",
     url: "/progress",
     icon: TrendingUp,
@@ -81,9 +93,78 @@ const secondaryNavigation = [
     icon: PenTool,
   },
   {
-    title: "Aide & Guide",
-    url: "/onboarding",
-    icon: LifeBuoy,
+    title: "Mes Séances",
+    url: "/bookings",
+    icon: Calendar,
+  },
+  {
+    title: "Centre d'aide",
+    url: "/help",
+    icon: HelpCircle,
+  },
+]
+
+const adminNavigation = [
+  {
+    title: "Tableau de bord Admin",
+    url: "/admin",
+    icon: ShieldAlert,
+  },
+  {
+    title: "Gestion des épreuves",
+    url: "/admin/assessments",
+    icon: FileCheck2,
+  },
+  {
+    title: "Contrôle Bêta",
+    url: "/admin/beta",
+    icon: Sliders,
+  },
+]
+
+const teacherPrimaryNavigation = [
+  {
+    title: "Tableau de bord",
+    url: "/teacher",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Réservations",
+    url: "/teacher/bookings",
+    icon: Calendar,
+  },
+  {
+    title: "Corrections",
+    url: "/teacher/corrections",
+    icon: PenTool,
+  },
+  {
+    title: "Séances",
+    url: "/speaking",
+    icon: Video,
+  },
+  {
+    title: "Disponibilités",
+    url: "/teacher/availability",
+    icon: Clock,
+  },
+  {
+    title: "Revenus",
+    url: "/teacher/earnings",
+    icon: CreditCard,
+  },
+]
+
+const teacherSecondaryNavigation = [
+  {
+    title: "Notifications",
+    url: "/notifications",
+    icon: Bell,
+  },
+  {
+    title: "Centre d'aide",
+    url: "/help",
+    icon: HelpCircle,
   },
 ]
 
@@ -127,6 +208,12 @@ export function AppSidebar({
     .join("")
     .toUpperCase()
 
+  const isTeacherView =
+    user?.role === "teacher" || location.pathname.startsWith("/teacher")
+
+  const effectivePrimaryNav = isTeacherView ? teacherPrimaryNavigation : primaryNavigation
+  const effectiveSecondaryNav = isTeacherView ? teacherSecondaryNavigation : secondaryNavigation
+
   return (
     <Sidebar
       collapsible="icon"
@@ -142,16 +229,16 @@ export function AppSidebar({
               asChild
               className="hover:bg-sidebar-muted/60 data-[state=open]:bg-sidebar-muted"
             >
-              <Link to="/dashboard" className="flex items-center gap-3">
+              <Link to={isTeacherView ? "/teacher" : "/dashboard"} className="flex items-center gap-3">
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold shadow-xs">
                   TEF
                 </div>
                 <div className="grid flex-1 text-left text-xs leading-tight">
                   <span className="truncate font-semibold text-sidebar-foreground text-sm">
-                    Portail TEF
+                    {isTeacherView ? "Portail Enseignant" : "Portail TEF"}
                   </span>
                   <span className="truncate text-sidebar-foreground/70 font-mono">
-                    Cible&nbsp;: {targetLevel}
+                    {isTeacherView ? "Espace Professeur" : `Cible\u00a0: ${targetLevel}`}
                   </span>
                 </div>
               </Link>
@@ -160,19 +247,20 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
 
-      {/* 2. Main Student Navigation */}
+      {/* 2. Main Navigation */}
       <SidebarContent className="px-2 py-3 gap-4">
         {/* Core Pillars */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-[11px] font-medium tracking-wider uppercase text-sidebar-foreground/50 px-2 mb-1">
-            Préparation
+            {isTeacherView ? "Enseignement" : "Préparation"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {primaryNavigation.map((item) => {
+              {effectivePrimaryNav.map((item) => {
                 const isActive =
                   location.pathname === item.url ||
                   (item.url !== "/dashboard" &&
+                    item.url !== "/teacher" &&
                     location.pathname.startsWith(item.url))
                 return (
                   <SidebarMenuItem key={item.title}>
@@ -200,11 +288,11 @@ export function AppSidebar({
         {/* Secondary Modules */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-[11px] font-medium tracking-wider uppercase text-sidebar-foreground/50 px-2 mb-1">
-            Épreuves & Outils
+            {isTeacherView ? "Outils & Support" : "Épreuves & Outils"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {secondaryNavigation.map((item) => {
+              {effectiveSecondaryNav.map((item) => {
                 const isActive = location.pathname.startsWith(item.url)
                 return (
                   <SidebarMenuItem key={item.title}>
@@ -228,6 +316,41 @@ export function AppSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Admin Navigation (rendered for admin role) */}
+        {user?.role === "admin" && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-[11px] font-medium tracking-wider uppercase text-sidebar-foreground/50 px-2 mb-1 flex items-center justify-between">
+              <span>Administration</span>
+              <span className="text-[10px] bg-primary/10 text-primary font-semibold px-1.5 py-0.5 rounded">ADMIN</span>
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminNavigation.map((item) => {
+                  const isActive = location.pathname.startsWith(item.url)
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        tooltip={item.title}
+                        className="text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-muted/60 data-[active=true]:bg-sidebar-active data-[active=true]:text-sidebar-active-foreground transition-colors"
+                        onClick={() => {
+                          if (isMobile) setOpenMobile(false)
+                        }}
+                      >
+                        <Link to={item.url}>
+                          <item.icon className="size-4 shrink-0 text-sidebar-foreground/60" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       {/* 3. Footer: User Account / Menu */}
@@ -282,20 +405,43 @@ export function AppSidebar({
                     <Settings className="size-4 mr-2" />
                     <span>Paramètres du compte</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="cursor-pointer text-xs"
-                    onClick={() => navigate("/billing")}
-                  >
-                    <CreditCard className="size-4 mr-2" />
-                    <span>Abonnement & Facturation</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="cursor-pointer text-xs"
-                    onClick={() => navigate("/onboarding")}
-                  >
-                    <LifeBuoy className="size-4 mr-2" />
-                    <span>Profil & Objectif NCLC</span>
-                  </DropdownMenuItem>
+
+                  {isTeacherView ? (
+                    <>
+                      <DropdownMenuItem
+                        className="cursor-pointer text-xs"
+                        onClick={() => navigate("/teacher/earnings")}
+                      >
+                        <CreditCard className="size-4 mr-2" />
+                        <span>Mes revenus</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer text-xs"
+                        onClick={() => navigate("/teacher/availability")}
+                      >
+                        <Clock className="size-4 mr-2" />
+                        <span>Mes disponibilités</span>
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <>
+                      <DropdownMenuItem
+                        className="cursor-pointer text-xs"
+                        onClick={() => navigate("/billing")}
+                      >
+                        <CreditCard className="size-4 mr-2" />
+                        <span>Abonnement & Facturation</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer text-xs"
+                        onClick={() => navigate("/onboarding")}
+                      >
+                        <LifeBuoy className="size-4 mr-2" />
+                        <span>Profil & Objectif NCLC</span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+
                   <DropdownMenuItem
                     className="cursor-pointer text-xs"
                     onClick={() => navigate("/help")}

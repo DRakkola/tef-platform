@@ -1,5 +1,4 @@
-"""FastAPI REST and WebSocket Router for Speaking Sessions and WebRTC Signaling."""
-
+import asyncio
 import datetime
 import uuid
 
@@ -14,10 +13,14 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.exceptions import AppException
+from app.core.redis import RedisService
 from app.modules.auth.dependencies import get_current_user
+from app.modules.speaking.enums import SpeakingSessionType
 from app.modules.speaking.models import SpeakingSession
+from app.modules.speaking.providers.gemini_live import GeminiLiveExaminer
 from app.modules.speaking.schemas import (
     SpeakingEvaluationResponse,
     SpeakingParticipantResponse,
@@ -285,6 +288,41 @@ async def speaking_webrtc_signaling_ws(
         display_name=display_name,
     )
 
+    gemini_examiner: GeminiLiveExaminer | None = None
+    gemini_pump_task: asyncio.Task | None = None
+
+    if session.session_type == SpeakingSessionType.AI and settings.GEMINI_API_KEY:
+        gemini_examiner = GeminiLiveExaminer(
+            session_id=session.id,
+            topic=session.topic,
+            level=session.level,
+        )
+        is_live_connected = await gemini_examiner.connect()
+        if is_live_connected:
+            async def pump_gemini_to_client():
+                try:
+                    assert gemini_examiner is not None
+                    async for event in gemini_examiner.stream_responses():
+                        await websocket.send_json(event)
+                except Exception as exc:
+                    logger.warning("gemini_pump_error", session_id=str(session.id), error=str(exc))
+
+            gemini_pump_task = asyncio.create_task(pump_gemini_to_client())
+
+            # Initial greeting prompt to trigger natural spoken French opening from examiner
+            is_sec_a = "section a" in session.topic.lower() or "renseignement" in session.topic.lower()
+            if is_sec_a:
+                init_prompt = (
+                    "L'épreuve commence. Salue poliment le candidat en utilisant le vouvoiement formel, "
+                    "indique que tu réponds au sujet de l'annonce et invite-le à te poser ses premières questions."
+                )
+            else:
+                init_prompt = (
+                    "L'épreuve commence. Salue chaleureusement ton ami(e) candidat(e) en utilisant le tutoiement, "
+                    "demande-lui des nouvelles et demande-lui ce dont il ou elle voulait te parler."
+                )
+            await gemini_examiner.send_text_turn(init_prompt)
+
     try:
         # Send initial confirmation to connected client
         await websocket.send_json(
@@ -294,13 +332,39 @@ async def speaking_webrtc_signaling_ws(
                 "room_id": room_id,
                 "session_id": str(session.id),
                 "status": session.status.value,
+                "is_ai_live": bool(gemini_examiner and is_live_connected),
             }
         )
 
+        audio_chunk_count = 0
         while True:
             data = await websocket.receive_json()
             action = data.get("action")
             target_id = data.get("target_id")
+
+            # Route student audio/text directly to Gemini Live Examiner
+            if action == "audio_chunk":
+                audio_chunk_count += 1
+                pcm_chunk = data.get("data", "")
+                mime = data.get("mime_type", "audio/pcm;rate=16000")
+                if audio_chunk_count == 1 or audio_chunk_count % 30 == 0:
+                    logger.info(
+                        "webrtc_ws_student_audio_chunk",
+                        count=audio_chunk_count,
+                        room_id=room_id,
+                        chunk_len=len(pcm_chunk),
+                        has_gemini=bool(gemini_examiner),
+                    )
+                if gemini_examiner and pcm_chunk:
+                    await gemini_examiner.send_audio_chunk(pcm_chunk, mime_type=mime)
+                continue
+
+            if gemini_examiner:
+                if action in ("text_turn", "text_message"):
+                    user_text = data.get("text", "")
+                    if user_text:
+                        await gemini_examiner.send_text_turn(user_text)
+                    continue
 
             envelope = {
                 "action": action,
@@ -333,3 +397,15 @@ async def speaking_webrtc_signaling_ws(
             error=str(exc),
         )
         await signaling_manager.disconnect(room_id=room_id, connection_id=connection_id)
+    finally:
+        if gemini_pump_task:
+            gemini_pump_task.cancel()
+        if gemini_examiner:
+            full_transcript = gemini_examiner.get_full_transcript()
+            if full_transcript:
+                try:
+                    redis_svc = RedisService(settings.REDIS_URL)
+                    await redis_svc.set(f"speaking_transcript:{session.id}", full_transcript, expire=86400)
+                except Exception as r_exc:
+                    logger.warning("failed_saving_transcript_redis", error=str(r_exc))
+            await gemini_examiner.close()

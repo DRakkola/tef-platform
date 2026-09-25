@@ -94,3 +94,79 @@ class BetaSuspendUserRequest(BaseModel):
     user_id: uuid.UUID
     suspended: bool
     reason: str | None = None
+
+
+class BetaGlobalRateUpdate(BaseModel):
+    """Payload to update a global rate limit for all beta students."""
+
+    action: str = Field(..., description="Action identifier: ai_oral, ai_writing, practice_pool, teacher_booking, file_upload")
+    limit_value: int = Field(..., ge=0, le=10000, description="Maximum quota permitted within the window")
+
+
+class BetaCohortRateUpdate(BaseModel):
+    """Payload to update rate limit override for a specific beta cohort."""
+
+    cohort_id: uuid.UUID
+    action: str = Field(..., description="Action identifier: ai_oral, ai_writing, practice_pool, teacher_booking, file_upload")
+    limit_value: int = Field(..., ge=0, le=10000)
+
+
+class BetaStudentRateUpdate(BaseModel):
+    """Payload to set a custom rate limit override for an individual student."""
+
+    user_id: uuid.UUID
+    action: str = Field(..., description="Action identifier: ai_oral, ai_writing, practice_pool, teacher_booking, file_upload")
+    limit_value: int = Field(..., ge=0, le=10000)
+    notes: str | None = Field(default=None, max_length=500, description="Administrative reason / justification")
+
+
+class BetaStudentQuotaResetRequest(BaseModel):
+    """Payload to reset a student's consumption counter."""
+
+    action: str | None = Field(default=None, description="Action to reset, or null to reset all actions")
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class BetaRateLimitItemResponse(BaseModel):
+    """Details of an active rate limit rule."""
+
+    id: uuid.UUID
+    scope: str
+    action: str
+    action_name_fr: str
+    limit_value: int
+    window: str
+    cohort_id: uuid.UUID | None = None
+    cohort_name: str | None = None
+    user_id: uuid.UUID | None = None
+    user_email: str | None = None
+    notes: str | None = None
+    updated_at: datetime.datetime
+
+
+class BetaRatesConfigResponse(BaseModel):
+    """Comprehensive configuration of all beta rates & quotas."""
+
+    actions: dict[str, Any]
+    global_limits: list[BetaRateLimitItemResponse]
+    cohort_limits: list[BetaRateLimitItemResponse]
+    student_overrides: list[BetaRateLimitItemResponse]
+
+
+class BetaStudentRateStatus(BaseModel):
+    """Per-student quota consumption and effective limits."""
+
+    user_id: uuid.UUID
+    email: str
+    cohort_id: uuid.UUID | None
+    cohort_name: str | None
+    quotas: dict[str, Any]
+    has_overrides: bool
+
+
+class BetaStudentRateListResponse(BaseModel):
+    """Paginated list of beta students and their quota consumption."""
+
+    total: int
+    students: list[BetaStudentRateStatus]
+

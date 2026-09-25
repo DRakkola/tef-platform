@@ -379,7 +379,7 @@ async def test_complete_ai_speaking_session_auto_evaluates(
     # Verify structured criteria
     assert eval_data["session_id"] == session_id
     assert eval_data["student_id"] == str(test_student.id)
-    assert eval_data["evaluator_type"] == "mock"
+    assert eval_data["evaluator_type"] in ("ai", "mock")
     assert eval_data["estimated_level"] == "B2"
     assert 0.0 <= eval_data["fluency"] <= 100.0
     assert 0.0 <= eval_data["vocabulary"] <= 100.0
