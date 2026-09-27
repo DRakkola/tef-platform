@@ -19,6 +19,11 @@ from app.core.config import settings
 
 logger = structlog.get_logger("tef-api.database")
 
+connect_args: dict[str, Any] = {}
+if "pooler.supabase.com" in settings.DATABASE_URL or ":6543" in settings.DATABASE_URL:
+    connect_args["statement_cache_size"] = 0
+    connect_args["prepared_statement_cache_size"] = 0
+
 # Async engine configured for PostgreSQL 18
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -26,6 +31,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    connect_args=connect_args,
 )
 
 # Async sessionmaker
