@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Any, Literal, Self
 
-from pydantic import Field, computed_field, field_validator, model_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=True,
+        case_sensitive=False,
         extra="ignore",
     )
 
@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str = Field(
         default="postgresql+asyncpg://tef_app:tef_app_password@localhost:5432/tef_platform",
         description="Async SQLAlchemy database connection string",
+        validation_alias=AliasChoices(
+            "DATABASE_URL",
+            "POSTGRES_URL",
+            "SUPABASE_DATABASE_URL",
+            "DB_URL",
+        ),
     )
 
     @field_validator("DATABASE_URL", mode="before")
@@ -86,6 +92,11 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(
         default="redis://:tef_redis_password@localhost:6379/0",
         description="Redis connection URL",
+        validation_alias=AliasChoices(
+            "REDIS_URL",
+            "UPSTASH_REDIS_URL",
+            "REDIS_URI",
+        ),
     )
 
     # Celery
@@ -191,14 +202,45 @@ class Settings(BaseSettings):
                     "Must be a high-entropy secret of at least 32 characters."
                 )
             default_db_url = "postgresql+asyncpg://tef_app:tef_app_password@localhost:5432/tef_platform"
-            if self.DATABASE_URL == default_db_url or "tef_app_password" in self.DATABASE_URL:
-                if self.POSTGRES_PASSWORD in ("tef_app_password", "password", "postgres", "admin"):
-                    raise ValueError("Default POSTGRES_PASSWORD must not be used in production.")
+            has_custom_db_url = bool(
+                self.DATABASE_URL
+                and self.DATABASE_URL != default_db_url
+                and "tef_app_password" not in self.DATABASE_URL
+                and "localhost:5432/tef_platform" not in self.DATABASE_URL
+                and "localhost:5433/tef_platform" not in self.DATABASE_URL
+            )
+            has_custom_pg_password = self.POSTGRES_PASSWORD not in (
+                "tef_app_password",
+                "password",
+                "postgres",
+                "admin",
+            )
+
+            if not has_custom_db_url and not has_custom_pg_password:
+                raise ValueError("Default POSTGRES_PASSWORD must not be used in production.")
+
+            if has_custom_pg_password and not has_custom_db_url:
+                self.DATABASE_URL = f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
             default_redis_url = "redis://:tef_redis_password@localhost:6379/0"
-            if self.REDIS_URL == default_redis_url or "tef_redis_password" in self.REDIS_URL:
-                if self.REDIS_PASSWORD in ("tef_redis_password", "password", "redis"):
-                    raise ValueError("Default REDIS_PASSWORD must not be used in production.")
+            has_custom_redis_url = bool(
+                self.REDIS_URL
+                and self.REDIS_URL != default_redis_url
+                and "tef_redis_password" not in self.REDIS_URL
+                and "localhost:6379/0" not in self.REDIS_URL
+                and "localhost:6380/0" not in self.REDIS_URL
+            )
+            has_custom_redis_password = self.REDIS_PASSWORD not in (
+                "tef_redis_password",
+                "password",
+                "redis",
+            )
+
+            if not has_custom_redis_url and not has_custom_redis_password:
+                raise ValueError("Default REDIS_PASSWORD must not be used in production.")
+
+            if has_custom_redis_password and not has_custom_redis_url:
+                self.REDIS_URL = f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
             if self.STORAGE_ENDPOINT == "localhost:9000" and any(
                 default in (self.STORAGE_ACCESS_KEY, self.STORAGE_SECRET_KEY)
                 for default in ("minioadmin", "minioadmin_dev_secret", "minio")
