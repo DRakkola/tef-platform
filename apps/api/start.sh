@@ -41,6 +41,12 @@ echo "[STARTUP] Applying database migrations (alembic upgrade head)..."
 alembic upgrade head
 echo "[STARTUP] Database migrations completed successfully."
 
+# Seed database if not explicitly disabled via AUTO_SEED=false
+if [ "$AUTO_SEED" != "false" ]; then
+    echo "[STARTUP] Verifying initial platform seed data..."
+    python -m app.cli.seed || echo "[STARTUP] Warning: Seeding step completed with warnings, continuing startup."
+fi
+
 # Start Celery worker in background if REDIS_URL is provided
 if [ -n "$REDIS_URL" ]; then
     echo "[STARTUP] Starting Celery background worker with embedded Beat scheduler..."

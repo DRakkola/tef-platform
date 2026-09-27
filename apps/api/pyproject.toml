@@ -26,6 +26,7 @@ dependencies = [
 
 [project.scripts]
 validate-content = "app.cli.validate_content:main"
+seed-db = "app.cli.seed:main"
 
 [dependency-groups]
 dev = [
