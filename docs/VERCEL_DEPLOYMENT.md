@@ -27,8 +27,8 @@ Thanks to the root `vercel.json`, Vercel automatically detects the build command
 3. Keep the **Root Directory** as `./` (default).
 4. Vercel will automatically read `vercel.json`:
    - **Framework Preset**: `Vite`
-   - **Build Command**: `pnpm --filter web build`
-   - **Output Directory**: `apps/web/dist`
+   - **Build Command**: `pnpm build` (or leave default)
+   - **Output Directory**: `dist` (default)
 5. Click **Deploy**.
 
 ---

@@ -7,10 +7,10 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "pnpm --filter web build",
+    "build": "pnpm --filter web build && node -e \"require('fs').cpSync('apps/web/dist', 'dist', {recursive: true})\"",
     "dev": "pnpm --filter web dev",
     "dev:web": "pnpm --filter web dev",
-    "build:web": "pnpm --filter web build",
+    "build:web": "pnpm --filter web build && node -e \"require('fs').cpSync('apps/web/dist', 'dist', {recursive: true})\"",
     "lint:web": "pnpm --filter web lint",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down"
