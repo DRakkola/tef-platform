@@ -65,8 +65,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
         response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none';"
-        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+        response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
 
         # Enforce HSTS for HTTPS or production environments
         if request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https":

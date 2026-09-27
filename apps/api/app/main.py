@@ -96,9 +96,15 @@ app.add_middleware(PayloadSizeLimitMiddleware)
 app.add_middleware(CSRFProtectionMiddleware)
 
 # 2. Register CORS middleware
+cors_origins = [o for o in settings.CORS_ORIGINS if o != "*"]
+cors_origin_regex = settings.CORS_ORIGIN_REGEX
+if "*" in settings.CORS_ORIGINS or settings.CORS_ORIGINS == "*":
+    cors_origin_regex = r".*"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],

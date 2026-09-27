@@ -39,7 +39,13 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
+        "https://tef-platform.vercel.app",
+        "https://tef-platform-web-ksr4.vercel.app",
     ]
+    CORS_ORIGIN_REGEX: str | None = Field(
+        default=r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app|.*\.onrender\.com)(:\d+)?$",
+        description="Regular expression to match allowed origins for CORS",
+    )
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
