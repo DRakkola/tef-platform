@@ -97,10 +97,14 @@ Vous pouvez utiliser **directement le stockage Supabase** sans avoir besoin de c
 
 ### Étape 2 : Configurer le Build Docker
 1. Dans la section **Builder**, sélectionnez **Dockerfile**.
-2. Renseignez :
-   - **Dockerfile location** : `apps/api/Dockerfile`
-   - **Docker context** : `apps/api`
-3. Koyeb utilisera automatiquement [`apps/api/start.sh`](file:///c:/Users/MSI/Documents/GitHub/tef-platform/apps/api/start.sh) pour :
+2. Deux options au choix :
+   - **Option A (Recommandée, automatique)** :
+     Laissez simplement la valeur par défaut `Dockerfile` (à la racine du dépôt). Le `Dockerfile` racine compile automatiquement le backend `apps/api` avec le contexte racine sans configuration supplémentaire.
+   - **Option B (Si vous ciblez `apps/api/Dockerfile`)** :
+     Dans les paramètres de build :
+     - **Work directory** (Répertoire de travail) : activez le toggle Override et entrez `apps/api`.
+     - **Dockerfile location** : `Dockerfile` (ou `apps/api/Dockerfile`).
+3. Koyeb utilisera automatiquement [`start.sh`](file:///c:/Users/MSI/Documents/GitHub/tef-platform/apps/api/start.sh) pour :
    - Exécuter les migrations de schéma (`alembic upgrade head`).
    - Démarrer le worker Celery et le planificateur Beat en arrière-plan.
    - Démarrer le serveur FastAPI Uvicorn au premier plan sur le port défini par Koyeb.
