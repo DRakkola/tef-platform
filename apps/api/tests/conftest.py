@@ -82,8 +82,11 @@ from app.modules.practice_pool.models import (  # noqa: F401
 from app.modules.speaking.models import (  # noqa: F401
     SpeakingEvaluation,
     SpeakingEvaluationSkill,
+    SpeakingExam,
     SpeakingParticipant,
+    SpeakingSection,
     SpeakingSession,
+    SpeakingTurn,
 )
 from app.modules.teachers.models import (  # noqa: F401
     TeacherAvailabilityException,

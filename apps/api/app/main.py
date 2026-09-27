@@ -20,6 +20,7 @@ from app.core.middleware import (
 )
 from app.core.redis import check_redis_health, redis_service
 from app.core.storage import check_storage_health, storage_service
+from app.modules.admin.ai_sandbox_router import router as ai_sandbox_router
 from app.modules.admin.beta_router import router as beta_router
 from app.modules.admin.router import router as admin_router
 from app.modules.analytics.router import (
@@ -215,5 +216,6 @@ api_v1_router.include_router(analytics_router)
 api_v1_router.include_router(admin_analytics_router)
 api_v1_router.include_router(admin_ops_router)
 api_v1_router.include_router(beta_router)
+api_v1_router.include_router(ai_sandbox_router)
 
 app.include_router(api_v1_router)

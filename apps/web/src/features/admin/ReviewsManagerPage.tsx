@@ -78,24 +78,24 @@ export const ReviewsManagerPage: React.FC = () => {
   const getStatusBadge = (status: ReviewStatus) => {
     switch (status) {
       case "approved":
-        return "bg-emerald-950/80 text-emerald-300 border-emerald-800";
+        return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20";
       case "rejected":
-        return "bg-rose-950/80 text-rose-300 border-rose-800";
+        return "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20";
       default:
-        return "bg-amber-950/80 text-amber-300 border-amber-800";
+        return "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20";
     }
   };
 
   return (
     <AdminLayout>
       <div className="space-y-6 max-w-7xl mx-auto">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/60 pb-4">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Clock className="h-6 w-6 text-rose-400" />
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Clock className="h-6 w-6 text-rose-500" />
               Editorial Review Queue ({total})
             </h1>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-muted-foreground">
               Four-eyes peer review gate before educational material is eligible for student simulations.
             </p>
           </div>
@@ -106,30 +106,30 @@ export const ReviewsManagerPage: React.FC = () => {
           <div
             className={`p-3 rounded-lg text-xs flex items-center justify-between ${
               msg.type === "success"
-                ? "bg-emerald-950/60 border border-emerald-800 text-emerald-300"
-                : "bg-rose-950/60 border border-rose-800 text-rose-300"
+                ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                : "bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300"
             }`}
           >
             <span className="flex items-center gap-2">
               {msg.type === "success" ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
               {msg.text}
             </span>
-            <button onClick={() => setMsg(null)} className="text-slate-400 hover:text-white">
+            <button onClick={() => setMsg(null)} className="text-muted-foreground hover:text-foreground">
               ✕
             </button>
           </div>
         )}
 
         {/* Filter Bar */}
-        <div className="flex items-center gap-3 bg-slate-900/60 border border-slate-800 p-3 rounded-xl text-xs">
-          <span className="text-slate-400 font-medium">Status:</span>
+        <div className="flex items-center gap-2 bg-card border border-border p-2.5 rounded-xl text-xs overflow-x-auto">
+          <span className="text-muted-foreground font-medium px-1">Status:</span>
           <button
             type="button"
             onClick={() => setStatusFilter("pending")}
-            className={`px-3 py-1.5 rounded font-semibold transition ${
+            className={`px-3 py-1.5 rounded-lg font-semibold transition ${
               statusFilter === "pending"
-                ? "bg-indigo-600 text-white"
-                : "bg-slate-950 text-slate-400 hover:text-white"
+                ? "bg-foreground text-background shadow-xs"
+                : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
             Pending ({statusFilter === "pending" ? total : "•"})
@@ -137,10 +137,10 @@ export const ReviewsManagerPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setStatusFilter("approved")}
-            className={`px-3 py-1.5 rounded font-semibold transition ${
+            className={`px-3 py-1.5 rounded-lg font-semibold transition ${
               statusFilter === "approved"
-                ? "bg-emerald-700 text-white"
-                : "bg-slate-950 text-slate-400 hover:text-white"
+                ? "bg-foreground text-background shadow-xs"
+                : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
             Approved
@@ -148,10 +148,10 @@ export const ReviewsManagerPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setStatusFilter("rejected")}
-            className={`px-3 py-1.5 rounded font-semibold transition ${
+            className={`px-3 py-1.5 rounded-lg font-semibold transition ${
               statusFilter === "rejected"
-                ? "bg-rose-700 text-white"
-                : "bg-slate-950 text-slate-400 hover:text-white"
+                ? "bg-foreground text-background shadow-xs"
+                : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
             Rejected
@@ -159,10 +159,10 @@ export const ReviewsManagerPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setStatusFilter("")}
-            className={`px-3 py-1.5 rounded font-semibold transition ${
+            className={`px-3 py-1.5 rounded-lg font-semibold transition ${
               statusFilter === ""
-                ? "bg-slate-800 text-white"
-                : "bg-slate-950 text-slate-400 hover:text-white"
+                ? "bg-foreground text-background shadow-xs"
+                : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
             All
@@ -171,9 +171,9 @@ export const ReviewsManagerPage: React.FC = () => {
 
         {/* Reviews List */}
         {isLoading ? (
-          <div className="text-center py-12 text-slate-400 text-sm">Loading review items...</div>
+          <div className="text-center py-12 text-muted-foreground text-sm">Loading review items...</div>
         ) : reviews.length === 0 ? (
-          <div className="text-center py-12 rounded-xl border border-slate-800 bg-slate-900/40 text-slate-400 text-sm">
+          <div className="text-center py-12 rounded-xl border border-border bg-card text-muted-foreground text-sm">
             No review items in this state.
           </div>
         ) : (
@@ -181,17 +181,17 @@ export const ReviewsManagerPage: React.FC = () => {
             {reviews.map((rev) => (
               <div
                 key={rev.id}
-                className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-3 hover:border-slate-700 transition"
+                className="rounded-xl border border-border bg-card p-5 space-y-3 hover:border-primary/50 shadow-2xs transition text-card-foreground"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="font-bold text-white text-base capitalize">
+                    <span className="font-bold text-foreground text-base capitalize">
                       {rev.entity_type} Item
                     </span>
-                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-950 text-indigo-300 border border-slate-800">
+                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-muted text-primary border border-border font-medium">
                       ID: {rev.entity_id}
                     </span>
-                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
                       v{rev.version}
                     </span>
                     <span
@@ -208,7 +208,7 @@ export const ReviewsManagerPage: React.FC = () => {
                       <Button
                         size="sm"
                         onClick={() => handleOpenDecision(rev, "approve")}
-                        className="h-8 text-xs bg-emerald-700 hover:bg-emerald-600 gap-1"
+                        className="h-8 text-xs bg-emerald-600 hover:bg-emerald-500 text-white gap-1 font-semibold"
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" /> Approve
                       </Button>
@@ -216,7 +216,7 @@ export const ReviewsManagerPage: React.FC = () => {
                         size="sm"
                         variant="outline"
                         onClick={() => handleOpenDecision(rev, "reject")}
-                        className="h-8 text-xs border-rose-800 text-rose-300 hover:bg-rose-950/40 gap-1"
+                        className="h-8 text-xs border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 gap-1 font-semibold"
                       >
                         <XCircle className="h-3.5 w-3.5" /> Reject
                       </Button>
@@ -225,13 +225,13 @@ export const ReviewsManagerPage: React.FC = () => {
                 </div>
 
                 {rev.comments && (
-                  <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 text-xs text-slate-300 flex items-start gap-2">
-                    <MessageSquare className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
+                  <div className="p-3 rounded-lg bg-muted/40 border border-border/80 text-xs text-muted-foreground flex items-start gap-2">
+                    <MessageSquare className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                     <span>{rev.comments}</span>
                   </div>
                 )}
 
-                <div className="text-2xs text-slate-500 font-mono">
+                <div className="text-2xs text-muted-foreground font-mono">
                   Submitted: {new Date(rev.created_at).toLocaleString()}
                 </div>
               </div>
@@ -241,20 +241,20 @@ export const ReviewsManagerPage: React.FC = () => {
 
         {/* Modal: Decision */}
         {decisionModalItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4 shadow-2xl">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-xs p-4">
+            <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 space-y-4 shadow-2xl text-card-foreground">
+              <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                 {decisionType === "approve" ? (
-                  <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                 ) : (
-                  <XCircle className="h-5 w-5 text-rose-400" />
+                  <XCircle className="h-5 w-5 text-rose-500" />
                 )}
                 {decisionType === "approve" ? "Approve Content" : "Reject Content"}
               </h2>
 
               <form onSubmit={handleConfirmDecision} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">
+                  <label className="block text-foreground mb-1 font-medium">
                     Editorial Feedback / Comments
                   </label>
                   <textarea
@@ -262,17 +262,17 @@ export const ReviewsManagerPage: React.FC = () => {
                     required
                     value={comments}
                     onChange={(e) => setComments(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
-                <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <div className="flex justify-end gap-2 pt-3 border-t border-border/80">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setDecisionModalItem(null)}
-                    className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                    className="border-border text-foreground hover:bg-muted"
                   >
                     Cancel
                   </Button>
@@ -280,10 +280,10 @@ export const ReviewsManagerPage: React.FC = () => {
                     type="submit"
                     size="sm"
                     disabled={isSubmitting}
-                    className={`gap-1 ${
+                    className={`gap-1 font-semibold ${
                       decisionType === "approve"
-                        ? "bg-emerald-700 hover:bg-emerald-600"
-                        : "bg-rose-700 hover:bg-rose-600"
+                        ? "bg-emerald-600 hover:bg-emerald-500 text-white"
+                        : "bg-rose-600 hover:bg-rose-500 text-white"
                     }`}
                   >
                     Confirm {decisionType === "approve" ? "Approval" : "Rejection"}

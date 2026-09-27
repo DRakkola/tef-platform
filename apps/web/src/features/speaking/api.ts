@@ -49,3 +49,86 @@ export async function getSpeakingEvaluation(sessionId: string): Promise<Speaking
 export async function listSpeakingSessions(): Promise<SpeakingSessionListResponse> {
   return apiClient<SpeakingSessionListResponse>("/speaking/sessions")
 }
+
+// --- Speaking Exam API Methods ---
+
+export async function createSpeakingExam(
+  payload: import("./types").SpeakingExamCreatePayload
+): Promise<import("./types").SpeakingExam> {
+  return apiClient<import("./types").SpeakingExam>("/speaking/exams", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getSpeakingExam(examId: string): Promise<import("./types").SpeakingExam> {
+  return apiClient<import("./types").SpeakingExam>(`/speaking/exams/${examId}`)
+}
+
+export async function getSpeakingExamState(
+  examId: string
+): Promise<import("./types").SpeakingExamStateResponse> {
+  return apiClient<import("./types").SpeakingExamStateResponse>(`/speaking/exams/${examId}/state`)
+}
+
+export async function startSpeakingExam(examId: string): Promise<import("./types").SpeakingExam> {
+  return apiClient<import("./types").SpeakingExam>(`/speaking/exams/${examId}/start`, {
+    method: "POST",
+  })
+}
+
+export async function startSpeakingSection(
+  examId: string,
+  sectionType: import("./types").ExamSectionType
+): Promise<import("./types").SpeakingExam> {
+  return apiClient<import("./types").SpeakingExam>(
+    `/speaking/exams/${examId}/sections/${sectionType}/start`,
+    {
+      method: "POST",
+    }
+  )
+}
+
+export async function completeSpeakingSection(
+  examId: string,
+  sectionType: import("./types").ExamSectionType
+): Promise<import("./types").SpeakingExam> {
+  return apiClient<import("./types").SpeakingExam>(
+    `/speaking/exams/${examId}/sections/${sectionType}/complete`,
+    {
+      method: "POST",
+    }
+  )
+}
+
+export async function listSpeakingSectionTurns(
+  examId: string,
+  sectionType: import("./types").ExamSectionType
+): Promise<import("./types").SpeakingTurn[]> {
+  return apiClient<import("./types").SpeakingTurn[]>(
+    `/speaking/exams/${examId}/sections/${sectionType}/turns`
+  )
+}
+
+export async function createSpeakingSectionTurn(
+  examId: string,
+  sectionType: import("./types").ExamSectionType,
+  payload: import("./types").SpeakingTurnCreatePayload
+): Promise<import("./types").SpeakingTurn> {
+  return apiClient<import("./types").SpeakingTurn>(
+    `/speaking/exams/${examId}/sections/${sectionType}/turns`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  )
+}
+
+export async function listSpeakingExams(
+  page: number = 1,
+  pageSize: number = 20
+): Promise<{ items: import("./types").SpeakingExam[]; total: number }> {
+  return apiClient<{ items: import("./types").SpeakingExam[]; total: number }>(
+    `/speaking/exams?page=${page}&page_size=${pageSize}`
+  )
+}

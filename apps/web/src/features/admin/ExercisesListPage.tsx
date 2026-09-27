@@ -126,20 +126,20 @@ export const ExercisesListPage: React.FC = () => {
     <AdminLayout>
       <div className="space-y-6 max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/60 pb-4">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Dumbbell className="h-6 w-6 text-amber-400" />
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Dumbbell className="h-6 w-6 text-amber-500" />
               Drill Exercises ({total})
             </h1>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-muted-foreground">
               Manage micro-drills across grammar, vocabulary, conjugation, and reading.
             </p>
           </div>
           <Button
             onClick={() => setCreateModalOpen(true)}
             size="sm"
-            className="bg-indigo-600 hover:bg-indigo-500 gap-1.5 self-start"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold gap-1.5 self-start shadow-2xs"
           >
             <Plus className="h-4 w-4" /> Create Drill
           </Button>
@@ -150,27 +150,27 @@ export const ExercisesListPage: React.FC = () => {
           <div
             className={`p-3 rounded-lg text-xs flex items-center justify-between ${
               msg.type === "success"
-                ? "bg-emerald-950/60 border border-emerald-800 text-emerald-300"
-                : "bg-rose-950/60 border border-rose-800 text-rose-300"
+                ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                : "bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300"
             }`}
           >
             <span className="flex items-center gap-2">
               {msg.type === "success" ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
               {msg.text}
             </span>
-            <button onClick={() => setMsg(null)} className="text-slate-400 hover:text-white">
+            <button onClick={() => setMsg(null)} className="text-muted-foreground hover:text-foreground">
               ✕
             </button>
           </div>
         )}
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3 bg-slate-900/60 border border-slate-800 p-3 rounded-xl text-xs">
-          <span className="text-slate-400 font-medium">Filter by:</span>
+        <div className="flex flex-wrap items-center gap-3 bg-card border border-border p-3 rounded-xl text-xs">
+          <span className="text-muted-foreground font-medium">Filter by:</span>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="bg-slate-950 border border-slate-700 text-slate-200 rounded px-2.5 py-1.5"
+            className="bg-background border border-border text-foreground rounded px-2.5 py-1.5 focus:ring-1 focus:ring-primary"
           >
             <option value="">All Categories</option>
             <option value="grammar">Grammar</option>
@@ -183,7 +183,7 @@ export const ExercisesListPage: React.FC = () => {
           <select
             value={levelFilter}
             onChange={(e) => setLevelFilter(e.target.value)}
-            className="bg-slate-950 border border-slate-700 text-slate-200 rounded px-2.5 py-1.5"
+            className="bg-background border border-border text-foreground rounded px-2.5 py-1.5 focus:ring-1 focus:ring-primary"
           >
             <option value="">All Levels</option>
             <option value="A1">A1</option>
@@ -197,9 +197,9 @@ export const ExercisesListPage: React.FC = () => {
 
         {/* Exercises Grid */}
         {isLoading ? (
-          <div className="text-center py-12 text-slate-400 text-sm">Loading drills...</div>
+          <div className="text-center py-12 text-muted-foreground text-sm">Loading drills...</div>
         ) : exercises.length === 0 ? (
-          <div className="text-center py-12 rounded-xl border border-slate-800 bg-slate-900/40 text-slate-400 text-sm">
+          <div className="text-center py-12 rounded-xl border border-border bg-card text-muted-foreground text-sm">
             No drill exercises found.
           </div>
         ) : (
@@ -207,26 +207,26 @@ export const ExercisesListPage: React.FC = () => {
             {exercises.map((ex) => (
               <div
                 key={ex.id}
-                className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-3 hover:border-slate-700 transition"
+                className="rounded-xl border border-border bg-card p-5 space-y-3 hover:border-primary/50 shadow-2xs transition text-card-foreground"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-1">
-                    <h3 className="font-bold text-white text-sm">{ex.title}</h3>
+                    <h3 className="font-bold text-foreground text-sm">{ex.title}</h3>
                     <div className="flex items-center gap-2 flex-wrap text-2xs">
-                      <span className="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 uppercase font-medium">
+                      <span className="px-2 py-0.5 rounded bg-muted text-primary uppercase font-medium">
                         {ex.category}
                       </span>
-                      <span className="px-2 py-0.5 rounded bg-slate-950 text-slate-300 font-mono">
+                      <span className="px-2 py-0.5 rounded bg-muted text-foreground font-mono">
                         {ex.level}
                       </span>
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-mono font-bold">
+                      <span className="px-2 py-0.5 rounded bg-muted text-primary font-mono font-bold border border-border">
                         v{ex.version}
                       </span>
                       <span
                         className={`px-2 py-0.5 rounded border uppercase font-bold ${
                           ex.status === "published"
-                            ? "bg-emerald-950 text-emerald-300 border-emerald-800"
-                            : "bg-amber-950 text-amber-300 border-amber-800"
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20"
                         }`}
                       >
                         {ex.status}
@@ -239,7 +239,7 @@ export const ExercisesListPage: React.FC = () => {
                       <Button
                         size="sm"
                         onClick={() => handlePublish(ex.id, ex.title)}
-                        className="h-7 text-xs bg-emerald-700 hover:bg-emerald-600 gap-1"
+                        className="h-7 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold gap-1"
                       >
                         <CheckCircle className="h-3 w-3" /> Publish
                       </Button>
@@ -248,15 +248,15 @@ export const ExercisesListPage: React.FC = () => {
                       size="sm"
                       variant="outline"
                       onClick={() => handleFork(ex.id, ex.title)}
-                      className="h-7 text-xs border-slate-700 text-slate-300 hover:bg-slate-800 gap-1"
+                      className="h-7 text-xs border-border text-foreground hover:bg-muted gap-1"
                       title="Fork version"
                     >
-                      <GitFork className="h-3 w-3 text-purple-400" /> Fork
+                      <GitFork className="h-3 w-3 text-purple-500" /> Fork
                     </Button>
                   </div>
                 </div>
 
-                <p className="text-xs text-slate-300 bg-slate-950/60 p-2.5 rounded border border-slate-800/80">
+                <p className="text-xs text-muted-foreground bg-muted/40 p-2.5 rounded border border-border/80">
                   {ex.prompt}
                 </p>
 
@@ -268,8 +268,8 @@ export const ExercisesListPage: React.FC = () => {
                         key={idx}
                         className={`text-2xs px-2 py-1 rounded border ${
                           opt.is_correct
-                            ? "bg-emerald-950/40 text-emerald-300 border-emerald-800 font-bold"
-                            : "bg-slate-950 text-slate-400 border-slate-800"
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 font-bold"
+                            : "bg-muted/40 text-muted-foreground border-border/70"
                         }`}
                       >
                         {opt.content}
@@ -284,40 +284,40 @@ export const ExercisesListPage: React.FC = () => {
 
         {/* Modal: Create Drill */}
         {createModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-              <h2 className="text-lg font-bold text-white">Create Drill Exercise</h2>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-xs p-4">
+            <div className="w-full max-w-lg rounded-xl border border-border bg-card p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto text-card-foreground">
+              <h2 className="text-lg font-bold text-foreground">Create Drill Exercise</h2>
               <form onSubmit={handleCreate} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Title</label>
+                  <label className="block text-foreground mb-1 font-medium">Title</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. Subjonctif après 'Bien que'"
                     value={newEx.title}
                     onChange={(e) => setNewEx({ ...newEx, title: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Prompt</label>
+                  <label className="block text-foreground mb-1 font-medium">Prompt</label>
                   <textarea
                     rows={2}
                     required
                     placeholder="e.g. Bien qu'il ___ (pleuvoir), nous irons marcher."
                     value={newEx.prompt}
                     onChange={(e) => setNewEx({ ...newEx, prompt: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-slate-300 mb-1 font-medium">Category</label>
+                    <label className="block text-foreground mb-1 font-medium">Category</label>
                     <select
                       value={newEx.category}
                       onChange={(e) => setNewEx({ ...newEx, category: e.target.value })}
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                      className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                     >
                       <option value="grammar">Grammar</option>
                       <option value="vocabulary">Vocabulary</option>
@@ -327,11 +327,11 @@ export const ExercisesListPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-300 mb-1 font-medium">Level</label>
+                    <label className="block text-foreground mb-1 font-medium">Level</label>
                     <select
                       value={newEx.level}
                       onChange={(e) => setNewEx({ ...newEx, level: e.target.value })}
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                      className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                     >
                       <option value="A1">A1</option>
                       <option value="A2">A2</option>
@@ -342,7 +342,7 @@ export const ExercisesListPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-300 mb-1 font-medium">Difficulty (1-5)</label>
+                    <label className="block text-foreground mb-1 font-medium">Difficulty (1-5)</label>
                     <input
                       type="number"
                       min={1}
@@ -351,14 +351,14 @@ export const ExercisesListPage: React.FC = () => {
                       onChange={(e) =>
                         setNewEx({ ...newEx, difficulty: parseInt(e.target.value, 10) })
                       }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                      className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
 
                 {/* Options */}
-                <div className="space-y-2 pt-2 border-t border-slate-800">
-                  <label className="block text-slate-300 font-bold">Answer Options (Check the correct option)</label>
+                <div className="space-y-2 pt-2 border-t border-border/80">
+                  <label className="block text-foreground font-bold">Answer Options (Check the correct option)</label>
                   {newEx.options.map((opt, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       <input
@@ -372,7 +372,7 @@ export const ExercisesListPage: React.FC = () => {
                           }));
                           setNewEx({ ...newEx, options: updated });
                         }}
-                        className="h-4 w-4 text-indigo-600"
+                        className="h-4 w-4 text-primary"
                       />
                       <input
                         type="text"
@@ -383,23 +383,23 @@ export const ExercisesListPage: React.FC = () => {
                           updated[idx].content = e.target.value;
                           setNewEx({ ...newEx, options: updated });
                         }}
-                        className="flex-1 rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                        className="flex-1 rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                       />
                     </div>
                   ))}
                 </div>
 
-                <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <div className="flex justify-end gap-2 pt-3 border-t border-border/80">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setCreateModalOpen(false)}
-                    className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                    className="border-border text-foreground hover:bg-muted"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm" className="bg-indigo-600 hover:bg-indigo-500">
+                  <Button type="submit" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold">
                     Create Drill
                   </Button>
                 </div>

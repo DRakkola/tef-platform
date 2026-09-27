@@ -355,10 +355,11 @@ async def test_complete_ai_speaking_session_auto_evaluates(
     session_id = create_res.json()["id"]
 
     # Start session
-    await client.post(
+    start_res = await client.post(
         f"/api/v1/speaking/sessions/{session_id}/start",
         headers=student_auth_headers,
     )
+    assert start_res.status_code == 200
 
     # Complete session
     complete_res = await client.post(

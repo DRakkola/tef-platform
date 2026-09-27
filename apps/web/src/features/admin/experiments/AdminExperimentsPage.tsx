@@ -156,16 +156,16 @@ export const AdminExperimentsPage: React.FC = () => {
     <AdminLayout activeTab="experiments">
       <div className="space-y-6 max-w-7xl mx-auto pb-12 font-sans">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
           <div>
-            <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs tracking-wider uppercase mb-1">
+            <div className="flex items-center gap-2 text-primary font-semibold text-xs tracking-wider uppercase mb-1">
               <FlaskConical className="h-4 w-4" />
               <span>A/B Testing & Optimisation Continue</span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
               Expérimentations Produit
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Assignation déterministe par hachage SHA-256 avec respect strict des invariants de sécurité.
             </p>
           </div>
@@ -173,7 +173,7 @@ export const AdminExperimentsPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <Button
               onClick={() => setShowCreateModal(true)}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs flex items-center gap-2"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
               <span>Créer une Expérimentation</span>
@@ -184,20 +184,20 @@ export const AdminExperimentsPage: React.FC = () => {
         {/* Experiment List */}
         {loading ? (
           <div className="flex justify-center py-24">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
           </div>
         ) : experiments.length === 0 ? (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
-            <div className="mx-auto w-12 h-12 bg-slate-800 text-slate-400 rounded-full flex items-center justify-center">
+          <div className="bg-card border border-border rounded-xl p-12 text-center space-y-3 shadow-xs">
+            <div className="mx-auto w-12 h-12 bg-muted text-muted-foreground rounded-full flex items-center justify-center">
               <FlaskConical className="h-6 w-6" />
             </div>
-            <div className="font-bold text-base text-white">Aucune expérimentation configurée</div>
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
+            <div className="font-bold text-base text-foreground">Aucune expérimentation configurée</div>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">
               Testez des variantes d'onboarding, de formulations ou de recommandations de manière sûre et contrôlée.
             </p>
             <Button
               onClick={() => setShowCreateModal(true)}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs mt-2"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs mt-2"
             >
               Lancer votre premier test
             </Button>
@@ -207,20 +207,20 @@ export const AdminExperimentsPage: React.FC = () => {
             {experiments.map((exp) => (
               <div
                 key={exp.id}
-                className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-sm"
+                className="bg-card border border-border rounded-xl p-6 space-y-4 shadow-xs"
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <h2 className="text-base font-bold text-white">{exp.name}</h2>
-                    <div className="text-xs font-mono text-slate-400 mt-0.5">{exp.key}</div>
+                    <h2 className="text-base font-bold text-foreground">{exp.name}</h2>
+                    <div className="text-xs font-mono text-muted-foreground mt-0.5">{exp.key}</div>
                   </div>
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                       exp.status === "running"
-                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
                         : exp.status === "paused"
-                        ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                        : "bg-slate-800 text-slate-400"
+                        ? "bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                        : "bg-muted text-muted-foreground border border-border"
                     }`}
                   >
                     {exp.status}
@@ -228,17 +228,17 @@ export const AdminExperimentsPage: React.FC = () => {
                 </div>
 
                 {exp.description && (
-                  <p className="text-xs text-slate-400">{exp.description}</p>
+                  <p className="text-xs text-muted-foreground">{exp.description}</p>
                 )}
 
                 {/* Variants pill list */}
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
-                  <div className="text-xs font-semibold text-slate-400">Variantes ({exp.variants.length}) :</div>
+                <div className="bg-muted/40 p-3 rounded-xl border border-border space-y-2">
+                  <div className="text-xs font-semibold text-muted-foreground">Variantes ({exp.variants.length}) :</div>
                   <div className="flex flex-wrap gap-2">
                     {exp.variants.map((v) => (
                       <span
                         key={v.id}
-                        className="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg text-xs font-mono text-slate-300"
+                        className="bg-background border border-border px-2.5 py-1 rounded-lg text-xs font-mono text-foreground"
                       >
                         {v.key} ({v.weight}%)
                       </span>
@@ -247,7 +247,7 @@ export const AdminExperimentsPage: React.FC = () => {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between pt-2 border-t border-border">
                   <div className="flex gap-2">
                     {exp.status === "draft" && (
                       <Button
@@ -264,7 +264,7 @@ export const AdminExperimentsPage: React.FC = () => {
                         size="sm"
                         variant="outline"
                         onClick={() => handleStatusChange(exp.key, "paused")}
-                        className="border-slate-800 hover:bg-slate-800 text-amber-400 text-xs flex items-center gap-1.5"
+                        className="border-border hover:bg-muted text-amber-600 dark:text-amber-400 text-xs flex items-center gap-1.5"
                       >
                         <Pause className="h-3.5 w-3.5" />
                         <span>Mettre en pause</span>
@@ -286,7 +286,7 @@ export const AdminExperimentsPage: React.FC = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => handleViewResults(exp.key)}
-                    className="border-slate-800 hover:bg-slate-800 text-slate-300 text-xs flex items-center gap-1.5"
+                    className="border-border hover:bg-muted text-foreground text-xs flex items-center gap-1.5"
                   >
                     <BarChart2 className="h-3.5 w-3.5" />
                     <span>Résultats</span>
@@ -299,32 +299,32 @@ export const AdminExperimentsPage: React.FC = () => {
 
         {/* Create Modal */}
         {showCreateModal && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 text-slate-100 animate-in fade-in zoom-in-95">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-card border border-border rounded-2xl max-w-lg w-full p-6 space-y-5 text-foreground shadow-2xl animate-in fade-in zoom-in-95">
+              <div className="flex items-center justify-between border-b border-border pb-3">
                 <div className="flex items-center gap-2">
-                  <FlaskConical className="h-5 w-5 text-indigo-400" />
-                  <span className="font-bold text-base text-white">Nouvelle Expérimentation</span>
+                  <FlaskConical className="h-5 w-5 text-primary" />
+                  <span className="font-bold text-base text-foreground">Nouvelle Expérimentation</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="text-slate-400 hover:text-white"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
 
               {createError && (
-                <div className="bg-red-950/40 border border-red-800 text-red-200 text-xs p-3 rounded-xl flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+                <div className="bg-destructive/10 border border-destructive/30 text-destructive text-xs p-3 rounded-xl flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
                   <span>{createError}</span>
                 </div>
               )}
 
               <form onSubmit={handleCreate} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Clé technique unique *
                   </label>
                   <input
@@ -333,10 +333,10 @@ export const AdminExperimentsPage: React.FC = () => {
                     value={newKey}
                     onChange={(e) => setNewKey(e.target.value)}
                     placeholder="ex: onboarding_hero_cta_v1"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:border-indigo-500 focus:outline-none"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground focus:ring-1 focus:ring-primary focus:outline-none"
                   />
                   {hasForbiddenKeyword && (
-                    <div className="text-red-400 text-xs mt-1 flex items-center gap-1 font-semibold">
+                    <div className="text-destructive text-xs mt-1 flex items-center gap-1 font-semibold">
                       <ShieldAlert className="h-3.5 w-3.5" />
                       <span>Interdit : les domaines de paiement, sécurité, auth et scoring TEF sont protégés.</span>
                     </div>
@@ -344,7 +344,7 @@ export const AdminExperimentsPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Nom explicite *
                   </label>
                   <input
@@ -353,12 +353,12 @@ export const AdminExperimentsPage: React.FC = () => {
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     placeholder="ex: Titre d'accueil de l'onboarding"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:ring-1 focus:ring-primary focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Description de l'hypothèse
                   </label>
                   <textarea
@@ -366,17 +366,17 @@ export const AdminExperimentsPage: React.FC = () => {
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
                     placeholder="Hypothèse de conversion et métriques surveillées..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-white focus:border-indigo-500 focus:outline-none resize-none"
+                    className="w-full bg-background border border-border rounded-lg p-3 text-xs text-foreground focus:ring-1 focus:ring-primary focus:outline-none resize-none"
                   />
                 </div>
 
-                <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <div className="flex justify-end gap-2 pt-2 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setShowCreateModal(false)}
-                    className="border-slate-800 hover:bg-slate-800 text-xs text-slate-300"
+                    className="border-border hover:bg-muted text-xs text-foreground"
                   >
                     Annuler
                   </Button>
@@ -384,7 +384,7 @@ export const AdminExperimentsPage: React.FC = () => {
                     type="submit"
                     size="sm"
                     disabled={hasForbiddenKeyword || !newKey.trim() || !newName.trim()}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
                   >
                     Créer l'Expérimentation
                   </Button>
@@ -396,51 +396,51 @@ export const AdminExperimentsPage: React.FC = () => {
 
         {/* Results Modal */}
         {selectedResults && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-5 text-slate-100 animate-in fade-in">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-card border border-border rounded-2xl max-w-xl w-full p-6 space-y-5 text-foreground shadow-2xl animate-in fade-in">
+              <div className="flex items-center justify-between border-b border-border pb-3">
                 <div className="flex items-center gap-2">
-                  <BarChart2 className="h-5 w-5 text-indigo-400" />
-                  <span className="font-bold text-base text-white">
+                  <BarChart2 className="h-5 w-5 text-primary" />
+                  <span className="font-bold text-base text-foreground">
                     Résultats : {selectedResults.experiment_key}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelectedResults(null)}
-                  className="text-slate-400 hover:text-white"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
 
-              <div className="text-xs text-slate-400">
-                Total des assignations : <span className="font-bold text-white">{selectedResults.total_assignments}</span>
+              <div className="text-xs text-muted-foreground">
+                Total des assignations : <span className="font-bold text-foreground">{selectedResults.total_assignments}</span>
               </div>
 
               <div className="space-y-3">
                 {selectedResults.variants.map((v: any) => (
-                  <div key={v.variant_key} className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
+                  <div key={v.variant_key} className="bg-muted/40 p-4 rounded-xl border border-border flex justify-between items-center text-xs">
                     <div>
-                      <div className="font-mono font-bold text-white text-sm">{v.variant_key}</div>
-                      <div className="text-slate-500 mt-0.5">{v.assigned_count} assignés • {v.conversion_count} conversions</div>
+                      <div className="font-mono font-bold text-foreground text-sm">{v.variant_key}</div>
+                      <div className="text-muted-foreground mt-0.5">{v.assigned_count} assignés • {v.conversion_count} conversions</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-black text-indigo-400">
+                      <div className="text-lg font-black text-primary">
                         {(v.conversion_rate * 100).toFixed(1)}%
                       </div>
-                      <div className="text-slate-500">taux de conversion</div>
+                      <div className="text-muted-foreground">taux de conversion</div>
                     </div>
                   </div>
                 ))}
               </div>
 
-              <div className="flex justify-end pt-2 border-t border-slate-800">
+              <div className="flex justify-end pt-2 border-t border-border">
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => setSelectedResults(null)}
-                  className="border-slate-800 hover:bg-slate-800 text-xs text-slate-300"
+                  className="border-border hover:bg-muted text-xs text-foreground"
                 >
                   Fermer
                 </Button>

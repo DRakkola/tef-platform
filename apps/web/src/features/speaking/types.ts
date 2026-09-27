@@ -63,6 +63,7 @@ export interface SpeakingSession {
   expires_at?: string | null
   remaining_seconds?: number | null
   room_id: string
+  exam_id?: string | null
   participants: SpeakingParticipant[]
   created_at: string
 }
@@ -119,6 +120,8 @@ export type WebRTCConnectionState =
 
 export type AISpeakingState = "connecting" | "listening" | "speaking" | "thinking"
 
+export type AudioInputMode = "hands_free" | "push_to_talk"
+
 export interface SignalingEnvelope {
   action: string
   sender_id?: string
@@ -129,3 +132,100 @@ export interface SignalingEnvelope {
 // Backward-compatibility aliases if used elsewhere
 export type SpeakingSessionDetails = SpeakingSession
 export type SpeakingEvaluationReport = SpeakingEvaluation
+
+export type SpeakingExamState =
+  | "created"
+  | "ready"
+  | "section_a_active"
+  | "section_a_completed"
+  | "section_b_preparing"
+  | "section_b_active"
+  | "completed"
+  | "evaluating"
+  | "evaluated"
+  | "cancelled"
+  | "expired"
+  | "failed"
+
+export type ExamSectionType = "section_a" | "section_b"
+
+export type SpeakingSectionState = "pending" | "active" | "completed" | "expired"
+
+export type SpeakingTurnSpeaker = "examiner" | "candidate"
+
+export type SpeakingTurnState = "started" | "processing" | "completed" | "interrupted"
+
+export interface SpeakingTurn {
+  id: string
+  section_id: string
+  turn_number: number
+  speaker: SpeakingTurnSpeaker
+  state: SpeakingTurnState
+  started_at: string
+  completed_at?: string | null
+  duration_seconds?: number | null
+  content_text?: string | null
+  client_turn_id?: string | null
+  created_at: string
+}
+
+export interface SpeakingSection {
+  id: string
+  exam_id: string
+  section_type: ExamSectionType
+  sequence: number
+  title: string
+  state: SpeakingSectionState
+  target_duration_seconds: number
+  started_at?: string | null
+  completed_at?: string | null
+  expires_at?: string | null
+  remaining_seconds?: number | null
+  topic?: string | null
+  prompt_context?: string | null
+  created_at: string
+}
+
+export interface SpeakingExam {
+  id: string
+  session_id?: string | null
+  student_id: string
+  state: SpeakingExamState
+  level: string
+  title: string
+  started_at?: string | null
+  completed_at?: string | null
+  evaluation_id?: string | null
+  active_section?: ExamSectionType | null
+  sections: SpeakingSection[]
+  created_at: string
+  updated_at: string
+}
+
+export interface SpeakingExamStateResponse {
+  exam_id: string
+  state: SpeakingExamState
+  active_section?: ExamSectionType | null
+  active_section_remaining_seconds?: number | null
+  prep_remaining_seconds?: number | null
+  conversation_state: string
+  session_id?: string | null
+}
+
+export interface SpeakingExamCreatePayload {
+  session_id?: string | null
+  level?: string
+  title?: string
+  topic_a?: string
+  topic_b?: string
+  prompt_a?: string
+  prompt_b?: string
+  examiner_persona?: string
+}
+
+export interface SpeakingTurnCreatePayload {
+  speaker: SpeakingTurnSpeaker
+  content_text?: string
+  duration_seconds?: number
+  client_turn_id?: string
+}

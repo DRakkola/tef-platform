@@ -471,6 +471,13 @@ class ContentReview(TimeStampedUUIDModel):
     reviewer: Mapped[User] = relationship("User", foreign_keys=[reviewer_id])
 
 
-# Ensure Beta Models are registered in Admin domain
-from app.modules.admin.beta_models import BetaCohort, BetaInvitation  # noqa: E402, F401
+# Ensure Beta Models, AI Sandbox Models, and Speaking Examiner Config Models are registered in Admin domain
+from app.modules.admin.ai_sandbox_models import AIPromptTemplate, AISandboxRun  # noqa: F401
+from app.modules.admin.beta_models import (  # noqa: F401
+    BetaCohort,
+    BetaInvitation,
+    BetaRateLimit,
+)
+from app.modules.admin.speaking_config_models import SpeakingExaminerConfig  # noqa: F401
+from app.modules.admin.speaking_scenario_models import SpeakingScenario  # noqa: F401
 

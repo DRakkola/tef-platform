@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.security import decode_access_token, is_token_revoked
-from app.modules.assessments.models import Skill
+from app.modules.assessments.models import Skill, SkillCategory
 from app.modules.learning.readiness_engine import ReadinessEngine
 from app.modules.learning.readiness_models import SkillEvidenceSourceType
 from app.modules.speaking.enums import (
@@ -24,9 +25,8 @@ from app.modules.speaking.models import (
     SpeakingParticipant,
     SpeakingSession,
 )
-from app.core.config import settings
 from app.modules.speaking.providers.gemini_live import GeminiSpeakingEvaluator
-from app.modules.speaking.providers.mock import MockMediaRoomProvider, MockSpeakingProvider
+from app.modules.speaking.providers.mock import MockMediaRoomProvider
 from app.modules.speaking.schemas import SpeakingSessionCreate, TeacherEvaluationCreate
 from app.modules.teachers.models import TeacherBooking
 from app.modules.users.models import User, UserRole
@@ -257,7 +257,7 @@ class SpeakingService:
                 from app.core.redis import RedisService
                 redis_svc = RedisService(settings.REDIS_URL)
                 transcript = await redis_svc.get(f"speaking_transcript:{session.id}")
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
 
             eval_result = await speaking_evaluator.evaluate_session(
@@ -292,10 +292,11 @@ class SpeakingService:
                 is_official_tef=False,
             )
             db.add(evaluation)
+            session.evaluation = evaluation
             await db.flush()
 
-            # Attach skills if available in database
-            skills_stmt = select(Skill).limit(3)
+            # Attach speaking skills if available in database
+            skills_stmt = select(Skill).where(Skill.category == SkillCategory.SPEAKING).limit(3)
             skills = (await db.execute(skills_stmt)).scalars().all()
             for s in skills:
                 eval_skill = SpeakingEvaluationSkill(
@@ -310,26 +311,28 @@ class SpeakingService:
             now_ev = datetime.datetime.now(datetime.UTC)
             for s in skills:
                 try:
-                    await ReadinessEngine.ingest_evidence(
-                        db=db,
-                        student_id=student_id,
-                        skill_id=s.id,
-                        source_type=SkillEvidenceSourceType.AI_EVALUATION.value,
-                        source_id=evaluation.id,
-                        raw_score=eval_result.overall_score,
-                        normalized_score=eval_result.overall_score,
-                        confidence=0.80,
-                        weight=1.0,
-                        observed_at=now_ev,
-                        metadata_payload={"session_id": str(session.id), "evaluator": "mock_speaking"},
-                    )
-                except Exception:
+                    async with db.begin_nested():
+                        await ReadinessEngine.ingest_evidence(
+                            db=db,
+                            student_id=student_id,
+                            skill_id=s.id,
+                            source_type=SkillEvidenceSourceType.AI_EVALUATION.value,
+                            source_id=evaluation.id,
+                            raw_score=eval_result.overall_score,
+                            normalized_score=eval_result.overall_score,
+                            confidence=0.80,
+                            weight=1.0,
+                            observed_at=now_ev,
+                            metadata_payload={"session_id": str(session.id), "evaluator": "mock_speaking"},
+                        )
+                except Exception:  # noqa: BLE001, S110
                     pass
 
             if skills:
                 try:
-                    await ReadinessEngine.recalculate_student_readiness(db, student_id)
-                except Exception:
+                    async with db.begin_nested():
+                        await ReadinessEngine.recalculate_student_readiness(db, student_id)
+                except Exception:  # noqa: BLE001, S110
                     pass
 
         await db.commit()
@@ -458,7 +461,7 @@ class SpeakingService:
                     },
                 )
                 await ReadinessEngine.recalculate_student_readiness(db, student_participant.user_id)
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
 
         return evaluation

@@ -41,19 +41,16 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   onCancel,
   canJoin,
 }) => {
-  if (!booking) return null
-
-  const isUpcoming = booking.status === "confirmed" || booking.status === "requested"
-
   // Public Booking Reference
   const bookingRef = React.useMemo(() => {
-    if (!booking.id) return "TEF-BK-000000"
+    if (!booking?.id) return "TEF-BK-000000"
     const raw = booking.id.replace(/-/g, "").toUpperCase()
     return `TEF-BK-${raw.slice(0, 8)}`
-  }, [booking.id])
+  }, [booking?.id])
 
   // Format date and time
   const { dateFormatted, timeFormatted } = React.useMemo(() => {
+    if (!booking) return { dateFormatted: "", timeFormatted: "" }
     try {
       const start = new Date(booking.start_time)
       const end = new Date(booking.end_time)
@@ -71,7 +68,11 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     } catch {
       return { dateFormatted: booking.start_time, timeFormatted: "" }
     }
-  }, [booking.start_time, booking.end_time])
+  }, [booking?.start_time, booking?.end_time])
+
+  if (!booking) return null
+
+  const isUpcoming = booking.status === "confirmed" || booking.status === "requested"
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>

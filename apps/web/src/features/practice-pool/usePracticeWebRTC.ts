@@ -178,21 +178,23 @@ export function usePracticeWebRTC({
     isLeavingRef.current = false;
     const token = localStorage.getItem("auth_token") || "";
 
-    const apiUrl = config.apiUrl;
-    let wsBase = "";
-    if (apiUrl.startsWith("http://") || apiUrl.startsWith("https://")) {
-      wsBase = apiUrl.replace(/^http/, "ws");
-    } else if (typeof window !== "undefined") {
-      // In local dev when Vite runs on 5173/5174, connect directly to FastAPI on 8000
-      if (window.location.hostname === "localhost" && /^517\d$/.test(window.location.port)) {
-        wsBase = "ws://localhost:8000/api/v1";
+    let wsBase = config.wsUrl;
+    if (!wsBase) {
+      const apiUrl = config.apiUrl;
+      if (apiUrl.startsWith("http://") || apiUrl.startsWith("https://")) {
+        wsBase = apiUrl.replace(/^http/, "ws");
+      } else if (typeof window !== "undefined") {
+        // In local dev when Vite runs on 5173/5174, connect directly to FastAPI on 8000
+        if (window.location.hostname === "localhost" && /^517\d$/.test(window.location.port)) {
+          wsBase = "ws://localhost:8000/api/v1";
+        } else {
+          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+          const cleanApi = apiUrl.startsWith("/") ? apiUrl : `/${apiUrl}`;
+          wsBase = `${protocol}//${window.location.host}${cleanApi}`;
+        }
       } else {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const cleanApi = apiUrl.startsWith("/") ? apiUrl : `/${apiUrl}`;
-        wsBase = `${protocol}//${window.location.host}${cleanApi}`;
+        wsBase = "ws://localhost:8000/api/v1";
       }
-    } else {
-      wsBase = "ws://localhost:8000/api/v1";
     }
     const wsUrl = `${wsBase}/practice/ws/${roomId}?token=${encodeURIComponent(token)}`;
 

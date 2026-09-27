@@ -32,7 +32,9 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application source code
 COPY --chown=appuser:appgroup app /app/app
 COPY --chown=appuser:appgroup alembic /app/alembic
-COPY --chown=appuser:appgroup alembic.ini main.py /app/
+COPY --chown=appuser:appgroup alembic.ini main.py start.sh /app/
+
+RUN chmod +x /app/start.sh
 
 # Set environment paths
 ENV PATH="/app/.venv/bin:$PATH" \
@@ -52,6 +54,6 @@ STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live').read()"]
 
-# Run with production uvicorn configuration
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+# Run with startup script (migrations + background worker + web server)
+CMD ["/app/start.sh"]
 

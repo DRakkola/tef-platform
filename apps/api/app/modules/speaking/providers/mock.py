@@ -73,6 +73,7 @@ class MockSpeakingProvider(SpeakingEvaluationProvider):
             coherence=76.0,
             pronunciation=75.0,
             overall_score=75.1,
+            tef_points=475,
             strengths=[
                 "Bonne aisance communicative globale et débit de parole naturel.",
                 "Utilisation pertinente des articulateurs logiques (en effet, néanmoins, par conséquent).",

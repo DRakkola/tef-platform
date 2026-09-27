@@ -446,16 +446,16 @@ export const AdminBetaControlPage: React.FC = () => {
     <AdminLayout activeTab="Contrôle Bêta">
       <div className="space-y-8 p-6 max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
           <div>
             <div className="flex items-center gap-2">
-              <span className="bg-amber-500/10 text-amber-400 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-500/20">
+              <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-500/20">
                 Bêta Privée Restreinte
               </span>
-              <span className="text-xs text-slate-500">Contrôle des Taux & Quotas Étudiants</span>
+              <span className="text-xs text-muted-foreground">Contrôle des Taux & Quotas Étudiants</span>
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight mt-1 flex items-center gap-3">
-              <Flame className="h-6 w-6 text-amber-400" />
+            <h1 className="text-2xl font-bold text-foreground tracking-tight mt-1 flex items-center gap-3">
+              <Flame className="h-6 w-6 text-amber-500" />
               Cockpit de Contrôle Bêta & Rate Limits
             </h1>
           </div>
@@ -466,7 +466,7 @@ export const AdminBetaControlPage: React.FC = () => {
               size="sm"
               onClick={fetchOverview}
               disabled={loading}
-              className="border-slate-800 hover:bg-slate-800 text-slate-300 text-xs flex items-center gap-2"
+              className="border-border hover:bg-muted text-foreground text-xs flex items-center gap-2"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               <span>Actualiser</span>
@@ -477,7 +477,7 @@ export const AdminBetaControlPage: React.FC = () => {
                 setRateScope("global");
                 setShowAdjustRateModal(true);
               }}
-              className="bg-indigo-600/30 border border-indigo-500/40 text-indigo-200 hover:bg-indigo-600/50 text-xs flex items-center gap-2"
+              className="bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 text-xs flex items-center gap-2"
             >
               <Sliders className="h-3.5 w-3.5" />
               <span>Ajuster Plafonds</span>
@@ -485,7 +485,7 @@ export const AdminBetaControlPage: React.FC = () => {
             <Button
               size="sm"
               onClick={() => setShowSuspendModal(true)}
-              className="bg-red-950/40 border border-red-800 text-red-200 hover:bg-red-900/60 text-xs flex items-center gap-2"
+              className="bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 text-xs flex items-center gap-2"
             >
               <UserX className="h-3.5 w-3.5" />
               <span>Suspendre Utilisateur</span>
@@ -493,7 +493,7 @@ export const AdminBetaControlPage: React.FC = () => {
             <Button
               size="sm"
               onClick={() => setShowInviteModal(true)}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs flex items-center gap-2"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs flex items-center gap-2"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Générer Invitation</span>
@@ -502,26 +502,26 @@ export const AdminBetaControlPage: React.FC = () => {
         </div>
 
         {error && (
-          <div className="bg-red-950/40 border border-red-800 text-red-200 text-xs p-4 rounded-xl flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+          <div className="bg-destructive/10 border border-destructive/30 text-destructive text-xs p-4 rounded-xl flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         {/* Emergency Kill-Switches Panel */}
         {overview && (
-          <div className="bg-slate-900/90 border border-amber-900/40 rounded-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div className="bg-card border border-amber-500/30 rounded-2xl p-6 space-y-4 shadow-xs">
+            <div className="flex items-center justify-between border-b border-border pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-center text-amber-400">
+                <div className="w-9 h-9 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-center text-amber-500">
                   <Power className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-white">Coupe-Circuits d'Urgence (Kill-Switches)</h2>
-                  <p className="text-xs text-slate-400">Bascule dynamique immédiate via Redis sans redéploiement.</p>
+                  <h2 className="text-sm font-bold text-foreground">Coupe-Circuits d'Urgence (Kill-Switches)</h2>
+                  <p className="text-xs text-muted-foreground">Bascule dynamique immédiate via Redis sans redéploiement.</p>
                 </div>
               </div>
-              <span className="text-xs font-mono text-slate-500">Persisté & Audité</span>
+              <span className="text-xs font-mono text-muted-foreground">Persisté & Audité</span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -536,11 +536,11 @@ export const AdminBetaControlPage: React.FC = () => {
                 const isEnabled = overview.feature_flags[sw.key] ?? true;
                 const isMaintenance = sw.key === "maintenance_mode";
                 const activeColor = isMaintenance
-                  ? "text-red-400 border-red-500/30 bg-red-950/30"
-                  : "text-emerald-400 border-emerald-500/30 bg-emerald-950/30";
+                  ? "text-destructive border-destructive/30 bg-destructive/10"
+                  : "text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10";
                 const disabledColor = isMaintenance
-                  ? "text-slate-400 border-slate-800 bg-slate-950"
-                  : "text-red-400 border-red-500/30 bg-red-950/30";
+                  ? "text-muted-foreground border-border bg-muted/40"
+                  : "text-destructive border-destructive/30 bg-destructive/10";
 
                 return (
                   <div
@@ -550,7 +550,7 @@ export const AdminBetaControlPage: React.FC = () => {
                     }`}
                   >
                     <div>
-                      <div className="text-xs font-bold text-white">{sw.label}</div>
+                      <div className="text-xs font-bold text-foreground">{sw.label}</div>
                       <div className="text-[10px] opacity-75 font-mono">
                         {isMaintenance
                           ? isEnabled
@@ -565,7 +565,7 @@ export const AdminBetaControlPage: React.FC = () => {
                       size="sm"
                       variant="outline"
                       onClick={() => handleToggleFeature(sw.key, isEnabled)}
-                      className="text-xs h-7 border-current hover:bg-white/10"
+                      className="text-xs h-7 border-current hover:bg-muted"
                     >
                       {isEnabled ? "Désactiver" : "Activer"}
                     </Button>
@@ -579,45 +579,45 @@ export const AdminBetaControlPage: React.FC = () => {
         {/* Overview Metric Cards */}
         {overview && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
-              <div className="text-xs text-slate-400 font-medium flex items-center justify-between">
+            <div className="bg-card border border-border rounded-xl p-4 space-y-1 shadow-xs">
+              <div className="text-xs text-muted-foreground font-medium flex items-center justify-between">
                 <span>Utilisateurs Bêta</span>
-                <Users className="h-4 w-4 text-indigo-400" />
+                <Users className="h-4 w-4 text-primary" />
               </div>
-              <div className="text-2xl font-bold text-white">{overview.total_beta_users}</div>
-              <div className="text-[11px] text-slate-500">{overview.active_users_7d} actifs (7j)</div>
+              <div className="text-2xl font-bold text-foreground">{overview.total_beta_users}</div>
+              <div className="text-[11px] text-muted-foreground">{overview.active_users_7d} actifs (7j)</div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
-              <div className="text-xs text-slate-400 font-medium">Inscriptions 24h</div>
-              <div className="text-2xl font-bold text-white">{overview.recent_registrations_24h}</div>
-              <div className="text-[11px] text-emerald-400">+ Nouveaux inscrits</div>
+            <div className="bg-card border border-border rounded-xl p-4 space-y-1 shadow-xs">
+              <div className="text-xs text-muted-foreground font-medium">Inscriptions 24h</div>
+              <div className="text-2xl font-bold text-foreground">{overview.recent_registrations_24h}</div>
+              <div className="text-[11px] text-emerald-600 dark:text-emerald-400">+ Nouveaux inscrits</div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
-              <div className="text-xs text-slate-400 font-medium">Examens Réalisés</div>
-              <div className="text-2xl font-bold text-white">{overview.assessment_completions}</div>
-              <div className="text-[11px] text-slate-500">Diagnostics complets</div>
+            <div className="bg-card border border-border rounded-xl p-4 space-y-1 shadow-xs">
+              <div className="text-xs text-muted-foreground font-medium">Examens Réalisés</div>
+              <div className="text-2xl font-bold text-foreground">{overview.assessment_completions}</div>
+              <div className="text-[11px] text-muted-foreground">Diagnostics complets</div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
-              <div className="text-xs text-slate-400 font-medium">Rédactions & Oraux</div>
-              <div className="text-2xl font-bold text-white">
+            <div className="bg-card border border-border rounded-xl p-4 space-y-1 shadow-xs">
+              <div className="text-xs text-muted-foreground font-medium">Rédactions & Oraux</div>
+              <div className="text-2xl font-bold text-foreground">
                 {overview.writing_submissions + overview.speaking_sessions}
               </div>
-              <div className="text-[11px] text-slate-500">{overview.practice_sessions} audio pairs</div>
+              <div className="text-[11px] text-muted-foreground">{overview.practice_sessions} audio pairs</div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
-              <div className="text-xs text-slate-400 font-medium">Consommation IA</div>
-              <div className="text-2xl font-bold text-white">${overview.ai_total_cost_usd.toFixed(2)}</div>
-              <div className="text-[11px] text-slate-500">Plafonds respectés</div>
+            <div className="bg-card border border-border rounded-xl p-4 space-y-1 shadow-xs">
+              <div className="text-xs text-muted-foreground font-medium">Consommation IA</div>
+              <div className="text-2xl font-bold text-foreground">${overview.ai_total_cost_usd.toFixed(2)}</div>
+              <div className="text-[11px] text-muted-foreground">Plafonds respectés</div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1">
-              <div className="text-xs text-slate-400 font-medium">Tickets Support</div>
-              <div className="text-2xl font-bold text-white">{overview.open_support_tickets}</div>
-              <div className="text-[11px] text-amber-400">{overview.unresolved_incidents_count} incidents</div>
+            <div className="bg-card border border-border rounded-xl p-4 space-y-1 shadow-xs">
+              <div className="text-xs text-muted-foreground font-medium">Tickets Support</div>
+              <div className="text-2xl font-bold text-foreground">{overview.open_support_tickets}</div>
+              <div className="text-[11px] text-amber-600 dark:text-amber-400">{overview.unresolved_incidents_count} incidents</div>
             </div>
           </div>
         )}
@@ -626,14 +626,14 @@ export const AdminBetaControlPage: React.FC = () => {
         {/* SECTION: GESTION & CONTRÔLE DES RATE LIMITS ÉTUDIANTS */}
         {/* ================================================================= */}
         <div className="space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2">
-              <Gauge className="h-5 w-5 text-indigo-400" />
+              <Gauge className="h-5 w-5 text-primary" />
               <div>
-                <h2 className="text-base font-bold text-white">
+                <h2 className="text-base font-bold text-foreground">
                   Contrôle & Ajustement des Plafonds Étudiants (Rate Limits)
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   Ajustez les quotas d'usage globaux, par cohorte, ou sur-mesure pour un étudiant spécifique.
                 </p>
               </div>
@@ -646,7 +646,7 @@ export const AdminBetaControlPage: React.FC = () => {
                 setTargetStudentEmail("");
                 setShowAdjustRateModal(true);
               }}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs flex items-center gap-1.5"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs flex items-center gap-1.5"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Nouveau Plafond Étudiant</span>
@@ -655,14 +655,14 @@ export const AdminBetaControlPage: React.FC = () => {
 
           {/* 1. Global Platform Quotas */}
           {ratesConfig && ratesConfig.actions && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div className="bg-card border border-border rounded-xl p-6 space-y-4 shadow-xs">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Sliders className="h-4 w-4 text-indigo-400" />
+                  <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                    <Sliders className="h-4 w-4 text-primary" />
                     Plafonds Globaux de la Bêta
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-muted-foreground">
                     S'appliquent par défaut à tous les étudiants de la version bêta.
                   </p>
                 </div>
@@ -672,35 +672,35 @@ export const AdminBetaControlPage: React.FC = () => {
                 {Object.entries(ratesConfig.actions).map(([actKey, meta]) => (
                   <div
                     key={actKey}
-                    className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-2.5 flex flex-col justify-between"
+                    className="p-3.5 bg-muted/40 border border-border rounded-xl space-y-2.5 flex flex-col justify-between"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 font-mono">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground font-mono">
                           {meta.window === "daily" ? "Quotidien" : "Hebdo"}
                         </span>
                         {meta.is_overridden ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-medium">
                             Ajusté
                           </span>
                         ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-medium">
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border font-medium">
                             Défaut
                           </span>
                         )}
                       </div>
-                      <div className="font-semibold text-xs text-white line-clamp-1" title={meta.name_fr}>
+                      <div className="font-semibold text-xs text-foreground line-clamp-1" title={meta.name_fr}>
                         {meta.name_fr}
                       </div>
                       <div className="flex items-baseline gap-2 pt-1">
-                        <span className="text-2xl font-bold text-white">{meta.current_global_limit}</span>
-                        <span className="text-xs text-slate-500 font-mono">
+                        <span className="text-2xl font-bold text-foreground">{meta.current_global_limit}</span>
+                        <span className="text-xs text-muted-foreground font-mono">
                           / {meta.window === "daily" ? "jour" : "sem"} (défaut: {meta.default})
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1 border-t border-slate-900">
+                    <div className="flex items-center gap-2 pt-1 border-t border-border/60">
                       <Button
                         size="sm"
                         variant="outline"
@@ -710,7 +710,7 @@ export const AdminBetaControlPage: React.FC = () => {
                           setRateLimitValue(meta.current_global_limit);
                           setShowAdjustRateModal(true);
                         }}
-                        className="text-xs h-7 flex-1 border-slate-800 hover:bg-slate-800 text-slate-300 flex items-center justify-center gap-1"
+                        className="text-xs h-7 flex-1 border-border hover:bg-muted text-foreground flex items-center justify-center gap-1"
                       >
                         <Edit3 className="h-3 w-3" />
                         <span>Ajuster</span>
@@ -721,7 +721,7 @@ export const AdminBetaControlPage: React.FC = () => {
                           variant="ghost"
                           onClick={() => handleDeleteOverride("global", undefined, actKey)}
                           title="Rétablir le défaut"
-                          className="text-xs h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-950/20"
+                          className="text-xs h-7 px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         >
                           <RotateCcw className="h-3 w-3" />
                         </Button>
@@ -739,10 +739,10 @@ export const AdminBetaControlPage: React.FC = () => {
               (ratesConfig.student_overrides && ratesConfig.student_overrides.length > 0)) && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Cohort Overrides */}
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                      <Layers className="h-4 w-4 text-indigo-400" />
+                <div className="bg-card border border-border rounded-xl p-5 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between border-b border-border pb-2.5">
+                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+                      <Layers className="h-4 w-4 text-primary" />
                       Plafonds Personnalisés par Cohorte ({ratesConfig.cohort_limits?.length || 0})
                     </h4>
                     <Button
@@ -752,33 +752,33 @@ export const AdminBetaControlPage: React.FC = () => {
                         setRateScope("cohort");
                         setShowAdjustRateModal(true);
                       }}
-                      className="text-xs h-6 text-indigo-400 hover:text-indigo-300"
+                      className="text-xs h-6 text-primary hover:text-primary/80"
                     >
                       + Ajouter
                     </Button>
                   </div>
 
                   {(!ratesConfig.cohort_limits || ratesConfig.cohort_limits.length === 0) ? (
-                    <div className="text-xs text-slate-500 py-3 text-center">Aucun plafond spécifique configuré.</div>
+                    <div className="text-xs text-muted-foreground py-3 text-center">Aucun plafond spécifique configuré.</div>
                   ) : (
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                       {ratesConfig.cohort_limits.map((cl) => (
                         <div
                           key={cl.id}
-                          className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
+                          className="p-2.5 bg-muted/40 border border-border rounded-xl flex items-center justify-between text-xs"
                         >
                           <div>
-                            <div className="font-semibold text-white">{cl.cohort_name || "Cohorte"}</div>
-                            <div className="text-[11px] text-slate-400">
+                            <div className="font-semibold text-foreground">{cl.cohort_name || "Cohorte"}</div>
+                            <div className="text-[11px] text-muted-foreground">
                               {cl.action_name_fr} :{" "}
-                              <span className="font-bold text-indigo-400">{cl.limit_value}</span> / {cl.window}
+                              <span className="font-bold text-primary">{cl.limit_value}</span> / {cl.window}
                             </div>
                           </div>
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteOverride("cohort", cl.cohort_id || undefined, cl.action)}
-                            className="h-6 w-6 p-0 text-slate-500 hover:text-red-400"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -789,10 +789,10 @@ export const AdminBetaControlPage: React.FC = () => {
                 </div>
 
                 {/* Student Overrides */}
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                      <Users className="h-4 w-4 text-amber-400" />
+                <div className="bg-card border border-border rounded-xl p-5 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between border-b border-border pb-2.5">
+                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+                      <Users className="h-4 w-4 text-amber-500" />
                       Plafonds Individuels Sur-Mesure ({ratesConfig.student_overrides?.length || 0})
                     </h4>
                     <Button
@@ -802,34 +802,34 @@ export const AdminBetaControlPage: React.FC = () => {
                         setRateScope("student");
                         setShowAdjustRateModal(true);
                       }}
-                      className="text-xs h-6 text-amber-400 hover:text-amber-300"
+                      className="text-xs h-6 text-amber-600 dark:text-amber-400 hover:underline"
                     >
                       + Ajouter
                     </Button>
                   </div>
 
                   {(!ratesConfig.student_overrides || ratesConfig.student_overrides.length === 0) ? (
-                    <div className="text-xs text-slate-500 py-3 text-center">Aucun plafond individuel spécifique.</div>
+                    <div className="text-xs text-muted-foreground py-3 text-center">Aucun plafond individuel spécifique.</div>
                   ) : (
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                       {ratesConfig.student_overrides.map((so) => (
                         <div
                           key={so.id}
-                          className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
+                          className="p-2.5 bg-muted/40 border border-border rounded-xl flex items-center justify-between text-xs"
                         >
                           <div>
-                            <div className="font-semibold text-white">{so.user_email}</div>
-                            <div className="text-[11px] text-slate-400">
+                            <div className="font-semibold text-foreground">{so.user_email}</div>
+                            <div className="text-[11px] text-muted-foreground">
                               {so.action_name_fr} :{" "}
-                              <span className="font-bold text-amber-400">{so.limit_value}</span> / {so.window}
-                              {so.notes && <span className="italic text-slate-500 ml-1">({so.notes})</span>}
+                              <span className="font-bold text-amber-600 dark:text-amber-400">{so.limit_value}</span> / {so.window}
+                              {so.notes && <span className="italic text-muted-foreground ml-1">({so.notes})</span>}
                             </div>
                           </div>
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteOverride("student", so.user_id || undefined, so.action)}
-                            className="h-6 w-6 p-0 text-slate-500 hover:text-red-400"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -842,39 +842,39 @@ export const AdminBetaControlPage: React.FC = () => {
             )}
 
           {/* 3. Live Student Rates & Quotas Monitor */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="bg-card border border-border rounded-xl p-6 space-y-4 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
               <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Gauge className="h-4 w-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <Gauge className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                   Moniteur & Ajustement en Direct des Quotas Étudiants
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   Consommation réelle, plafonds effectifs et réinitialisation immédiate des compteurs.
                 </p>
               </div>
 
               <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Filtrer par email..."
                   value={studentSearch}
                   onChange={(e) => setStudentSearch(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500"
+                  className="w-full bg-background border border-border rounded-xl pl-9 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:ring-1 focus:ring-primary"
                 />
               </div>
             </div>
 
             {filteredStudents.length === 0 ? (
-              <div className="text-center py-8 text-xs text-slate-500">
+              <div className="text-center py-8 text-xs text-muted-foreground">
                 {studentSearch ? "Aucun étudiant ne correspond à cette recherche." : "Aucun étudiant enregistré."}
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                    <tr className="border-b border-border text-muted-foreground uppercase text-[10px] tracking-wider">
                       <th className="pb-3 font-semibold">Étudiant</th>
                       <th className="pb-3 font-semibold">Cohorte</th>
                       <th className="pb-3 font-semibold">IA Oral</th>
@@ -884,7 +884,7 @@ export const AdminBetaControlPage: React.FC = () => {
                       <th className="pb-3 font-semibold text-right">Actions Rapides</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60">
+                  <tbody className="divide-y divide-border/60">
                     {filteredStudents.map((st) => {
                       const oral = st.quotas?.ai_oral;
                       const writing = st.quotas?.ai_writing;
@@ -892,21 +892,21 @@ export const AdminBetaControlPage: React.FC = () => {
                       const bookings = st.quotas?.teacher_booking;
 
                       const renderQuotaBadge = (q?: StudentQuotaItem) => {
-                        if (!q) return <span className="text-slate-600">-</span>;
+                        if (!q) return <span className="text-muted-foreground">-</span>;
                         const isExhausted = q.remaining === 0;
                         const isCustom = q.is_custom;
                         return (
                           <div className="inline-flex items-center gap-1.5">
                             <span
                               className={`font-mono text-xs font-semibold ${
-                                isExhausted ? "text-red-400" : q.consumed > 0 ? "text-amber-300" : "text-slate-300"
+                                isExhausted ? "text-destructive" : q.consumed > 0 ? "text-amber-600 dark:text-amber-400" : "text-foreground"
                               }`}
                             >
                               {q.consumed}/{q.limit}
                             </span>
                             {isCustom && (
                               <span
-                                className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                                className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
                                 title="Plafond sur-mesure"
                               />
                             )}
@@ -915,22 +915,22 @@ export const AdminBetaControlPage: React.FC = () => {
                       };
 
                       return (
-                        <tr key={st.user_id} className="hover:bg-slate-800/30 transition-colors">
+                        <tr key={st.user_id} className="hover:bg-muted/50 transition-colors">
                           <td className="py-3 pr-2">
-                            <div className="font-medium text-white">{st.email}</div>
+                            <div className="font-medium text-foreground">{st.email}</div>
                             {st.has_overrides && (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
                                 Quotas personnalisés
                               </span>
                             )}
                           </td>
-                          <td className="py-3 text-slate-400">
+                          <td className="py-3 text-muted-foreground">
                             {st.cohort_name ? (
-                              <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px]">
+                              <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-[10px]">
                                 {st.cohort_name}
                               </span>
                             ) : (
-                              <span className="text-slate-600 text-[11px]">-</span>
+                              <span className="text-muted-foreground text-[11px]">-</span>
                             )}
                           </td>
                           <td className="py-3">{renderQuotaBadge(oral)}</td>
@@ -942,7 +942,7 @@ export const AdminBetaControlPage: React.FC = () => {
                               size="sm"
                               variant="outline"
                               onClick={() => openStudentRateAdjustment(st, "ai_writing")}
-                              className="text-[11px] h-7 px-2 border-slate-800 hover:bg-slate-800 text-slate-300"
+                              className="text-[11px] h-7 px-2 border-border hover:bg-muted text-foreground"
                             >
                               Ajuster
                             </Button>
@@ -950,7 +950,7 @@ export const AdminBetaControlPage: React.FC = () => {
                               size="sm"
                               variant="ghost"
                               onClick={() => openStudentQuotaReset(st)}
-                              className="text-[11px] h-7 px-2 text-indigo-400 hover:bg-indigo-950/40 hover:text-indigo-300"
+                              className="text-[11px] h-7 px-2 text-primary hover:bg-primary/10"
                             >
                               Réinitialiser
                             </Button>
@@ -968,17 +968,17 @@ export const AdminBetaControlPage: React.FC = () => {
         {/* Cohorts and Invitations Tabs/Sections */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Cohorts Section */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="bg-card border border-border rounded-xl p-6 space-y-4 shadow-xs">
+            <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
-                <Layers className="h-5 w-5 text-indigo-400" />
-                <h3 className="text-sm font-bold text-white">Cohortes de Test</h3>
+                <Layers className="h-5 w-5 text-primary" />
+                <h3 className="text-sm font-bold text-foreground">Cohortes de Test</h3>
               </div>
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => setShowCohortModal(true)}
-                className="text-xs border-slate-800 hover:bg-slate-800 text-slate-300 flex items-center gap-1.5"
+                className="text-xs border-border hover:bg-muted text-foreground flex items-center gap-1.5"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Créer Cohorte</span>
@@ -986,19 +986,19 @@ export const AdminBetaControlPage: React.FC = () => {
             </div>
 
             {cohorts.length === 0 ? (
-              <div className="text-center py-8 text-xs text-slate-500">Aucune cohorte configurée.</div>
+              <div className="text-center py-8 text-xs text-muted-foreground">Aucune cohorte configurée.</div>
             ) : (
               <div className="space-y-3">
                 {cohorts.map((c) => (
-                  <div key={c.id} className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+                  <div key={c.id} className="p-4 bg-muted/40 border border-border rounded-xl space-y-2">
                     <div className="flex items-center justify-between">
-                      <div className="font-bold text-sm text-white">{c.name}</div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
+                      <div className="font-bold text-sm text-foreground">{c.name}</div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
                         {c.is_active ? "Active" : "Inactive"}
                       </span>
                     </div>
-                    {c.description && <div className="text-xs text-slate-400">{c.description}</div>}
-                    <div className="flex items-center gap-4 text-xs text-slate-500 pt-1">
+                    {c.description && <div className="text-xs text-muted-foreground">{c.description}</div>}
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
                       <span>
                         Étudiants : {c.students_count} / {c.max_students}
                       </span>
@@ -1013,32 +1013,32 @@ export const AdminBetaControlPage: React.FC = () => {
           </div>
 
           {/* Invitations Section */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="bg-card border border-border rounded-xl p-6 space-y-4 shadow-xs">
+            <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
-                <Key className="h-5 w-5 text-amber-400" />
-                <h3 className="text-sm font-bold text-white">Jetons d'Invitation Bêta</h3>
+                <Key className="h-5 w-5 text-amber-500" />
+                <h3 className="text-sm font-bold text-foreground">Jetons d'Invitation Bêta</h3>
               </div>
-              <span className="text-xs text-slate-500 font-mono">{invitations.length} généré(s)</span>
+              <span className="text-xs text-muted-foreground font-mono">{invitations.length} généré(s)</span>
             </div>
 
             {invitations.length === 0 ? (
-              <div className="text-center py-8 text-xs text-slate-500">Aucune invitation active.</div>
+              <div className="text-center py-8 text-xs text-muted-foreground">Aucune invitation active.</div>
             ) : (
               <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
                 {invitations.map((inv) => (
                   <div
                     key={inv.id}
-                    className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-4"
+                    className="p-3 bg-muted/40 border border-border rounded-xl flex items-center justify-between gap-4"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-indigo-400">{inv.token_prefix}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 uppercase font-semibold">
+                        <span className="font-mono text-xs font-bold text-primary">{inv.token_prefix}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground uppercase font-semibold">
                           {inv.role}
                         </span>
                       </div>
-                      <div className="text-[11px] text-slate-500 flex items-center gap-3">
+                      <div className="text-[11px] text-muted-foreground flex items-center gap-3">
                         <span>
                           Utilisations : {inv.used_count} / {inv.max_uses}
                         </span>
@@ -1048,13 +1048,13 @@ export const AdminBetaControlPage: React.FC = () => {
 
                     <div>
                       {inv.is_revoked ? (
-                        <span className="text-xs text-red-400 font-medium">Révoqué</span>
+                        <span className="text-xs text-destructive font-medium">Révoqué</span>
                       ) : (
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => handleRevokeInvitation(inv.id)}
-                          className="text-xs text-red-400 hover:bg-red-950/40 hover:text-red-300 h-7"
+                          className="text-xs text-destructive hover:bg-destructive/10 h-7"
                         >
                           Révoquer
                         </Button>
@@ -1069,19 +1069,19 @@ export const AdminBetaControlPage: React.FC = () => {
 
         {/* Modal: Adjust Rate Limit */}
         {showAdjustRateModal && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4">
-              <div className="flex items-center gap-2 text-indigo-400">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+              <div className="flex items-center gap-2 text-primary">
                 <Sliders className="h-5 w-5" />
-                <h3 className="text-base font-bold text-white">Ajuster un Plafond d'Utilisation</h3>
+                <h3 className="text-base font-bold text-foreground">Ajuster un Plafond d'Utilisation</h3>
               </div>
               <form onSubmit={handleSaveRateLimit} className="space-y-4 text-xs">
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Portée de l'Ajustement</label>
+                  <label className="text-foreground font-medium">Portée de l'Ajustement</label>
                   <select
                     value={rateScope}
                     onChange={(e) => setRateScope(e.target.value as any)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   >
                     <option value="student">Étudiant Spécifique (Sur-mesure)</option>
                     <option value="cohort">Cohorte Entière</option>
@@ -1091,7 +1091,7 @@ export const AdminBetaControlPage: React.FC = () => {
 
                 {rateScope === "student" && (
                   <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">
+                    <label className="text-foreground font-medium">
                       Identifiant ou Email Étudiant {targetStudentEmail && `(${targetStudentEmail})`}
                     </label>
                     <input
@@ -1100,18 +1100,18 @@ export const AdminBetaControlPage: React.FC = () => {
                       placeholder="UUID de l'étudiant..."
                       value={targetStudentId}
                       onChange={(e) => setTargetStudentId(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-mono"
+                      className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground font-mono focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 )}
 
                 {rateScope === "cohort" && (
                   <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Cohorte Ciblée</label>
+                    <label className="text-foreground font-medium">Cohorte Ciblée</label>
                     <select
                       value={targetCohortId}
                       onChange={(e) => setTargetCohortId(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                      className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                       required
                     >
                       <option value="">Sélectionner une cohorte...</option>
@@ -1125,11 +1125,11 @@ export const AdminBetaControlPage: React.FC = () => {
                 )}
 
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Action & Ressource</label>
+                  <label className="text-foreground font-medium">Action & Ressource</label>
                   <select
                     value={rateAction}
                     onChange={(e) => setRateAction(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   >
                     <option value="ai_oral">Sessions orales avec jury IA</option>
                     <option value="ai_writing">Corrections de rédaction par IA</option>
@@ -1140,7 +1140,7 @@ export const AdminBetaControlPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Nouveau Plafond Autorisé</label>
+                  <label className="text-foreground font-medium">Nouveau Plafond Autorisé</label>
                   <input
                     type="number"
                     min={0}
@@ -1148,22 +1148,22 @@ export const AdminBetaControlPage: React.FC = () => {
                     required
                     value={rateLimitValue}
                     onChange={(e) => setRateLimitValue(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-mono"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground font-mono focus:ring-1 focus:ring-primary"
                   />
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-muted-foreground">
                     Limite maximale d'exécutions accordées dans la fenêtre temporelle.
                   </span>
                 </div>
 
                 {rateScope === "student" && (
                   <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Justification administrative (Optionnel)</label>
+                    <label className="text-foreground font-medium">Justification administrative (Optionnel)</label>
                     <input
                       type="text"
                       placeholder="ex: Candidat en préparation accélérée..."
                       value={rateNotes}
                       onChange={(e) => setRateNotes(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                      className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 )}
@@ -1173,11 +1173,11 @@ export const AdminBetaControlPage: React.FC = () => {
                     type="button"
                     variant="ghost"
                     onClick={() => setShowAdjustRateModal(false)}
-                    className="text-slate-400 hover:text-white"
+                    className="text-muted-foreground hover:text-foreground"
                   >
                     Annuler
                   </Button>
-                  <Button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white">
+                  <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                     Enregistrer le Plafond
                   </Button>
                 </div>
@@ -1188,24 +1188,24 @@ export const AdminBetaControlPage: React.FC = () => {
 
         {/* Modal: Reset Quota */}
         {showResetQuotaModal && resetTargetUser && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl max-w-md w-full p-6 space-y-4">
-              <div className="flex items-center gap-2 text-indigo-400">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-primary/40 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+              <div className="flex items-center gap-2 text-primary">
                 <RotateCcw className="h-5 w-5" />
-                <h3 className="text-base font-bold text-white">Réinitialiser les Quotas de Consommation</h3>
+                <h3 className="text-base font-bold text-foreground">Réinitialiser les Quotas de Consommation</h3>
               </div>
-              <p className="text-xs text-slate-300">
+              <p className="text-xs text-muted-foreground">
                 Remet à zéro le compteur de consommation pour{" "}
-                <span className="font-semibold text-white">{resetTargetUser.email}</span>, lui permettant de
+                <span className="font-semibold text-foreground">{resetTargetUser.email}</span>, lui permettant de
                 continuer immédiatement.
               </p>
               <form onSubmit={handleExecuteResetQuota} className="space-y-4 text-xs">
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Ressource à Réinitialiser</label>
+                  <label className="text-foreground font-medium">Ressource à Réinitialiser</label>
                   <select
                     value={resetAction}
                     onChange={(e) => setResetAction(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   >
                     <option value="">Toutes les ressources (Réinitialisation intégrale)</option>
                     <option value="ai_oral">Sessions orales avec jury IA</option>
@@ -1217,13 +1217,13 @@ export const AdminBetaControlPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Motif pour le Registre d'Audit</label>
+                  <label className="text-foreground font-medium">Motif pour le Registre d'Audit</label>
                   <input
                     type="text"
                     placeholder="ex: Bug résolu lors de l'enregistrement..."
                     value={resetReason}
                     onChange={(e) => setResetReason(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
@@ -1235,11 +1235,11 @@ export const AdminBetaControlPage: React.FC = () => {
                       setShowResetQuotaModal(false);
                       setResetTargetUser(null);
                     }}
-                    className="text-slate-400 hover:text-white"
+                    className="text-muted-foreground hover:text-foreground"
                   >
                     Annuler
                   </Button>
-                  <Button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white">
+                  <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                     Confirmer la Réinitialisation
                   </Button>
                 </div>
@@ -1250,24 +1250,24 @@ export const AdminBetaControlPage: React.FC = () => {
 
         {/* Modal: New Secret Token Display */}
         {createdSecretToken && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
-              <div className="flex items-center gap-3 text-emerald-400">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-emerald-500/40 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 className="h-6 w-6" />
-                <h3 className="text-lg font-bold text-white">Jeton d'Invitation Généré</h3>
+                <h3 className="text-lg font-bold text-foreground">Jeton d'Invitation Généré</h3>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 Ce jeton d'invitation n'est affiché qu'une seule fois. Copiez-le et transmettez-le au candidat de la bêta :
               </p>
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl font-mono text-sm text-emerald-300 break-all flex items-center justify-between gap-3">
+              <div className="p-3 bg-muted/40 border border-border rounded-xl font-mono text-sm text-emerald-600 dark:text-emerald-400 break-all flex items-center justify-between gap-3">
                 <span>{createdSecretToken}</span>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={copyTokenToClipboard}
-                  className="shrink-0 border-slate-800 hover:bg-slate-800 text-xs"
+                  className="shrink-0 border-border hover:bg-muted text-xs"
                 >
-                  {copiedToken ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                  {copiedToken ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
               <div className="flex justify-end">
@@ -1276,7 +1276,7 @@ export const AdminBetaControlPage: React.FC = () => {
                     setCreatedSecretToken(null);
                     setShowInviteModal(false);
                   }}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
                 >
                   J'ai bien noté le jeton
                 </Button>
@@ -1287,16 +1287,16 @@ export const AdminBetaControlPage: React.FC = () => {
 
         {/* Modal: Generate Invitation */}
         {showInviteModal && !createdSecretToken && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4">
-              <h3 className="text-base font-bold text-white">Générer une Invitation Bêta</h3>
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+              <h3 className="text-base font-bold text-foreground">Générer une Invitation Bêta</h3>
               <form onSubmit={handleCreateInvitation} className="space-y-4 text-xs">
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Rôle</label>
+                  <label className="text-foreground font-medium">Rôle</label>
                   <select
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   >
                     <option value="student">Étudiant (Student)</option>
                     <option value="teacher">Tuteur (Teacher)</option>
@@ -1304,11 +1304,11 @@ export const AdminBetaControlPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Cohorte Associée</label>
+                  <label className="text-foreground font-medium">Cohorte Associée</label>
                   <select
                     value={inviteCohortId}
                     onChange={(e) => setInviteCohortId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   >
                     <option value="">Aucune cohorte spécifique</option>
                     {cohorts.map((c) => (
@@ -1321,25 +1321,25 @@ export const AdminBetaControlPage: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Max Utilisations</label>
+                    <label className="text-foreground font-medium">Max Utilisations</label>
                     <input
                       type="number"
                       min={1}
                       max={500}
                       value={inviteMaxUses}
                       onChange={(e) => setInviteMaxUses(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                      className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Validité (Jours)</label>
+                    <label className="text-foreground font-medium">Validité (Jours)</label>
                     <input
                       type="number"
                       min={1}
                       max={180}
                       value={inviteDays}
                       onChange={(e) => setInviteDays(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                      className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
@@ -1349,11 +1349,11 @@ export const AdminBetaControlPage: React.FC = () => {
                     type="button"
                     variant="ghost"
                     onClick={() => setShowInviteModal(false)}
-                    className="text-slate-400 hover:text-white"
+                    className="text-muted-foreground hover:text-foreground"
                   >
                     Annuler
                   </Button>
-                  <Button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white">
+                  <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                     Créer le Jeton
                   </Button>
                 </div>
@@ -1364,52 +1364,52 @@ export const AdminBetaControlPage: React.FC = () => {
 
         {/* Modal: Create Cohort */}
         {showCohortModal && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4">
-              <h3 className="text-base font-bold text-white">Créer une Cohorte Bêta</h3>
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+              <h3 className="text-base font-bold text-foreground">Créer une Cohorte Bêta</h3>
               <form onSubmit={handleCreateCohort} className="space-y-4 text-xs">
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Nom de la Cohorte</label>
+                  <label className="text-foreground font-medium">Nom de la Cohorte</label>
                   <input
                     type="text"
                     required
                     placeholder="ex: Cohorte Bêta Octobre"
                     value={newCohortName}
                     onChange={(e) => setNewCohortName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Description</label>
+                  <label className="text-foreground font-medium">Description</label>
                   <textarea
                     rows={2}
                     placeholder="Objectif ou public ciblé..."
                     value={newCohortDesc}
                     onChange={(e) => setNewCohortDesc(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Max Étudiants</label>
+                    <label className="text-foreground font-medium">Max Étudiants</label>
                     <input
                       type="number"
                       min={1}
                       max={500}
                       value={newCohortMaxStudents}
                       onChange={(e) => setNewCohortMaxStudents(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                      className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Max Tuteurs</label>
+                    <label className="text-foreground font-medium">Max Tuteurs</label>
                     <input
                       type="number"
                       min={1}
                       max={50}
                       value={newCohortMaxTeachers}
                       onChange={(e) => setNewCohortMaxTeachers(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                      className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
@@ -1418,11 +1418,11 @@ export const AdminBetaControlPage: React.FC = () => {
                     type="button"
                     variant="ghost"
                     onClick={() => setShowCohortModal(false)}
-                    className="text-slate-400 hover:text-white"
+                    className="text-muted-foreground hover:text-foreground"
                   >
                     Annuler
                   </Button>
-                  <Button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white">
+                  <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                     Créer la Cohorte
                   </Button>
                 </div>
@@ -1433,47 +1433,47 @@ export const AdminBetaControlPage: React.FC = () => {
 
         {/* Modal: Suspend User */}
         {showSuspendModal && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-red-800/60 rounded-2xl max-w-md w-full p-6 space-y-4">
-              <div className="flex items-center gap-2 text-red-400">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-destructive/40 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+              <div className="flex items-center gap-2 text-destructive">
                 <ShieldAlert className="h-5 w-5" />
-                <h3 className="text-base font-bold text-white">Suspendre / Réactiver un Compte</h3>
+                <h3 className="text-base font-bold text-foreground">Suspendre / Réactiver un Compte</h3>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted-foreground">
                 Cette action est immédiatement auditée dans le registre d'audit.
               </p>
               <form onSubmit={handleSuspendUser} className="space-y-4 text-xs">
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Identifiant Utilisateur (UUID)</label>
+                  <label className="text-foreground font-medium">Identifiant Utilisateur (UUID)</label>
                   <input
                     type="text"
                     required
                     placeholder="ex: 123e4567-e89b-12d3-a456-426614174000"
                     value={suspendUserId}
                     onChange={(e) => setSuspendUserId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-mono"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground font-mono focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Action</label>
+                  <label className="text-foreground font-medium">Action</label>
                   <select
                     value={suspendAction ? "suspend" : "reactivate"}
                     onChange={(e) => setSuspendAction(e.target.value === "suspend")}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   >
                     <option value="suspend">Suspendre le compte (is_active = false)</option>
                     <option value="reactivate">Réactiver le compte (is_active = true)</option>
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Motif (Obligatoire pour audit)</label>
+                  <label className="text-foreground font-medium">Motif (Obligatoire pour audit)</label>
                   <textarea
                     rows={2}
                     required
                     placeholder="Violation des règles d'usage, abus de requêtes..."
                     value={suspendReason}
                     onChange={(e) => setSuspendReason(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-background border border-border rounded-xl p-2.5 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
@@ -1481,11 +1481,11 @@ export const AdminBetaControlPage: React.FC = () => {
                     type="button"
                     variant="ghost"
                     onClick={() => setShowSuspendModal(false)}
-                    className="text-slate-400 hover:text-white"
+                    className="text-muted-foreground hover:text-foreground"
                   >
                     Annuler
                   </Button>
-                  <Button type="submit" className="bg-red-600 hover:bg-red-500 text-white">
+                  <Button type="submit" className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
                     Appliquer la Sanction
                   </Button>
                 </div>

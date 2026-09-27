@@ -5,6 +5,8 @@ import {
   Play,
   Calendar,
   AlertCircle,
+  ArrowRight,
+  CheckCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +16,7 @@ import { PageShell } from "@/components/layout/PageShell"
 import { StudentLayout } from "@/features/dashboard/StudentLayout"
 
 import { useSpeakingSession } from "./useSpeakingSession"
+import { useSpeakingExam } from "./useSpeakingExam"
 import { useSpeakingWebRTC } from "./useSpeakingWebRTC"
 import { createSpeakingSession, listSpeakingSessions } from "./api"
 import type { SpeakingSession } from "./types"
@@ -47,6 +50,7 @@ export const SpeakingSessionPage: React.FC = () => {
   const [isCreating, setIsCreating] = useState<boolean>(false)
   const [selectedSection, setSelectedSection] = useState<"A" | "B">("A")
   const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState<boolean>(false)
+  const [hasJoinedExam, setHasJoinedExam] = useState<boolean>(false)
 
   // 1. Session Lifecycle Hook
   const {
@@ -64,11 +68,27 @@ export const SpeakingSessionPage: React.FC = () => {
     sessionId,
   })
 
-  // 2. WebRTC & Audio Hook - Only activate when candidate joins active session
+  // 1b. Structured Exam Lifecycle Hook (when session has an associated SpeakingExam)
+  const examId = session?.exam_id
+  const {
+    exam,
+    activeSection,
+    remainingSeconds: examRemainingSeconds,
+    prepRemainingSeconds,
+    completeSection,
+    startSectionB,
+  } = useSpeakingExam({
+    examId: examId || undefined,
+    onExamCompleted: () => {
+      completeSession()
+    },
+  })
+
+  const effectiveRemainingSeconds = exam ? examRemainingSeconds : remainingSeconds
+
+  // 2. WebRTC & Audio Hook - Only activate when candidate explicitly joins active session
   const isSessionActive =
-    workspaceState !== "preparing" &&
-    workspaceState !== "microphone_required" &&
-    session?.status !== "scheduled" &&
+    hasJoinedExam &&
     session?.status !== "completed" &&
     session?.status !== "expired"
 
@@ -76,11 +96,16 @@ export const SpeakingSessionPage: React.FC = () => {
     connectionState,
     isMuted,
     hasMicPermission,
+    audioHealthStatus: _audioHealthStatus,
     micLevel,
     isReconnecting,
     aiState,
     activeTurn,
     liveTranscript,
+    audioInputMode,
+    setAudioInputMode,
+    isPttActive,
+    togglePtt,
     requestMicPermission,
     resumeAudioContext,
     toggleMute,
@@ -391,9 +416,9 @@ export const SpeakingSessionPage: React.FC = () => {
   }
 
   // ==========================================
-  // VIEW 5: PRE-SESSION MICROPHONE CHECK
+  // VIEW 5: PRE-SESSION MICROPHONE CHECK & JOIN GATE
   // ==========================================
-  if (workspaceState === "preparing" || hasMicPermission !== true) {
+  if (!hasJoinedExam || hasMicPermission !== true) {
     return (
       <FocusedSpeakingShell
         topBar={
@@ -419,9 +444,17 @@ export const SpeakingSessionPage: React.FC = () => {
           <MicrophonePermission
             hasPermission={hasMicPermission}
             onRequestPermission={requestMicPermission}
+            audioInputMode={audioInputMode}
+            onAudioInputModeChange={setAudioInputMode}
             onContinue={async () => {
-              await resumeAudioContext()
-              await startSession()
+              const ctx = await resumeAudioContext()
+              if (ctx && ctx.state === "suspended") {
+                await ctx.resume().catch(() => {})
+              }
+              if (session.status === "scheduled") {
+                await startSession()
+              }
+              setHasJoinedExam(true)
             }}
           />
         </div>
@@ -443,7 +476,7 @@ export const SpeakingSessionPage: React.FC = () => {
           connectionState={connectionState}
           isReconnecting={isReconnecting}
           isMuted={isMuted}
-          remainingSeconds={remainingSeconds}
+          remainingSeconds={effectiveRemainingSeconds}
           onToggleMute={toggleMute}
           onLeaveClick={() => setIsLeaveDialogOpen(true)}
         />
@@ -453,14 +486,100 @@ export const SpeakingSessionPage: React.FC = () => {
       }
     >
       <div className="w-full space-y-6 animate-in fade-in duration-300">
+        {/* Section Header & Transition Controls (When Exam Model Active) */}
+        {exam && activeSection && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border border-border/80 bg-muted/20">
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant={activeSection.section_type === "section_a" ? "default" : "outline"}
+                  className="text-xs font-semibold"
+                >
+                  {activeSection.section_type === "section_a"
+                    ? "Section A · Renseignements (10 min)"
+                    : "Section B · Conviction (15 min)"}
+                </Badge>
+                <Badge variant="outline" className="text-[11px] text-muted-foreground font-medium">
+                  {activeSection.section_type === "section_a"
+                    ? "Vouvoiement formel"
+                    : "Tutoiement amical"}
+                </Badge>
+              </div>
+
+              {activeSection.section_type === "section_a" && exam.state === "section_a_active" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => completeSection("section_a")}
+                  className="text-xs h-7 gap-1.5 cursor-pointer hover:bg-primary/10 hover:border-primary/40"
+                >
+                  <span>Passer à la Section B</span>
+                  <ArrowRight className="size-3.5" />
+                </Button>
+              )}
+
+              {activeSection.section_type === "section_b" && exam.state === "section_b_active" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => completeSection("section_b")}
+                  className="text-xs h-7 gap-1.5 cursor-pointer hover:bg-destructive/10 hover:border-destructive/40"
+                >
+                  <span>Terminer l'épreuve</span>
+                  <CheckCircle2 className="size-3.5" />
+                </Button>
+              )}
+            </div>
+
+            {/* Section B 60-Second Preparation Window Card */}
+            {exam.state === "section_b_preparing" && (
+              <Card className="border-amber-500/40 bg-amber-500/5 p-5 space-y-3 rounded-2xl shadow-xs animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline" className="border-amber-500/50 text-amber-600 bg-amber-500/10 font-mono text-xs">
+                    Temps de préparation restant : {prepRemainingSeconds ?? 60}s
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">Transition vers Section B</span>
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-foreground">
+                    Préparez votre argumentation (60 secondes)
+                  </h4>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Section A terminée. Prenez connaissance du sujet de la Section B ci-dessous. Vous devez convaincre votre ami(e) en surmontant ses objections avec tact.
+                    Règle stricte : Vous devez impérativement <strong>tutoyer</strong> votre interlocuteur.
+                  </p>
+                </div>
+                <div className="p-3 rounded-xl bg-card border border-border/80 text-xs space-y-1">
+                  <p className="font-semibold text-foreground">Sujet de la Section B :</p>
+                  <p className="text-muted-foreground">{activeSection.topic || session.topic}</p>
+                </div>
+                <Button
+                  onClick={() => startSectionB()}
+                  className="w-full sm:w-auto font-semibold gap-2 cursor-pointer mt-1"
+                >
+                  <span>Prêt(e) ! Commencer la Section B maintenant</span>
+                  <ArrowRight className="size-4" />
+                </Button>
+              </Card>
+            )}
+          </div>
+        )}
+
         {/* Main Prompt / Question Area */}
         <SpeakingPrompt
-          topic={session.topic}
+          topic={activeSection?.topic || session.topic}
           level={session.level}
-          currentQuestion={currentPromptIndex + 1}
-          totalQuestions={1}
-          objective="Écoutez attentivement votre interlocuteur. Répondez avec précision en structurant vos propos."
-          context={session.session_type === "ai" ? "Simulateur d'entretien TEF" : "Séance avec professeur certifié"}
+          currentQuestion={activeSection?.sequence || currentPromptIndex + 1}
+          totalQuestions={exam?.sections?.length || 1}
+          objective={
+            activeSection?.section_type === "section_b"
+              ? "Convainquez votre ami(e) d'adhérer à votre proposition en structurant vos arguments et en répondant à ses doutes."
+              : "Posez une dizaine de questions formelles pour obtenir des informations détaillées sur l'annonce."
+          }
+          context={
+            activeSection?.prompt_context ||
+            (session.session_type === "ai" ? "Simulateur d'épreuve TEF Expression Orale" : "Séance avec professeur certifié")
+          }
         />
 
         {/* Turn-taking Indicator (AI Mode Only) */}
@@ -487,6 +606,10 @@ export const SpeakingSessionPage: React.FC = () => {
           isMuted={isMuted}
           micLevel={micLevel}
           onToggleMute={toggleMute}
+          audioInputMode={audioInputMode}
+          onAudioInputModeChange={setAudioInputMode}
+          isPttActive={isPttActive}
+          onTogglePtt={togglePtt}
           onLeaveClick={() => setIsLeaveDialogOpen(true)}
           onCompleteClick={completeSession}
           onNextPrompt={nextPrompt}

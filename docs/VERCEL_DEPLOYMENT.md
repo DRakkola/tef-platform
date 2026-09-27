@@ -48,13 +48,33 @@ If you prefer Vercel to only monitor the frontend directory:
 
 ---
 
-## 3. Connecting Frontend to the Backend API
+## 3. Connecting Frontend to the Backend API (Render)
 
-There are two ways to connect your Vercel frontend to your deployed backend API:
+There are two primary ways to connect your Vercel frontend to your deployed backend API on **Render**:
 
-### Option 1: Vercel Reverse Proxy Rewrite (Zero CORS! ⭐ Recommended)
+### Option 1: Direct Environment Variable (`VITE_API_URL` ⭐ Recommended for WebSockets)
 
-You can have Vercel transparently forward `/api/*` requests to your backend. The browser communicates with `https://your-app.vercel.app/api/...`, eliminating all CORS issues and cookie sharing restrictions.
+If your backend is live on Render (e.g. `https://tef-api.onrender.com`):
+
+1. In Vercel, navigate to **Settings** → **Environment Variables**.
+2. Add:
+   - **Key**: `VITE_API_URL`
+   - **Value**: `https://tef-api.onrender.com/api/v1`
+   - **Environments**: Production, Preview, Development
+3. (Optional) If you use a custom WebSocket domain, you can also specify:
+   - **Key**: `VITE_WS_URL`
+   - **Value**: `wss://tef-api.onrender.com/api/v1`
+   *(If omitted, the platform automatically derives `wss://...` directly from `VITE_API_URL`).*
+4. In your Render `tef-api` dashboard, configure `CORS_ORIGINS`:
+   ```json
+   ["https://your-tef-app.vercel.app"]
+   ```
+
+---
+
+### Option 2: Vercel Reverse Proxy Rewrite (Zero-CORS for HTTP)
+
+You can have Vercel forward `/api/*` HTTP requests to your Render backend to eliminate CORS preflight overhead and simplify cookie sharing:
 
 In `vercel.json` (or `apps/web/vercel.json`), add the backend destination before the SPA fallback:
 
@@ -67,7 +87,7 @@ In `vercel.json` (or `apps/web/vercel.json`), add the backend destination before
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://api-production.up.railway.app/api/:path*"
+      "destination": "https://tef-api.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",
@@ -77,26 +97,18 @@ In `vercel.json` (or `apps/web/vercel.json`), add the backend destination before
 }
 ```
 
-Replace `https://api-production.up.railway.app` with your actual backend URL.
-
----
-
-### Option 2: Environment Variable (`VITE_API_URL`)
-
-If your backend is on a separate domain (e.g., `https://api.tef-prep.com`) and has CORS configured to accept requests from your Vercel domain:
-
-1. In Vercel, go to **Settings** → **Environment Variables**.
-2. Add:
-   - **Key**: `VITE_API_URL`
-   - **Value**: `https://api.tef-prep.com/api/v1`
-   - **Environments**: Production, Preview, Development
-3. Redeploy your project.
+> [!IMPORTANT]
+> **WebSockets & Vercel Rewrites**: Vercel Serverless/Edge rewrites **do not support WebSockets**.
+> If you choose Option 2 for HTTP rewrites, you **must set `VITE_WS_URL`** in Vercel Environment Variables:
+> - **Key**: `VITE_WS_URL`
+> - **Value**: `wss://tef-api.onrender.com/api/v1`
+> This ensures that real-time live oral exams (Gemini Live and WebRTC signaling) connect directly to Render while standard HTTP requests route through the Vercel proxy.
 
 ---
 
 ## 4. Single-Page Application (SPA) Routing
 
-In client-side routers like React Router, refreshing the page on routes like `/dashboard`, `/practice`, or `/settings` would normally return a `404 Not Found` on static hosts.
+In client-side routers like React Router, refreshing the page on routes like `/dashboard`, `/admin/ai-studio/scenarios`, or `/speaking` would normally return a `404 Not Found` on static hosts.
 
 Both `vercel.json` and `apps/web/vercel.json` include the rewrite rule:
 
@@ -115,7 +127,8 @@ This routes all navigation to `index.html` so React Router handles the URL clean
 
 | Variable | Required? | Example / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `VITE_API_URL` | Optional | `/api/v1` (default) | Base URL for API calls. If omitted, uses relative `/api/v1` (best with Vercel rewrites). |
+| `VITE_API_URL` | Optional | `https://tef-api.onrender.com/api/v1` | Base URL for REST API calls. If omitted, uses relative `/api/v1`. |
+| `VITE_WS_URL` | Optional | `wss://tef-api.onrender.com/api/v1` | Base URL for WebSockets (Gemini Live Examiner, Oral practice signaling). |
 | `NODE_VERSION` | Optional | `20.x` or `22.x` | Node.js runtime version in Vercel project settings. |
 
 ---

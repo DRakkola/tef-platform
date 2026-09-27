@@ -75,6 +75,17 @@ import { AdminHealthPage } from "@/features/admin/health/AdminHealthPage";
 import { AdminExperimentsPage } from "@/features/admin/experiments/AdminExperimentsPage";
 import { AdminSupportPage } from "@/features/admin/support/AdminSupportPage";
 import { AdminBetaControlPage } from "@/features/admin/beta/AdminBetaControlPage";
+import {
+  OverviewPage as AIStudioOverviewPage,
+  AssessmentWritingPage,
+  AssessmentSpeakingPage,
+  ExaminerStudioPage,
+  PromptLabPage,
+  RunsPage as AIStudioRunsPage,
+  TemplatesPage as AIStudioTemplatesPage,
+  AIStudioAdminPage,
+} from "@/features/admin/ai-studio";
+import { ScenariosPage } from "@/features/admin/ai-studio/scenarios/ScenariosPage";
 import { MicroFeedbackWidget } from "@/features/feedback/MicroFeedbackWidget";
 import { NotificationsPage } from "@/features/notifications";
 import { SettingsPage } from "@/features/settings";
@@ -169,6 +180,18 @@ export const AppRoutes: React.FC = () => {
         {/* Content Studio Admin Routes */}
         <Route path="/admin" element={<AdminDashboardPage />} />
         <Route path="/admin/beta" element={<AdminBetaControlPage />} />
+        <Route path="/admin/ai-sandbox" element={<Navigate to="/admin/ai-studio" replace />} />
+
+        {/* TEF AI Studio Routes */}
+        <Route path="/admin/ai-studio" element={<AIStudioOverviewPage />} />
+        <Route path="/admin/ai-studio/assessment/writing" element={<AssessmentWritingPage />} />
+        <Route path="/admin/ai-studio/assessment/speaking" element={<AssessmentSpeakingPage />} />
+        <Route path="/admin/ai-studio/examiner" element={<ExaminerStudioPage />} />
+        <Route path="/admin/ai-studio/scenarios" element={<ScenariosPage />} />
+        <Route path="/admin/ai-studio/prompt-lab" element={<PromptLabPage />} />
+        <Route path="/admin/ai-studio/runs" element={<AIStudioRunsPage />} />
+        <Route path="/admin/ai-studio/templates" element={<AIStudioTemplatesPage />} />
+        <Route path="/admin/ai-studio/administration" element={<AIStudioAdminPage />} />
         <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
         <Route path="/admin/health" element={<AdminHealthPage />} />
         <Route path="/admin/experiments" element={<AdminExperimentsPage />} />

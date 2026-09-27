@@ -39,16 +39,26 @@ services:
         generateValue: true
       - key: STORAGE_SECRET_KEY
         generateValue: true
+      - key: STORAGE_USE_SSL
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: "lax"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
 
   # --------------------------------------------------------------------------
-  # 2. Celery Background Worker (Async scoring, cleanup, queues)
+  # 2. Celery Background Worker (Async scoring, cleanup, queues, beat)
   # --------------------------------------------------------------------------
   - type: worker
     name: tef-celery-worker
     runtime: docker
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: ./apps/api
-    dockerCommand: celery -A app.core.celery_app worker -l INFO -c 2
+    dockerCommand: celery -A app.core.celery_app worker -B -l INFO -c 2
     plan: starter
     envVars:
       - key: ENVIRONMENT
@@ -81,6 +91,23 @@ services:
           type: web
           name: tef-api
           envVarKey: STORAGE_SECRET_KEY
+      - key: STORAGE_USE_SSL
+        value: "true"
+      - key: GEMINI_API_KEY
+        fromService:
+          type: web
+          name: tef-api
+          envVarKey: GEMINI_API_KEY
+      - key: OPENAI_API_KEY
+        fromService:
+          type: web
+          name: tef-api
+          envVarKey: OPENAI_API_KEY
+      - key: DEEPSEEK_API_KEY
+        fromService:
+          type: web
+          name: tef-api
+          envVarKey: DEEPSEEK_API_KEY
 
   # --------------------------------------------------------------------------
   # 3. Redis Instance (Cache & Queue Broker)

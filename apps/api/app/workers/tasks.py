@@ -325,6 +325,7 @@ def cleanup_retention_artifacts(self) -> dict[str, Any]:
 async def recalculate_student_readiness_core(db: AsyncSession, student_id_str: str) -> dict[str, Any]:
     """Recalculate student readiness and generate immutable snapshot."""
     import uuid
+
     from app.modules.learning.readiness_engine import ReadinessEngine
 
     student_id = uuid.UUID(student_id_str)
@@ -351,7 +352,12 @@ def recalculate_student_readiness_task(self, student_id: str) -> dict[str, Any]:
 
 async def audit_exercise_effectiveness_core(db: AsyncSession) -> int:
     """Compute aggregate pre/post scores and observed improvement for exercises."""
-    from app.modules.learning.models import Exercise, ExerciseAttempt, ExerciseEffectiveness, ExerciseSkill, SkillEvidence
+    from app.modules.learning.models import (
+        Exercise,
+        ExerciseAttempt,
+        ExerciseEffectiveness,
+        ExerciseSkill,
+    )
 
     # Query exercises with attempts
     stmt = select(Exercise).where(Exercise.is_published.is_(True))
@@ -501,6 +507,233 @@ def detect_operational_anomalies_task(self) -> dict[str, Any]:
 
     anomalies = run_async(_run())
     return {"status": "success", "anomalies_detected": len(anomalies), "anomalies": anomalies}
+
+
+async def evaluate_speaking_exam_core(db: AsyncSession, exam_id: Any) -> dict[str, Any]:
+    """Evaluates a completed TEF speaking exam using all recorded turns from PostgreSQL."""
+    import uuid
+
+    from sqlalchemy.orm import selectinload
+
+    from app.core.config import settings
+    from app.modules.assessments.models import Skill, SkillCategory
+    from app.modules.learning.readiness_engine import ReadinessEngine
+    from app.modules.learning.readiness_models import SkillEvidenceSourceType
+    from app.modules.speaking.enums import (
+        SpeakingEvaluatorType,
+        SpeakingExamState,
+        SpeakingSessionState,
+        SpeakingTurnSpeaker,
+    )
+    from app.modules.speaking.models import (
+        SpeakingEvaluation,
+        SpeakingEvaluationSkill,
+        SpeakingExam,
+        SpeakingSection,
+    )
+    from app.modules.speaking.providers.gemini_live import GeminiSpeakingEvaluator
+
+    if isinstance(exam_id, str):
+        exam_uuid = uuid.UUID(exam_id)
+    else:
+        exam_uuid = exam_id
+
+    db.expire_all()
+
+    stmt = (
+        select(SpeakingExam)
+        .where(SpeakingExam.id == exam_uuid)
+        .options(
+            selectinload(SpeakingExam.sections).selectinload(SpeakingSection.turns),
+            selectinload(SpeakingExam.session),
+        )
+        .with_for_update()
+    )
+    res = await db.execute(stmt)
+    exam = res.scalar_one_or_none()
+    if not exam:
+        logger.error("evaluate_speaking_exam_not_found", exam_id=str(exam_uuid))
+        return {"status": "error", "message": f"Exam {exam_uuid} not found"}
+
+    # Idempotency check: if already evaluated and has evaluation_id, return existing evaluation
+    if exam.status == SpeakingExamState.EVALUATED and exam.evaluation_id is not None:
+        logger.info(
+            "speaking_exam_already_evaluated",
+            exam_id=str(exam_uuid),
+            evaluation_id=str(exam.evaluation_id),
+        )
+        return {
+            "status": "already_evaluated",
+            "exam_id": str(exam_uuid),
+            "evaluation_id": str(exam.evaluation_id),
+        }
+
+    # Mark as evaluating
+    exam.status = SpeakingExamState.EVALUATING
+    await db.commit()
+
+    # Re-fetch after commit with locks and fresh state
+    res = await db.execute(stmt)
+    exam = res.scalar_one_or_none()
+    if not exam:
+        return {"status": "error", "message": f"Exam {exam_uuid} not found"}
+
+    # Assemble evidence snapshot preserving exact chronological turns
+    evidence_snapshot = {
+        "exam_id": str(exam.id),
+        "student_id": str(exam.student_id),
+        "target_level": exam.target_level,
+        "sections": [
+            {
+                "section_type": sec.section_type.value,
+                "sequence": sec.sequence,
+                "title": sec.title,
+                "prompt_topic": sec.prompt_topic,
+                "duration_seconds": sec.duration_seconds,
+                "turns": [
+                    {
+                        "turn_number": turn.turn_number,
+                        "speaker": turn.speaker.value,
+                        "content_text": turn.content_text,
+                        "transcript_status": turn.transcript_status.value,
+                        "audio_storage_key": turn.audio_storage_key,
+                        "audio_duration_seconds": turn.audio_duration_seconds,
+                        "interrupted": turn.interrupted,
+                        "interruption_reason": turn.interruption_reason,
+                        "transcription_confidence": turn.transcription_confidence,
+                        "started_at": turn.started_at.isoformat() if turn.started_at else None,
+                        "completed_at": turn.completed_at.isoformat() if turn.completed_at else None,
+                    }
+                    for turn in sorted(sec.turns, key=lambda t: t.turn_number)
+                ],
+            }
+            for sec in sorted(exam.sections, key=lambda s: s.sequence)
+        ],
+    }
+
+    # Format transcript for evaluation
+    all_turns_text: list[str] = []
+    for sec in sorted(exam.sections, key=lambda s: s.sequence):
+        all_turns_text.append(f"\n=== {sec.title.upper()} ({sec.prompt_topic}) ===")
+        for turn in sorted(sec.turns, key=lambda t: t.turn_number):
+            role_label = "EXAMINATEUR" if turn.speaker == SpeakingTurnSpeaker.EXAMINER else "CANDIDAT"
+            all_turns_text.append(f"{role_label}: {turn.content_text or '[aucun texte]'}")
+    full_transcript = "\n".join(all_turns_text) if len(all_turns_text) > 2 else None
+
+    # Call evaluator
+    evaluator = GeminiSpeakingEvaluator()
+    eval_model_name = "gemini-2.5-flash" if settings.GEMINI_API_KEY else "mock"
+    evaluator_type = SpeakingEvaluatorType.AI if settings.GEMINI_API_KEY else SpeakingEvaluatorType.MOCK
+
+    eval_result = await evaluator.evaluate_session(
+        topic=exam.topic,
+        level=exam.target_level,
+        duration_seconds=exam.total_duration_minutes * 60,
+        transcript=full_transcript,
+    )
+
+    evaluation = SpeakingEvaluation(
+        session_id=exam.session_id,
+        exam_id=exam.id,
+        student_id=exam.student_id,
+        evaluator_user_id=None,
+        evaluator_type=evaluator_type,
+        evaluator_model=eval_model_name,
+        evaluation_version="v1",
+        evaluation_prompt=full_transcript,
+        evidence_snapshot=evidence_snapshot,
+        estimated_level=eval_result.estimated_level,
+        fluency=eval_result.fluency,
+        vocabulary=eval_result.vocabulary,
+        grammar=eval_result.grammar,
+        coherence=eval_result.coherence,
+        pronunciation=eval_result.pronunciation,
+        overall_score=eval_result.overall_score,
+        strengths=eval_result.strengths,
+        weaknesses=eval_result.weaknesses,
+        recommendations=eval_result.recommendations,
+        detailed_feedback=eval_result.detailed_feedback,
+        is_official_tef=False,
+    )
+    db.add(evaluation)
+    await db.flush()
+
+    # Link to exam
+    exam.evaluation_id = evaluation.id
+    exam.status = SpeakingExamState.EVALUATED
+    now = datetime.datetime.now(datetime.UTC)
+    exam.completed_at = exam.completed_at or now
+
+    # Also link to session if present
+    if exam.session:
+        exam.session.status = SpeakingSessionState.COMPLETED
+        exam.session.evaluation = evaluation
+
+    # Skills attachment and ReadinessEngine ingestion
+    skills_stmt = select(Skill).where(Skill.category == SkillCategory.SPEAKING).limit(3)
+    skills = (await db.execute(skills_stmt)).scalars().all()
+    for s in skills:
+        eval_skill = SpeakingEvaluationSkill(
+            evaluation_id=evaluation.id,
+            skill_id=s.id,
+            score=eval_result.overall_score,
+            notes=f"Compétence évaluée pour {s.name}",
+        )
+        db.add(eval_skill)
+
+    for s in skills:
+        try:
+            async with db.begin_nested():
+                await ReadinessEngine.ingest_evidence(
+                    db=db,
+                    student_id=exam.student_id,
+                    skill_id=s.id,
+                    source_type=SkillEvidenceSourceType.AI_EVALUATION.value,
+                    source_id=evaluation.id,
+                    raw_score=eval_result.overall_score,
+                    normalized_score=eval_result.overall_score,
+                    confidence=0.85,
+                    weight=1.0,
+                    observed_at=now,
+                    metadata_payload={"exam_id": str(exam.id), "evaluator": eval_model_name},
+                )
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    if skills:
+        try:
+            async with db.begin_nested():
+                await ReadinessEngine.recalculate_student_readiness(db, exam.student_id)
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    await db.commit()
+    logger.info(
+        "speaking_exam_evaluated_successfully",
+        exam_id=str(exam.id),
+        evaluation_id=str(evaluation.id),
+        overall_score=eval_result.overall_score,
+        estimated_level=eval_result.estimated_level,
+    )
+    return {
+        "status": "success",
+        "exam_id": str(exam.id),
+        "evaluation_id": str(evaluation.id),
+        "overall_score": eval_result.overall_score,
+        "estimated_level": eval_result.estimated_level,
+    }
+
+
+@celery_app.task(name="tasks.evaluate_speaking_exam", bind=True)
+def evaluate_speaking_exam_task(self, exam_id: str) -> dict[str, Any]:
+    """Celery background task evaluating a completed TEF speaking exam with Gemini AI."""
+
+    async def _run() -> dict[str, Any]:
+        async with async_session_factory() as db:
+            return await evaluate_speaking_exam_core(db, exam_id)
+
+    return run_async(_run())
+
 
 
 

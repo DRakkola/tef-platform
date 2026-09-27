@@ -1,7 +1,11 @@
-import { Bot, UserCheck, Mic, Sparkles, Volume2 } from "lucide-react"
+import type { RefObject } from "react"
+import { UserCheck, Mic, Sparkles, Volume2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type { AISpeakingState, SpeakingParticipant as SpeakingParticipantType } from "../types"
+import { ParticlesOrb } from "@/registry/orbe/particles-orb/particles-orb"
+import { OrbStatus } from "@/registry/lib/orb-status"
+import type { OrbState } from "@/registry/lib/orb-state"
 
 export interface SpeakingParticipantProps {
   sessionType: "ai" | "teacher"
@@ -9,6 +13,7 @@ export interface SpeakingParticipantProps {
   aiState?: AISpeakingState
   activeTurn?: "ai" | "student"
   isRemoteSpeaking?: boolean
+  levelRef?: RefObject<number | null | undefined>
   className?: string
 }
 
@@ -18,6 +23,7 @@ export function SpeakingParticipant({
   aiState = "listening",
   activeTurn = "ai",
   isRemoteSpeaking = false,
+  levelRef,
   className,
 }: SpeakingParticipantProps) {
   if (sessionType === "teacher") {
@@ -106,6 +112,22 @@ export function SpeakingParticipant({
     }
   }
 
+  const getOrbState = (): OrbState => {
+    switch (aiState) {
+      case "speaking":
+        return "speaking"
+      case "thinking":
+        return "thinking"
+      case "connecting":
+        return "connecting"
+      case "listening":
+        return "listening"
+      default:
+        return "idle"
+    }
+  }
+
+  const orbState = getOrbState()
   const badge = getAIStateBadge()
 
   return (
@@ -115,13 +137,17 @@ export function SpeakingParticipant({
         className
       )}
     >
-      <div className="relative">
-        <div className="size-20 rounded-full bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
-          <Bot className="size-10" />
-        </div>
-        {aiState === "speaking" && (
-          <span className="absolute inset-0 rounded-full border-2 border-primary/40 animate-ping" />
-        )}
+      <div className="relative flex items-center justify-center py-1">
+        <ParticlesOrb
+          state={orbState}
+          size={128}
+          speed={aiState === "speaking" ? 1.0 : aiState === "thinking" ? 0.7 : 0.5}
+          colorFrom="#f0abfc"
+          colorTo="#818cf8"
+          levelRef={levelRef}
+          label="Examinateur Virtuel TEF"
+        />
+        <OrbStatus state={orbState} className="sr-only" />
       </div>
 
       <div className="space-y-1">

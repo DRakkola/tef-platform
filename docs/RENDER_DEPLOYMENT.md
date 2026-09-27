@@ -132,12 +132,17 @@ Ensure your Render `tef-api` service has your Vercel domain added to `CORS_ORIGI
 | `PORT` | Web | `8000` | HTTP port exposed by FastAPI container. |
 | `DATABASE_URL` | Web & Worker | `fromDatabase: tef-postgres` | PostgreSQL connection string (auto-normalized to `asyncpg`). |
 | `REDIS_URL` | Web & Worker | `fromService: tef-redis` | Internal Redis connection string. |
-| `SECRET_KEY` | Web & Worker | `generateValue: true` | Cryptographic key for JWT tokens and session signing. |
-| `CORS_ORIGINS` | Web | User Input | Allowed frontend origins (JSON array). |
+| `SECRET_KEY` | Web & Worker | `generateValue: true` | Cryptographic key for JWT tokens and session signing (min 32 chars). |
+| `CORS_ORIGINS` | Web | User Input | Allowed frontend origins (JSON array, e.g. `["https://tef-platform.vercel.app"]`). |
+| `COOKIE_SAMESITE` | Web | `lax` or `none` | Use `lax` if using Vercel proxy rewrite or shared domain; use `none` if cross-domain cookies are required. |
+| `GEMINI_API_KEY` | Web & Worker | User Input | Google Gemini API key for real-time virtual examiner & oral evaluations. |
+| `OPENAI_API_KEY` | Web & Worker | User Input | OpenAI API key (optional for writing evaluations). |
+| `DEEPSEEK_API_KEY` | Web & Worker | User Input | DeepSeek API key (optional for writing evaluations). |
 | `STORAGE_BUCKET_NAME` | Web & Worker | `tef-private` | S3 / MinIO storage bucket name for audio recordings & documents. |
 | `STORAGE_ENDPOINT` | Web & Worker | `s3.amazonaws.com` | S3 endpoint or Cloudflare R2 / MinIO URL. |
 | `STORAGE_ACCESS_KEY` | Web & Worker | User / Auto | S3 access key ID. |
 | `STORAGE_SECRET_KEY` | Web & Worker | User / Auto | S3 secret access key. |
+| `STORAGE_USE_SSL` | Web & Worker | `true` | Enables TLS for S3 / Cloudflare R2 object storage. |
 
 ---
 

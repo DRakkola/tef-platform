@@ -117,25 +117,25 @@ export const AdminHealthPage: React.FC = () => {
     <AdminLayout activeTab="health">
       <div className="space-y-6 max-w-7xl mx-auto pb-12 font-sans">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/60 pb-5">
           <div>
-            <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs tracking-wider uppercase mb-1">
+            <div className="flex items-center gap-2 text-primary font-semibold text-xs tracking-wider uppercase mb-1">
               <Activity className="h-4 w-4" />
               <span>Observabilité & Sondes Systèmes</span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
               État Opérationnel de l'Infrastructure
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Sondes en temps réel sur la base de données, Redis, stockage MinIO, Celery et passerelles IA/paiement.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             {health && (
-              <div className="hidden sm:block text-right text-xs text-slate-500">
+              <div className="hidden sm:block text-right text-xs text-muted-foreground">
                 <div>Dernier sondage :</div>
-                <div className="font-mono text-slate-400">
+                <div className="font-mono text-foreground font-medium">
                   {new Date(health.server_timestamp).toLocaleTimeString()}
                 </div>
               </div>
@@ -145,7 +145,7 @@ export const AdminHealthPage: React.FC = () => {
               size="sm"
               onClick={fetchHealth}
               disabled={loading}
-              className="border-slate-800 hover:bg-slate-800 text-slate-300 text-xs flex items-center gap-2"
+              className="border-border hover:bg-muted text-foreground text-xs flex items-center gap-2"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               <span>Tester les sondes</span>
@@ -154,8 +154,8 @@ export const AdminHealthPage: React.FC = () => {
         </div>
 
         {error && (
-          <div className="bg-red-950/40 border border-red-800 text-red-200 text-xs p-4 rounded-xl flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+          <div className="bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-xs p-4 rounded-xl flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
             <span>{error}</span>
           </div>
         )}
@@ -165,29 +165,29 @@ export const AdminHealthPage: React.FC = () => {
           <div
             className={`p-6 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
               health.overall_status === "healthy"
-                ? "bg-emerald-950/20 border-emerald-800/40 text-emerald-200"
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-200"
                 : health.overall_status === "degraded"
-                ? "bg-amber-950/20 border-amber-800/40 text-amber-200"
-                : "bg-red-950/20 border-red-800/40 text-red-200"
+                ? "bg-amber-500/10 border-amber-500/20 text-amber-800 dark:text-amber-200"
+                : "bg-red-500/10 border-red-500/20 text-red-800 dark:text-red-200"
             }`}
           >
             <div className="flex items-center gap-4">
               <div
                 className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
                   health.overall_status === "healthy"
-                    ? "bg-emerald-500/20 text-emerald-400"
+                    ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
                     : health.overall_status === "degraded"
-                    ? "bg-amber-500/20 text-amber-400"
-                    : "bg-red-500/20 text-red-400"
+                    ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                    : "bg-red-500/20 text-red-600 dark:text-red-400"
                 }`}
               >
                 <Activity className="h-6 w-6" />
               </div>
               <div>
-                <div className="text-lg font-bold text-white">
+                <div className="text-lg font-bold text-foreground">
                   Statut Général : {health.overall_status.toUpperCase()}
                 </div>
-                <div className="text-xs text-slate-400 mt-0.5">
+                <div className="text-xs text-muted-foreground mt-0.5">
                   {health.subsystems.filter((s) => s.status === "healthy").length} / {health.subsystems.length} sous-systèmes répondent normalement aux sondes actives.
                 </div>
               </div>
@@ -205,18 +205,18 @@ export const AdminHealthPage: React.FC = () => {
               return (
                 <div
                   key={sub.name}
-                  className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 hover:border-slate-700 transition-colors shadow-sm"
+                  className="bg-card border border-border rounded-2xl p-5 space-y-4 hover:border-primary/50 transition-colors shadow-2xs text-card-foreground"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-center text-indigo-400">
+                      <div className="w-10 h-10 bg-muted border border-border rounded-xl flex items-center justify-center text-primary">
                         <Icon className="h-5 w-5" />
                       </div>
                       <div>
-                        <div className="font-bold text-sm text-white capitalize">
+                        <div className="font-bold text-sm text-foreground capitalize">
                           {sub.name.replace(/_/g, " ")}
                         </div>
-                        <div className="text-xs text-slate-500 font-mono">
+                        <div className="text-xs text-muted-foreground font-mono">
                           {sub.latency_ms !== null ? `${sub.latency_ms} ms` : "--"}
                         </div>
                       </div>
@@ -224,7 +224,7 @@ export const AdminHealthPage: React.FC = () => {
                     <div>{getStatusBadge(sub.status)}</div>
                   </div>
 
-                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-xs text-slate-300">
+                  <div className="bg-muted/40 p-3 rounded-xl border border-border/80 text-xs text-muted-foreground">
                     {sub.message || "Aucune anomalie détectée."}
                   </div>
                 </div>

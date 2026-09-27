@@ -12,6 +12,7 @@ export interface AppShellProps {
   studentEmail?: string
   targetLevel?: string
   targetExam?: string
+  sidebarVariant?: "student" | "teacher" | "admin"
 }
 
 export function AppShell({
@@ -22,6 +23,7 @@ export function AppShell({
   studentEmail,
   targetLevel,
   targetExam,
+  sidebarVariant,
 }: AppShellProps) {
   return (
     <TooltipProvider delayDuration={0}>
@@ -41,6 +43,7 @@ export function AppShell({
             studentEmail={studentEmail}
             targetLevel={targetLevel}
             targetExam={targetExam}
+            variant={sidebarVariant}
           />
 
           {/* 2. Light Rounded Content Workspace Inset */}

@@ -45,6 +45,7 @@ class EvaluationResult(BaseModel):
     coherence: float
     pronunciation: float
     overall_score: float
+    tef_points: int = 0
     strengths: list[str]
     weaknesses: list[str]
     recommendations: list[str]

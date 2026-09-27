@@ -54,6 +54,10 @@ export async function apiClient<T>(
     if (token && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
     }
+    const csrfMatch = document.cookie ? document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/) : null;
+    if (csrfMatch && !headers.has("X-CSRF-Token")) {
+      headers.set("X-CSRF-Token", decodeURIComponent(csrfMatch[1]));
+    }
   }
 
   const response = await fetch(url, {

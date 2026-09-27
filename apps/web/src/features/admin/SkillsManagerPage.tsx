@@ -132,20 +132,20 @@ export const SkillsManagerPage: React.FC = () => {
     <AdminLayout>
       <div className="space-y-6 max-w-6xl mx-auto">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border pb-4">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <GitBranch className="h-6 w-6 text-indigo-400" />
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <GitBranch className="h-6 w-6 text-primary" />
               Skills & Subskills Taxonomy
             </h1>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-muted-foreground">
               Manage hierarchical competencies for accurate micro-scoring and targeted diagnostics.
             </p>
           </div>
           <Button
             onClick={() => setSkillModalOpen(true)}
             size="sm"
-            className="bg-indigo-600 hover:bg-indigo-500 gap-1.5 self-start"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 self-start"
           >
             <Plus className="h-4 w-4" /> Add Parent Skill
           </Button>
@@ -156,15 +156,15 @@ export const SkillsManagerPage: React.FC = () => {
           <div
             className={`p-3 rounded-lg text-xs flex items-center justify-between ${
               msg.type === "success"
-                ? "bg-emerald-950/60 border border-emerald-800 text-emerald-300"
-                : "bg-rose-950/60 border border-rose-800 text-rose-300"
+                ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                : "bg-destructive/10 border border-destructive/30 text-destructive"
             }`}
           >
             <span className="flex items-center gap-2">
               {msg.type === "success" ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
               {msg.text}
             </span>
-            <button onClick={() => setMsg(null)} className="text-slate-400 hover:text-white">
+            <button onClick={() => setMsg(null)} className="text-muted-foreground hover:text-foreground">
               ✕
             </button>
           </div>
@@ -172,10 +172,10 @@ export const SkillsManagerPage: React.FC = () => {
 
         {/* Skills List */}
         {isLoading ? (
-          <div className="text-center py-12 text-slate-400 text-sm">Loading skills taxonomy...</div>
+          <div className="text-center py-12 text-muted-foreground text-sm">Loading skills taxonomy...</div>
         ) : skills.length === 0 ? (
-          <div className="text-center py-12 rounded-xl border border-slate-800 bg-slate-900/40">
-            <p className="text-slate-400 text-sm">No skills found. Click "Add Parent Skill" to start.</p>
+          <div className="text-center py-12 rounded-xl border border-border bg-card shadow-xs">
+            <p className="text-muted-foreground text-sm">No skills found. Click "Add Parent Skill" to start.</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -186,32 +186,32 @@ export const SkillsManagerPage: React.FC = () => {
               return (
                 <div
                   key={skill.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden"
+                  className="rounded-xl border border-border bg-card overflow-hidden shadow-xs"
                 >
                   {/* Skill Bar */}
-                  <div className="flex items-center justify-between p-4 bg-slate-950/50 border-b border-slate-800/80">
+                  <div className="flex items-center justify-between p-4 bg-muted/40 border-b border-border">
                     <button
                       type="button"
                       onClick={() => toggleExpand(skill.id)}
-                      className="flex items-center gap-3 text-left hover:text-indigo-300 transition"
+                      className="flex items-center gap-3 text-left hover:text-primary transition"
                     >
                       {isExpanded ? (
-                        <ChevronDown className="h-4 w-4 text-slate-400" />
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
                       ) : (
-                        <ChevronRight className="h-4 w-4 text-slate-400" />
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       )}
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-white text-base">{skill.name}</span>
-                          <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                          <span className="font-semibold text-foreground text-base">{skill.name}</span>
+                          <span className="font-mono text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border">
                             {skill.code}
                           </span>
-                          <span className="text-xs px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 uppercase font-medium">
+                          <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 uppercase font-medium">
                             {skill.category}
                           </span>
                         </div>
                         {skill.description && (
-                          <p className="text-xs text-slate-400 mt-1 line-clamp-1">
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
                             {skill.description}
                           </p>
                         )}
@@ -219,7 +219,7 @@ export const SkillsManagerPage: React.FC = () => {
                     </button>
 
                     <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-400 font-mono bg-slate-900 px-2.5 py-1 rounded border border-slate-800">
+                      <span className="text-xs text-muted-foreground font-mono bg-background px-2.5 py-1 rounded border border-border">
                         {subCount} subskills
                       </span>
                       <Button
@@ -229,37 +229,37 @@ export const SkillsManagerPage: React.FC = () => {
                           setSelectedParentSkillId(skill.id);
                           setSubskillModalOpen(true);
                         }}
-                        className="h-8 text-xs gap-1 border-slate-700 text-slate-200 hover:bg-slate-800"
+                        className="h-8 text-xs gap-1 border-border text-foreground hover:bg-muted"
                       >
-                        <FolderPlus className="h-3.5 w-3.5 text-indigo-400" /> Add Subskill
+                        <FolderPlus className="h-3.5 w-3.5 text-primary" /> Add Subskill
                       </Button>
                     </div>
                   </div>
 
                   {/* Subskills Subtree */}
                   {isExpanded && (
-                    <div className="p-4 divide-y divide-slate-800/40">
+                    <div className="p-4 divide-y divide-border/40">
                       {subCount === 0 ? (
-                        <p className="text-xs text-slate-500 italic py-2 pl-7">
+                        <p className="text-xs text-muted-foreground italic py-2 pl-7">
                           No subskills added yet for this domain.
                         </p>
                       ) : (
                         skill.subskills!.map((sub) => (
                           <div
                             key={sub.id}
-                            className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pl-7 hover:bg-slate-800/20 rounded px-2"
+                            className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pl-7 hover:bg-muted/50 rounded px-2 transition-colors"
                           >
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-slate-200">
+                                <span className="text-sm font-medium text-foreground">
                                   {sub.name}
                                 </span>
-                                <span className="text-xs font-mono text-slate-400">
+                                <span className="text-xs font-mono text-muted-foreground">
                                   ({sub.code})
                                 </span>
                               </div>
                               {sub.description && (
-                                <p className="text-xs text-slate-400 mt-0.5">{sub.description}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">{sub.description}</p>
                               )}
                             </div>
 
@@ -271,7 +271,7 @@ export const SkillsManagerPage: React.FC = () => {
                                   setEditSubskillName(sub.name);
                                   setEditSubskillDesc(sub.description || "");
                                 }}
-                                className="text-slate-400 hover:text-indigo-300 p-1.5 rounded hover:bg-slate-800 transition"
+                                className="text-muted-foreground hover:text-primary p-1.5 rounded hover:bg-muted transition"
                                 title="Edit Subskill"
                               >
                                 <Edit2 className="h-3.5 w-3.5" />
@@ -279,7 +279,7 @@ export const SkillsManagerPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleDeleteSubskill(sub.id, sub.name)}
-                                className="text-slate-400 hover:text-rose-400 p-1.5 rounded hover:bg-slate-800 transition"
+                                className="text-muted-foreground hover:text-destructive p-1.5 rounded hover:bg-muted transition"
                                 title="Delete Subskill"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -298,38 +298,38 @@ export const SkillsManagerPage: React.FC = () => {
 
         {/* Modal: Add Parent Skill */}
         {skillModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4 shadow-2xl">
-              <h2 className="text-lg font-bold text-white">Create New Parent Skill</h2>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 space-y-4 shadow-2xl text-foreground">
+              <h2 className="text-lg font-bold text-foreground">Create New Parent Skill</h2>
               <form onSubmit={handleCreateSkill} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Skill Code (Unique)</label>
+                  <label className="block text-foreground mb-1 font-medium">Skill Code (Unique)</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. grammar_logic"
                     value={newSkill.code}
                     onChange={(e) => setNewSkill({ ...newSkill, code: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white font-mono"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground font-mono focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Skill Name</label>
+                  <label className="block text-foreground mb-1 font-medium">Skill Name</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. Logique et Concession"
                     value={newSkill.name}
                     onChange={(e) => setNewSkill({ ...newSkill, name: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Category</label>
+                  <label className="block text-foreground mb-1 font-medium">Category</label>
                   <select
                     value={newSkill.category}
                     onChange={(e) => setNewSkill({ ...newSkill, category: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   >
                     <option value="reading">Reading (Compréhension Écrite)</option>
                     <option value="listening">Listening (Compréhension Orale)</option>
@@ -341,13 +341,13 @@ export const SkillsManagerPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Description</label>
+                  <label className="block text-foreground mb-1 font-medium">Description</label>
                   <textarea
                     rows={3}
                     placeholder="Educational objectives and scope..."
                     value={newSkill.description}
                     onChange={(e) => setNewSkill({ ...newSkill, description: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
@@ -356,11 +356,11 @@ export const SkillsManagerPage: React.FC = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => setSkillModalOpen(false)}
-                    className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                    className="border-border text-foreground hover:bg-muted"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm" className="bg-indigo-600 hover:bg-indigo-500">
+                  <Button type="submit" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                     Save Skill
                   </Button>
                 </div>
@@ -371,40 +371,40 @@ export const SkillsManagerPage: React.FC = () => {
 
         {/* Modal: Add Subskill */}
         {subskillModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4 shadow-2xl">
-              <h2 className="text-lg font-bold text-white">Add Subskill</h2>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 space-y-4 shadow-2xl text-foreground">
+              <h2 className="text-lg font-bold text-foreground">Add Subskill</h2>
               <form onSubmit={handleCreateSubskill} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Subskill Code (Unique)</label>
+                  <label className="block text-foreground mb-1 font-medium">Subskill Code (Unique)</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. grammar_subjonctif_doute"
                     value={newSubskill.code}
                     onChange={(e) => setNewSubskill({ ...newSubskill, code: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white font-mono"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground font-mono focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Subskill Name</label>
+                  <label className="block text-foreground mb-1 font-medium">Subskill Name</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. Subjonctif après verbes de doute"
                     value={newSubskill.name}
                     onChange={(e) => setNewSubskill({ ...newSubskill, name: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Description</label>
+                  <label className="block text-foreground mb-1 font-medium">Description</label>
                   <textarea
                     rows={3}
                     placeholder="Pedagogical indicator..."
                     value={newSubskill.description}
                     onChange={(e) => setNewSubskill({ ...newSubskill, description: e.target.value })}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
@@ -413,11 +413,11 @@ export const SkillsManagerPage: React.FC = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => setSubskillModalOpen(false)}
-                    className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                    className="border-border text-foreground hover:bg-muted"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm" className="bg-indigo-600 hover:bg-indigo-500">
+                  <Button type="submit" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                     Add Subskill
                   </Button>
                 </div>
@@ -428,28 +428,28 @@ export const SkillsManagerPage: React.FC = () => {
 
         {/* Modal: Edit Subskill */}
         {editingSubskill && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4 shadow-2xl">
-              <h2 className="text-lg font-bold text-white">Edit Subskill</h2>
-              <p className="text-xs text-slate-400 font-mono">Code: {editingSubskill.code}</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 space-y-4 shadow-2xl text-foreground">
+              <h2 className="text-lg font-bold text-foreground">Edit Subskill</h2>
+              <p className="text-xs text-muted-foreground font-mono">Code: {editingSubskill.code}</p>
               <form onSubmit={handleUpdateSubskill} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Subskill Name</label>
+                  <label className="block text-foreground mb-1 font-medium">Subskill Name</label>
                   <input
                     type="text"
                     required
                     value={editSubskillName}
                     onChange={(e) => setEditSubskillName(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Description</label>
+                  <label className="block text-foreground mb-1 font-medium">Description</label>
                   <textarea
                     rows={3}
                     value={editSubskillDesc}
                     onChange={(e) => setEditSubskillDesc(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
@@ -458,11 +458,11 @@ export const SkillsManagerPage: React.FC = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => setEditingSubskill(null)}
-                    className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                    className="border-border text-foreground hover:bg-muted"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm" className="bg-indigo-600 hover:bg-indigo-500">
+                  <Button type="submit" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                     Save Changes
                   </Button>
                 </div>

@@ -130,20 +130,20 @@ export const MediaManagerPage: React.FC = () => {
   return (
     <AdminLayout>
       <div className="space-y-6 max-w-7xl mx-auto">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border pb-4">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <ImageIcon className="h-6 w-6 text-sky-400" />
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <ImageIcon className="h-6 w-6 text-sky-500" />
               Media Assets Library ({total})
             </h1>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-muted-foreground">
               MinIO private object storage with MIME verification and expiring presigned URLs.
             </p>
           </div>
           <Button
             onClick={() => setUploadModalOpen(true)}
             size="sm"
-            className="bg-indigo-600 hover:bg-indigo-500 gap-1.5 self-start"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 self-start"
           >
             <Upload className="h-4 w-4" /> Upload Media
           </Button>
@@ -154,15 +154,15 @@ export const MediaManagerPage: React.FC = () => {
           <div
             className={`p-3 rounded-lg text-xs flex items-center justify-between ${
               msg.type === "success"
-                ? "bg-emerald-950/60 border border-emerald-800 text-emerald-300"
-                : "bg-rose-950/60 border border-rose-800 text-rose-300"
+                ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                : "bg-destructive/10 border border-destructive/30 text-destructive"
             }`}
           >
             <span className="flex items-center gap-2">
               {msg.type === "success" ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
               {msg.text}
             </span>
-            <button onClick={() => setMsg(null)} className="text-slate-400 hover:text-white">
+            <button onClick={() => setMsg(null)} className="text-muted-foreground hover:text-foreground">
               ✕
             </button>
           </div>
@@ -176,12 +176,12 @@ export const MediaManagerPage: React.FC = () => {
         />
 
         {/* Filters */}
-        <div className="flex items-center gap-3 bg-slate-900/60 border border-slate-800 p-3 rounded-xl text-xs">
-          <span className="text-slate-400 font-medium">Filter type:</span>
+        <div className="flex items-center gap-3 bg-card border border-border p-3 rounded-xl text-xs shadow-xs">
+          <span className="text-muted-foreground font-medium">Filter type:</span>
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="bg-slate-950 border border-slate-700 text-slate-200 rounded px-2.5 py-1.5"
+            className="bg-background border border-border text-foreground rounded px-2.5 py-1.5 focus:ring-1 focus:ring-primary"
           >
             <option value="">All Media Types</option>
             <option value="audio">Audio (Listening Snippets)</option>
@@ -192,9 +192,9 @@ export const MediaManagerPage: React.FC = () => {
 
         {/* Media Grid */}
         {isLoading ? (
-          <div className="text-center py-12 text-slate-400 text-sm">Loading media assets...</div>
+          <div className="text-center py-12 text-muted-foreground text-sm">Loading media assets...</div>
         ) : assets.length === 0 ? (
-          <div className="text-center py-12 rounded-xl border border-slate-800 bg-slate-900/40 text-slate-400 text-sm">
+          <div className="text-center py-12 rounded-xl border border-border bg-card text-muted-foreground text-sm shadow-xs">
             No media assets found in private storage.
           </div>
         ) : (
@@ -206,11 +206,11 @@ export const MediaManagerPage: React.FC = () => {
               return (
                 <div
                   key={asset.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3 hover:border-slate-700 transition"
+                  className="rounded-xl border border-border bg-card p-4 space-y-3 hover:border-primary/50 transition shadow-xs"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5">
-                      <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-indigo-400">
+                      <div className="p-2 rounded-lg bg-muted/60 border border-border text-primary">
                         {isAudio ? (
                           <Music className="h-5 w-5" />
                         ) : asset.media_type === "image" ? (
@@ -220,21 +220,21 @@ export const MediaManagerPage: React.FC = () => {
                         )}
                       </div>
                       <div className="space-y-0.5">
-                        <h3 className="font-bold text-white text-xs truncate max-w-[180px]">
+                        <h3 className="font-bold text-foreground text-xs truncate max-w-[180px]">
                           {asset.title}
                         </h3>
-                        <p className="text-2xs text-slate-400 font-mono truncate max-w-[180px]">
+                        <p className="text-2xs text-muted-foreground font-mono truncate max-w-[180px]">
                           {asset.filename}
                         </p>
                       </div>
                     </div>
 
-                    <span className="text-2xs px-1.5 py-0.5 rounded bg-slate-950 text-slate-400 uppercase font-mono">
+                    <span className="text-2xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border uppercase font-mono">
                       {asset.media_type}
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between text-2xs text-slate-400 font-mono pt-1">
+                  <div className="flex items-center justify-between text-2xs text-muted-foreground font-mono pt-1">
                     <span>Size: {formatFileSize(asset.file_size)}</span>
                     <span className="truncate max-w-[130px]" title={asset.content_type}>
                       {asset.content_type}
@@ -242,7 +242,7 @@ export const MediaManagerPage: React.FC = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between pt-2 border-t border-border">
                     <div className="flex items-center gap-1.5">
                       {isAudio && (
                         <Button
@@ -251,8 +251,8 @@ export const MediaManagerPage: React.FC = () => {
                           onClick={() => handlePlayAudio(asset)}
                           className={`h-7 text-xs gap-1 ${
                             isPlaying
-                              ? "bg-indigo-600 text-white border-indigo-500"
-                              : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "border-border text-foreground hover:bg-muted"
                           }`}
                         >
                           {isPlaying ? (
@@ -271,7 +271,7 @@ export const MediaManagerPage: React.FC = () => {
                         size="sm"
                         variant="outline"
                         onClick={() => handleDownloadPresigned(asset)}
-                        className="h-7 text-xs border-slate-700 text-slate-300 hover:bg-slate-800 gap-1"
+                        className="h-7 text-xs border-border text-foreground hover:bg-muted gap-1"
                         title="Download via expiring presigned URL"
                       >
                         <Download className="h-3 w-3" /> Presigned
@@ -281,7 +281,7 @@ export const MediaManagerPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleDelete(asset.id, asset.filename)}
-                      className="text-slate-400 hover:text-rose-400 p-1 rounded transition"
+                      className="text-muted-foreground hover:text-destructive p-1 rounded transition"
                       title="Delete asset"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -295,31 +295,31 @@ export const MediaManagerPage: React.FC = () => {
 
         {/* Modal: Upload Media */}
         {uploadModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-4 shadow-2xl">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Upload className="h-5 w-5 text-indigo-400" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 space-y-4 shadow-2xl text-foreground">
+              <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+                <Upload className="h-5 w-5 text-primary" />
                 Upload Media Asset
               </h2>
               <form onSubmit={handleUpload} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Title / Label</label>
+                  <label className="block text-foreground mb-1 font-medium">Title / Label</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. Annonce SNCF Retard TGV"
                     value={uploadTitle}
                     onChange={(e) => setUploadTitle(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Media Type</label>
+                  <label className="block text-foreground mb-1 font-medium">Media Type</label>
                   <select
                     value={uploadType}
                     onChange={(e) => setUploadType(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-white"
+                    className="w-full rounded-md border border-border bg-background p-2 text-foreground focus:ring-1 focus:ring-primary"
                   >
                     <option value="audio">Audio (.mp3, .wav, .m4a)</option>
                     <option value="image">Image (.png, .jpg, .webp)</option>
@@ -328,7 +328,7 @@ export const MediaManagerPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Select File (Max 50MB)</label>
+                  <label className="block text-foreground mb-1 font-medium">Select File (Max 50MB)</label>
                   <input
                     type="file"
                     required
@@ -338,24 +338,24 @@ export const MediaManagerPage: React.FC = () => {
                         if (!uploadTitle) setUploadTitle(e.target.files[0].name);
                       }
                     }}
-                    className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-950 file:text-indigo-300 hover:file:bg-indigo-900"
+                    className="w-full text-xs text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                   />
                 </div>
 
-                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 text-2xs text-slate-400 flex items-start gap-2">
-                  <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="p-3 rounded-lg bg-muted/40 border border-border text-2xs text-muted-foreground flex items-start gap-2">
+                  <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
                   <span>
                     Uploaded files are stored privately in MinIO. Access requires time-limited presigned URLs.
                   </span>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <div className="flex justify-end gap-2 pt-3 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setUploadModalOpen(false)}
-                    className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                    className="border-border text-foreground hover:bg-muted"
                   >
                     Cancel
                   </Button>
@@ -363,7 +363,7 @@ export const MediaManagerPage: React.FC = () => {
                     type="submit"
                     size="sm"
                     disabled={isUploading}
-                    className="bg-indigo-600 hover:bg-indigo-500 gap-1"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1"
                   >
                     {isUploading ? "Uploading..." : "Upload File"}
                   </Button>

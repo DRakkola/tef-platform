@@ -94,26 +94,11 @@ export const TeacherCorrectionWorkspacePage: React.FC = () => {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
   const [isUnsavedDialogOpen, setIsUnsavedDialogOpen] = useState(false)
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null)
-
-  // -------------------------------------------------------------------------
-  // Auth / role check
-  // -------------------------------------------------------------------------
-  if (!isAuthLoading && user && user.role !== "teacher" && user.role !== "admin") {
-    return <ForbiddenPage />
-  }
-
-  const errorMsg = (error as Error)?.message ?? ""
-  if (
-    isError &&
-    (errorMsg.includes("403") || errorMsg.includes("FORBIDDEN") || errorMsg.includes("not authorized"))
-  ) {
-    return <ForbiddenPage />
-  }
+  const [showSuccess, setShowSuccess] = useState(false)
 
   // -------------------------------------------------------------------------
   // Auto claim + start review on mount (if unassigned or assigned-not-reviewing)
   // -------------------------------------------------------------------------
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (
       submission &&
@@ -131,9 +116,7 @@ export const TeacherCorrectionWorkspacePage: React.FC = () => {
   // -------------------------------------------------------------------------
   // Unsaved changes blocker (React Router v6+)
   // -------------------------------------------------------------------------
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   const blocker = useBlocker(
-    // eslint-disable-next-line react-hooks/rules-of-hooks
     useCallback(
       ({ currentLocation, nextLocation }) =>
         isDirty &&
@@ -143,7 +126,6 @@ export const TeacherCorrectionWorkspacePage: React.FC = () => {
     )
   )
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (blocker.state === "blocked") {
       setIsUnsavedDialogOpen(true)
@@ -152,7 +134,6 @@ export const TeacherCorrectionWorkspacePage: React.FC = () => {
   }, [blocker.state])
 
   // Browser beforeunload
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (isDirty && !isSubmitSuccess) {
@@ -165,14 +146,27 @@ export const TeacherCorrectionWorkspacePage: React.FC = () => {
   }, [isDirty, isSubmitSuccess])
 
   // -------------------------------------------------------------------------
+  // Auth / role check
+  // -------------------------------------------------------------------------
+  if (!isAuthLoading && user && user.role !== "teacher" && user.role !== "admin") {
+    return <ForbiddenPage />
+  }
+
+  const errorMsg = (error as Error)?.message ?? ""
+  if (
+    isError &&
+    (errorMsg.includes("403") || errorMsg.includes("FORBIDDEN") || errorMsg.includes("not authorized"))
+  ) {
+    return <ForbiddenPage />
+  }
+
+  // -------------------------------------------------------------------------
   // Submit flow
   // -------------------------------------------------------------------------
   const handleSubmitClick = () => {
     if (!isValid) return
     setIsConfirmOpen(true)
   }
-
-  const [showSuccess, setShowSuccess] = useState(false)
 
   const handleConfirmSubmit = async () => {
     setIsConfirmOpen(false)

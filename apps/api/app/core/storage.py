@@ -205,8 +205,6 @@ class S3StorageService(StorageService):
             object_key,
             ExtraArgs={
                 "ContentType": normalized_content_type,
-                # Private by default - never expose public ACL
-                "ACL": "private",
             },
         )
         logger.info("file_uploaded", object_key=object_key, bucket=self.bucket_name, size=file_size)

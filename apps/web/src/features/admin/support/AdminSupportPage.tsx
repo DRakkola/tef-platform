@@ -106,28 +106,28 @@ export const AdminSupportPage: React.FC = () => {
   const getPriorityBadge = (priority: string) => {
     switch (priority) {
       case "urgent":
-        return <span className="bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Urgent</span>;
+        return <span className="bg-destructive/10 text-destructive border border-destructive/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Urgent</span>;
       case "high":
-        return <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Haut</span>;
+        return <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Haut</span>;
       case "medium":
-        return <span className="bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Moyen</span>;
+        return <span className="bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Moyen</span>;
       default:
-        return <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded text-[10px] uppercase">Bas</span>;
+        return <span className="bg-muted text-muted-foreground border border-border px-2 py-0.5 rounded text-[10px] uppercase">Bas</span>;
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "open":
-        return <span className="text-emerald-400 font-bold text-xs uppercase">Ouvert</span>;
+        return <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs uppercase">Ouvert</span>;
       case "in_progress":
-        return <span className="text-amber-400 font-bold text-xs uppercase">En cours</span>;
+        return <span className="text-amber-600 dark:text-amber-400 font-bold text-xs uppercase">En cours</span>;
       case "resolved":
-        return <span className="text-indigo-400 font-bold text-xs uppercase">Résolu</span>;
+        return <span className="text-primary font-bold text-xs uppercase">Résolu</span>;
       case "closed":
-        return <span className="text-slate-500 font-bold text-xs uppercase">Fermé</span>;
+        return <span className="text-muted-foreground font-bold text-xs uppercase">Fermé</span>;
       default:
-        return <span className="text-slate-400 text-xs uppercase">{status}</span>;
+        return <span className="text-muted-foreground text-xs uppercase">{status}</span>;
     }
   };
 
@@ -135,15 +135,15 @@ export const AdminSupportPage: React.FC = () => {
     <AdminLayout activeTab="support">
       <div className="space-y-6 max-w-7xl mx-auto pb-12 font-sans">
         {/* Header */}
-        <div className="border-b border-slate-800 pb-5">
-          <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs tracking-wider uppercase mb-1">
+        <div className="border-b border-border pb-5">
+          <div className="flex items-center gap-2 text-primary font-semibold text-xs tracking-wider uppercase mb-1">
             <LifeBuoy className="h-4 w-4" />
             <span>Support Client & Triage Opérationnel</span>
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
             File de Support et Incidents Beta
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             Traitement des signalements d'utilisateurs, escalades et notes techniques internes.
           </p>
         </div>
@@ -151,19 +151,19 @@ export const AdminSupportPage: React.FC = () => {
         {/* Master-Detail layout */}
         {loading ? (
           <div className="flex justify-center py-24">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
           </div>
         ) : tickets.length === 0 ? (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
-            <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-400" />
-            <div className="font-bold text-base text-white">Aucun ticket en attente</div>
-            <p className="text-xs text-slate-400">Tous les tickets de support ont été traités.</p>
+          <div className="bg-card border border-border rounded-xl p-12 text-center space-y-3 shadow-xs">
+            <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" />
+            <div className="font-bold text-base text-foreground">Aucun ticket en attente</div>
+            <p className="text-xs text-muted-foreground">Tous les tickets de support ont été traités.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Ticket List */}
-            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 h-[700px] overflow-y-auto">
-              <div className="text-xs font-semibold text-slate-400 px-2 pb-1 border-b border-slate-800">
+            <div className="lg:col-span-5 bg-card border border-border rounded-xl p-4 space-y-3 h-[700px] overflow-y-auto shadow-xs">
+              <div className="text-xs font-semibold text-muted-foreground px-2 pb-1 border-b border-border">
                 {tickets.length} tickets enregistrés
               </div>
 
@@ -176,19 +176,19 @@ export const AdminSupportPage: React.FC = () => {
                     onClick={() => handleSelectTicket(t)}
                     className={`w-full text-left p-4 rounded-xl border transition-all ${
                       isSelected
-                        ? "bg-indigo-950/40 border-indigo-500 shadow-md"
-                        : "bg-slate-950 border-slate-800/80 hover:border-slate-700"
+                        ? "bg-primary/10 border-primary shadow-xs"
+                        : "bg-muted/30 border-border hover:bg-muted/60"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="font-bold text-sm text-white line-clamp-1">{t.subject}</div>
+                      <div className="font-bold text-sm text-foreground line-clamp-1">{t.subject}</div>
                       {getPriorityBadge(t.priority)}
                     </div>
                     <div className="flex items-center justify-between mt-2 text-xs">
-                      <span className="text-slate-400 capitalize">{t.category}</span>
+                      <span className="text-muted-foreground capitalize">{t.category}</span>
                       {getStatusBadge(t.status)}
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-2 font-mono">
+                    <div className="text-[11px] text-muted-foreground mt-2 font-mono">
                       {new Date(t.created_at).toLocaleDateString()} à {new Date(t.created_at).toLocaleTimeString()}
                     </div>
                   </button>
@@ -197,42 +197,42 @@ export const AdminSupportPage: React.FC = () => {
             </div>
 
             {/* Right Ticket Detail & Triage */}
-            <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+            <div className="lg:col-span-7 bg-card border border-border rounded-xl p-6 space-y-6 shadow-xs">
               {selectedTicket ? (
                 <>
-                  <div className="border-b border-slate-800 pb-4 space-y-2">
+                  <div className="border-b border-border pb-4 space-y-2">
                     <div className="flex items-center justify-between">
-                      <div className="text-xs font-mono text-slate-500">ID: {selectedTicket.id}</div>
+                      <div className="text-xs font-mono text-muted-foreground">ID: {selectedTicket.id}</div>
                       {getPriorityBadge(selectedTicket.priority)}
                     </div>
-                    <h2 className="text-xl font-bold text-white">{selectedTicket.subject}</h2>
-                    <div className="text-xs text-slate-400">
-                      Catégorie : <span className="text-white font-medium capitalize">{selectedTicket.category}</span>
+                    <h2 className="text-xl font-bold text-foreground">{selectedTicket.subject}</h2>
+                    <div className="text-xs text-muted-foreground">
+                      Catégorie : <span className="text-foreground font-medium capitalize">{selectedTicket.category}</span>
                     </div>
                   </div>
 
                   {/* Description Box */}
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold text-slate-300">Description du problème :</div>
-                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
+                    <div className="text-xs font-semibold text-foreground">Description du problème :</div>
+                    <div className="bg-muted/40 p-4 rounded-xl border border-border text-xs text-foreground whitespace-pre-wrap leading-relaxed">
                       {selectedTicket.description}
                     </div>
                   </div>
 
                   {/* Triage Form */}
-                  <form onSubmit={handleSaveTriage} className="space-y-4 pt-4 border-t border-slate-800">
-                    <div className="text-sm font-bold text-white flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-indigo-400" />
+                  <form onSubmit={handleSaveTriage} className="space-y-4 pt-4 border-t border-border">
+                    <div className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-primary" />
                       <span>Mise à jour du Triage & Notes d'Ingénierie</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-400 mb-1">Statut</label>
+                        <label className="block text-xs font-semibold text-foreground mb-1">Statut</label>
                         <select
                           value={editStatus}
                           onChange={(e) => setEditStatus(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                          className="w-full bg-background border border-border rounded-lg p-2.5 text-xs text-foreground focus:ring-1 focus:ring-primary focus:outline-none"
                         >
                           <option value="open">Ouvert (Open)</option>
                           <option value="in_progress">En cours (In Progress)</option>
@@ -243,11 +243,11 @@ export const AdminSupportPage: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-semibold text-slate-400 mb-1">Priorité</label>
+                        <label className="block text-xs font-semibold text-foreground mb-1">Priorité</label>
                         <select
                           value={editPriority}
                           onChange={(e) => setEditPriority(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                          className="w-full bg-background border border-border rounded-lg p-2.5 text-xs text-foreground focus:ring-1 focus:ring-primary focus:outline-none"
                         >
                           <option value="low">Basse (Low)</option>
                           <option value="medium">Moyenne (Medium)</option>
@@ -258,7 +258,7 @@ export const AdminSupportPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      <label className="block text-xs font-semibold text-foreground mb-1">
                         Notes internes d'ingénierie (non visibles par l'utilisateur)
                       </label>
                       <textarea
@@ -266,13 +266,13 @@ export const AdminSupportPage: React.FC = () => {
                         value={editNotes}
                         onChange={(e) => setEditNotes(e.target.value)}
                         placeholder="Raison de la résolution, commits associés, correctif..."
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-white focus:border-indigo-500 focus:outline-none resize-none"
+                        className="w-full bg-background border border-border rounded-lg p-3 text-xs text-foreground focus:ring-1 focus:ring-primary focus:outline-none resize-none"
                       />
                     </div>
 
                     <div className="flex items-center justify-between pt-2">
                       {saveSuccess ? (
-                        <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold">
+                        <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
                           <CheckCircle2 className="h-4 w-4" />
                           <span>Triage enregistré avec succès !</span>
                         </div>
@@ -283,7 +283,7 @@ export const AdminSupportPage: React.FC = () => {
                       <Button
                         type="submit"
                         disabled={saving}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs flex items-center gap-1.5"
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs flex items-center gap-1.5"
                       >
                         <Save className="h-3.5 w-3.5" />
                         <span>Enregistrer les modifications</span>
@@ -292,7 +292,7 @@ export const AdminSupportPage: React.FC = () => {
                   </form>
                 </>
               ) : (
-                <div className="text-center py-20 text-xs text-slate-500">
+                <div className="text-center py-20 text-xs text-muted-foreground">
                   Sélectionnez un ticket dans la liste pour afficher les détails.
                 </div>
               )}

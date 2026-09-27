@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # Ensure all application models are loaded into Base.metadata
 import app.modules.admin.models
 import app.modules.admin.beta_models  # noqa: F401
+import app.modules.admin.ai_sandbox_models  # noqa: F401
+import app.modules.admin.speaking_config_models  # noqa: F401
+import app.modules.admin.speaking_scenario_models  # noqa: F401
 import app.modules.analytics.models
 import app.modules.assessments.models
 import app.modules.billing.models

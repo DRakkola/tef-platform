@@ -2,7 +2,9 @@ export * from "./SpeakingSessionPage"
 export * from "./types"
 export * from "./api"
 export * from "./useSpeakingSession"
+export * from "./useSpeakingExam"
 export * from "./useSpeakingWebRTC"
+export * from "./useLiveAudioSession"
 export {
   FocusedSpeakingShell,
   SpeakingTopBar,
