@@ -146,38 +146,79 @@ async def seed_default_users(db) -> None:
         await db.commit()
         logger.info("demo_teacher_seeded", email=teacher_email)
 
-    # Demo student
-    student_email = os.getenv("DEMO_STUDENT_EMAIL", "student@tefprep.com")
-    existing_student = await db.scalar(select(User).where(User.email == student_email))
-    if not existing_student:
-        student_id = uuid.uuid4()
-        student_user = User(
-            id=student_id,
-            email=student_email,
-            password_hash=hash_password("StudentPassword123!"),
-            role=UserRole.STUDENT,
-            is_active=True,
-            is_verified=True,
-        )
-        db.add(student_user)
-        await db.flush()
+    # 4 Demo student accounts with varied target levels and completed onboarding
+    students_data = [
+        {
+            "email": "student.alex@tefprep.com",
+            "password": "StudentPassword123!",
+            "target_level": "B2",
+            "target_cefr": "B2",
+            "target_nclc": "NCLC 7",
+            "native_language": "English",
+            "daily_minutes": 45,
+        },
+        {
+            "email": "student.emma@tefprep.com",
+            "password": "StudentPassword123!",
+            "target_level": "B1",
+            "target_cefr": "B1",
+            "target_nclc": "NCLC 5",
+            "native_language": "Spanish",
+            "daily_minutes": 30,
+        },
+        {
+            "email": "student.lucas@tefprep.com",
+            "password": "StudentPassword123!",
+            "target_level": "C1",
+            "target_cefr": "C1",
+            "target_nclc": "NCLC 9",
+            "native_language": "Arabic",
+            "daily_minutes": 60,
+        },
+        {
+            "email": "student.sarah@tefprep.com",
+            "password": "StudentPassword123!",
+            "target_level": "B1",
+            "target_cefr": "B1",
+            "target_nclc": "NCLC 5",
+            "native_language": "Mandarin",
+            "daily_minutes": 30,
+        },
+    ]
 
-        student_profile = StudentProfile(
-            id=uuid.uuid4(),
-            user_id=student_id,
-            target_exam="TEF Canada",
-            target_level="B2",
-            target_cefr_level="B2",
-            target_nclc_level="NCLC 7",
-            target_date=datetime.date.today() + datetime.timedelta(days=90),
-            timezone="America/Toronto",
-            native_language="English",
-            onboarding_status="completed",
-            onboarding_step=3,
-        )
-        db.add(student_profile)
-        await db.commit()
-        logger.info("demo_student_seeded", email=student_email)
+    for st in students_data:
+        existing_student = await db.scalar(select(User).where(User.email == st["email"]))
+        if not existing_student:
+            st_id = uuid.uuid4()
+            student_user = User(
+                id=st_id,
+                email=st["email"],
+                password_hash=hash_password(st["password"]),
+                role=UserRole.STUDENT,
+                is_active=True,
+                is_verified=True,
+                is_beta_user=True,
+            )
+            db.add(student_user)
+            await db.flush()
+
+            st_profile = StudentProfile(
+                id=uuid.uuid4(),
+                user_id=st_id,
+                target_exam="TEF Canada",
+                target_level=st["target_level"],
+                target_cefr_level=st["target_cefr"],
+                target_nclc_level=st["target_nclc"],
+                target_date=datetime.date.today() + datetime.timedelta(days=90),
+                timezone="UTC",
+                native_language=st["native_language"],
+                daily_minutes_available=st["daily_minutes"],
+                onboarding_status="completed",
+                onboarding_step=4,
+            )
+            db.add(st_profile)
+            await db.commit()
+            logger.info("demo_student_seeded", email=st["email"])
 
 
 async def run_seed() -> None:
