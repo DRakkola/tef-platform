@@ -93,6 +93,23 @@ def test_production_settings_succeeds_with_strong_credentials() -> None:
     assert prod_settings.cookie_secure is True
 
 
+def test_production_settings_succeeds_with_cloud_connection_urls() -> None:
+    """Settings must succeed in production when Supabase/Upstash connection URLs are provided directly."""
+    prod_settings = Settings(
+        ENVIRONMENT="production",
+        SECRET_KEY="high-entropy-secure-production-secret-key-32chars",
+        DATABASE_URL="postgresql://postgres:supabase_secure_pass_999@db.supabase.co:5432/postgres",
+        REDIS_URL="rediss://default:upstash_token_123456789@upstash.io:6379",
+        STORAGE_ENDPOINT="xyz.supabase.co/storage/v1/s3",
+        STORAGE_ACCESS_KEY="supabase-s3-access-key",
+        STORAGE_SECRET_KEY="supabase-s3-secret-key",
+        CORS_ORIGINS=["https://tef-prep.example.com"],
+    )
+    assert prod_settings.is_production is True
+    assert prod_settings.DATABASE_URL.startswith("postgresql+asyncpg://")
+    assert prod_settings.CELERY_BROKER_URL == "rediss://default:upstash_token_123456789@upstash.io:6379"
+
+
 def test_production_settings_rejects_localhost_cors() -> None:
     """Settings must fail fast in production if localhost or wildcard CORS origins are configured."""
     with pytest.raises(ValidationError) as exc_info:

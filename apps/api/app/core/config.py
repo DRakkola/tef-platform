@@ -168,13 +168,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> Self:
-        # If CELERY URLs are left at defaults but REDIS_URL was supplied, reuse REDIS_URL
-        default_celery_broker = "redis://:tef_redis_password@localhost:6379/1"
-        default_celery_backend = "redis://:tef_redis_password@localhost:6379/2"
+        # If CELERY URLs are left at local/default redis but a custom REDIS_URL was supplied, reuse REDIS_URL
         default_redis = "redis://:tef_redis_password@localhost:6379/0"
-        if self.CELERY_BROKER_URL == default_celery_broker and self.REDIS_URL != default_redis:
+        is_dev_broker = any(dev in self.CELERY_BROKER_URL for dev in ("tef_redis_password", "localhost:6379", "@redis:6379"))
+        is_dev_backend = any(dev in self.CELERY_RESULT_BACKEND for dev in ("tef_redis_password", "localhost:6379", "@redis:6379"))
+        if is_dev_broker and self.REDIS_URL != default_redis:
             self.CELERY_BROKER_URL = self.REDIS_URL
-        if self.CELERY_RESULT_BACKEND == default_celery_backend and self.REDIS_URL != default_redis:
+        if is_dev_backend and self.REDIS_URL != default_redis:
             self.CELERY_RESULT_BACKEND = self.REDIS_URL
 
         if self.ENVIRONMENT in ("production", "staging"):
@@ -190,10 +190,15 @@ class Settings(BaseSettings):
                     "Insecure or too short SECRET_KEY configured for production environment. "
                     "Must be a high-entropy secret of at least 32 characters."
                 )
-            if self.POSTGRES_PASSWORD in ("tef_app_password", "password", "postgres", "admin"):
-                raise ValueError("Default POSTGRES_PASSWORD must not be used in production.")
-            if self.REDIS_PASSWORD in ("tef_redis_password", "password", "redis"):
-                raise ValueError("Default REDIS_PASSWORD must not be used in production.")
+            default_db_url = "postgresql+asyncpg://tef_app:tef_app_password@localhost:5432/tef_platform"
+            if self.DATABASE_URL == default_db_url or "tef_app_password" in self.DATABASE_URL:
+                if self.POSTGRES_PASSWORD in ("tef_app_password", "password", "postgres", "admin"):
+                    raise ValueError("Default POSTGRES_PASSWORD must not be used in production.")
+
+            default_redis_url = "redis://:tef_redis_password@localhost:6379/0"
+            if self.REDIS_URL == default_redis_url or "tef_redis_password" in self.REDIS_URL:
+                if self.REDIS_PASSWORD in ("tef_redis_password", "password", "redis"):
+                    raise ValueError("Default REDIS_PASSWORD must not be used in production.")
             if self.STORAGE_ENDPOINT == "localhost:9000" and any(
                 default in (self.STORAGE_ACCESS_KEY, self.STORAGE_SECRET_KEY)
                 for default in ("minioadmin", "minioadmin_dev_secret", "minio")
