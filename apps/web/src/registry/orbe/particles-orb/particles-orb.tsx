@@ -292,7 +292,7 @@ export const ParticlesOrb = ({
       last = null;
     };
 
-    const unobserve = observeActivity(host, (active) => {
+    const unobserve = observeActivity(host, (active: boolean) => {
       running = active;
       if (active) wake();
       else halt();

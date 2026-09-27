@@ -21,10 +21,11 @@ develop-eggs/
 dist/
 downloads/
 eggs/
-.eggs/
-lib/
-lib64/
-parts/
+# Python virtual environments (anchored so frontend src/lib is not ignored)
+/lib/
+/lib64/
+!apps/web/src/**/lib/**
+!apps/web/src/lib/**
 sdist/
 var/
 wheels/
