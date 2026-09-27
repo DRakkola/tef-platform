@@ -56,6 +56,7 @@ def test_production_settings_rejects_default_redis_password() -> None:
         Settings(
             ENVIRONMENT="production",
             SECRET_KEY="a" * 48,
+            POSTGRES_HOST="db.prod.example.com",
             POSTGRES_PASSWORD="strong_prod_pg_password_12345",
             REDIS_PASSWORD="tef_redis_password",
             STORAGE_ACCESS_KEY="prod_minio_key",
@@ -70,7 +71,9 @@ def test_production_settings_rejects_default_minio_credentials() -> None:
         Settings(
             ENVIRONMENT="production",
             SECRET_KEY="a" * 48,
+            POSTGRES_HOST="db.prod.example.com",
             POSTGRES_PASSWORD="strong_prod_pg_password_12345",
+            REDIS_HOST="redis.prod.example.com",
             REDIS_PASSWORD="strong_prod_redis_password_12345",
             STORAGE_ACCESS_KEY="minioadmin",
             STORAGE_SECRET_KEY="minioadmin",
@@ -83,7 +86,9 @@ def test_production_settings_succeeds_with_strong_credentials() -> None:
     prod_settings = Settings(
         ENVIRONMENT="production",
         SECRET_KEY="high-entropy-secure-production-secret-key-32chars",
+        POSTGRES_HOST="db.prod.example.com",
         POSTGRES_PASSWORD="super-strong-db-password-12345!",
+        REDIS_HOST="redis.prod.example.com",
         REDIS_PASSWORD="super-strong-redis-password-12345!",
         STORAGE_ACCESS_KEY="prod-minio-admin-user",
         STORAGE_SECRET_KEY="super-strong-minio-secret-12345!",
@@ -116,7 +121,9 @@ def test_production_settings_rejects_localhost_cors() -> None:
         Settings(
             ENVIRONMENT="production",
             SECRET_KEY="high-entropy-secure-production-secret-key-32chars",
+            POSTGRES_HOST="db.prod.example.com",
             POSTGRES_PASSWORD="super-strong-db-password-12345!",
+            REDIS_HOST="redis.prod.example.com",
             REDIS_PASSWORD="super-strong-redis-password-12345!",
             STORAGE_ACCESS_KEY="prod-minio-admin-user",
             STORAGE_SECRET_KEY="super-strong-minio-secret-12345!",

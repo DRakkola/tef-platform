@@ -70,7 +70,15 @@ class Settings(BaseSettings):
             "DATABASE_URL",
             "POSTGRES_URL",
             "SUPABASE_DATABASE_URL",
+            "SUPABASE_DB_URL",
+            "SUPABASE_URL",
             "DB_URL",
+            "DB_URI",
+            "DATABASE_URI",
+            "POSTGRESQL_URL",
+            "POSTGRES_URI",
+            "POSTGRES_PRISMA_URL",
+            "POSTGRES_URL_NON_POOLING",
         ),
     )
 
@@ -202,45 +210,52 @@ class Settings(BaseSettings):
                     "Must be a high-entropy secret of at least 32 characters."
                 )
             default_db_url = "postgresql+asyncpg://tef_app:tef_app_password@localhost:5432/tef_platform"
-            has_custom_db_url = bool(
-                self.DATABASE_URL
-                and self.DATABASE_URL != default_db_url
-                and "tef_app_password" not in self.DATABASE_URL
-                and "localhost:5432/tef_platform" not in self.DATABASE_URL
-                and "localhost:5433/tef_platform" not in self.DATABASE_URL
-            )
-            has_custom_pg_password = self.POSTGRES_PASSWORD not in (
-                "tef_app_password",
-                "password",
-                "postgres",
-                "admin",
-            )
+            if self.POSTGRES_HOST not in ("localhost", "127.0.0.1", "::1"):
+                if self.DATABASE_URL == default_db_url or "localhost:5432" in self.DATABASE_URL or "localhost:5433" in self.DATABASE_URL:
+                    self.DATABASE_URL = f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            elif self.POSTGRES_PASSWORD not in ("tef_app_password", "password", "postgres", "admin"):
+                if self.DATABASE_URL == default_db_url:
+                    self.DATABASE_URL = f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
-            if not has_custom_db_url and not has_custom_pg_password:
-                raise ValueError("Default POSTGRES_PASSWORD must not be used in production.")
+            import urllib.parse
+            clean_db = self.DATABASE_URL.replace("postgresql+asyncpg://", "http://", 1).replace("postgresql://", "http://", 1).replace("postgres://", "http://", 1)
+            db_host = urllib.parse.urlparse(clean_db).hostname or ""
 
-            if has_custom_pg_password and not has_custom_db_url:
-                self.DATABASE_URL = f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            if (
+                db_host in ("localhost", "127.0.0.1", "::1", "")
+                or "tef_app_password@localhost" in self.DATABASE_URL
+                or (self.POSTGRES_PASSWORD in ("tef_app_password", "password", "postgres", "admin") and db_host in ("localhost", "127.0.0.1", "::1"))
+            ):
+                raise ValueError(
+                    "Default POSTGRES_PASSWORD must not be used in production. "
+                    f"Production database host cannot be '{db_host or 'localhost'}'. "
+                    "In Koyeb, go to Service Settings -> Environment Variables, and set DATABASE_URL (or POSTGRES_URL) "
+                    "to your Supabase connection string: postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres, "
+                    "then click 'Save and deploy'."
+                )
 
             default_redis_url = "redis://:tef_redis_password@localhost:6379/0"
-            has_custom_redis_url = bool(
-                self.REDIS_URL
-                and self.REDIS_URL != default_redis_url
-                and "tef_redis_password" not in self.REDIS_URL
-                and "localhost:6379/0" not in self.REDIS_URL
-                and "localhost:6380/0" not in self.REDIS_URL
-            )
-            has_custom_redis_password = self.REDIS_PASSWORD not in (
-                "tef_redis_password",
-                "password",
-                "redis",
-            )
+            if self.REDIS_HOST not in ("localhost", "127.0.0.1", "::1"):
+                if self.REDIS_URL == default_redis_url or "localhost:6379" in self.REDIS_URL or "localhost:6380" in self.REDIS_URL:
+                    self.REDIS_URL = f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+            elif self.REDIS_PASSWORD not in ("tef_redis_password", "password", "redis"):
+                if self.REDIS_URL == default_redis_url:
+                    self.REDIS_URL = f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
-            if not has_custom_redis_url and not has_custom_redis_password:
-                raise ValueError("Default REDIS_PASSWORD must not be used in production.")
+            clean_redis = self.REDIS_URL.replace("rediss://", "http://", 1).replace("redis://", "http://", 1)
+            redis_host = urllib.parse.urlparse(clean_redis).hostname or ""
 
-            if has_custom_redis_password and not has_custom_redis_url:
-                self.REDIS_URL = f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+            if (
+                redis_host in ("localhost", "127.0.0.1", "::1", "")
+                or "tef_redis_password@localhost" in self.REDIS_URL
+                or (self.REDIS_PASSWORD in ("tef_redis_password", "password", "redis") and redis_host in ("localhost", "127.0.0.1", "::1"))
+            ):
+                raise ValueError(
+                    "Default REDIS_PASSWORD must not be used in production. "
+                    f"Production Redis host cannot be '{redis_host or 'localhost'}'. "
+                    "In Koyeb, set REDIS_URL to your Upstash connection string: "
+                    "rediss://default:[TOKEN]@[ENDPOINT].upstash.io:6379, then click 'Save and deploy'."
+                )
             if self.STORAGE_ENDPOINT == "localhost:9000" and any(
                 default in (self.STORAGE_ACCESS_KEY, self.STORAGE_SECRET_KEY)
                 for default in ("minioadmin", "minioadmin_dev_secret", "minio")
