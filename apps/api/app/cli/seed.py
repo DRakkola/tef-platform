@@ -146,6 +146,39 @@ async def seed_default_users(db) -> None:
         await db.commit()
         logger.info("demo_teacher_seeded", email=teacher_email)
 
+    # Demo student
+    student_email = os.getenv("DEMO_STUDENT_EMAIL", "student@tefprep.com")
+    existing_student = await db.scalar(select(User).where(User.email == student_email))
+    if not existing_student:
+        student_id = uuid.uuid4()
+        student_user = User(
+            id=student_id,
+            email=student_email,
+            password_hash=hash_password("StudentPassword123!"),
+            role=UserRole.STUDENT,
+            is_active=True,
+            is_verified=True,
+        )
+        db.add(student_user)
+        await db.flush()
+
+        student_profile = StudentProfile(
+            id=uuid.uuid4(),
+            user_id=student_id,
+            target_exam="TEF Canada",
+            target_level="B2",
+            target_cefr_level="B2",
+            target_nclc_level="NCLC 7",
+            target_date=datetime.date.today() + datetime.timedelta(days=90),
+            timezone="America/Toronto",
+            native_language="English",
+            onboarding_status="completed",
+            onboarding_step=3,
+        )
+        db.add(student_profile)
+        await db.commit()
+        logger.info("demo_student_seeded", email=student_email)
+
 
 async def run_seed() -> None:
     """Execute all seeders in safe dependency order."""
