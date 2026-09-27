@@ -10,6 +10,7 @@ import type {
   RegisterPayload,
   AuthContextType,
 } from "./types"
+import { getApiUrl } from "@/core/config"
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
@@ -28,7 +29,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Validate existing token and load user profile
   const fetchCurrentUser = useCallback(async (authToken: string) => {
     try {
-      const response = await fetch("/api/v1/auth/me", {
+      const response = await fetch(getApiUrl("/auth/me"), {
         headers: {
           Authorization: `Bearer ${authToken}`,
           Accept: "application/json",
@@ -100,7 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (credentials: LoginCredentials) => {
     setIsLoading(true)
     try {
-      const response = await fetch("/api/v1/auth/login", {
+      const response = await fetch(getApiUrl("/auth/login"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -147,7 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (typeof Intl !== "undefined" && Intl.DateTimeFormat().resolvedOptions().timeZone) ||
         "UTC"
 
-      const response = await fetch("/api/v1/auth/register", {
+      const response = await fetch(getApiUrl("/auth/register"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -193,7 +194,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       if (token) {
-        await fetch("/api/v1/auth/logout", {
+        await fetch(getApiUrl("/auth/logout"), {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,

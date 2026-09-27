@@ -2,7 +2,7 @@
  * Centralized API client abstraction.
  */
 
-import { config } from "./config";
+import { getApiUrl } from "./config";
 
 export interface ApiErrorPayload {
   error: {
@@ -39,8 +39,7 @@ export async function apiClient<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-  const url = `${config.apiUrl}${cleanEndpoint}`;
+  const url = getApiUrl(endpoint);
 
   const requestId = crypto.randomUUID();
   const headers = new Headers(options.headers || {});
@@ -81,7 +80,7 @@ export async function apiClient<T>(
       }
       window.dispatchEvent(
         new CustomEvent("tef:auth-expired", {
-          detail: { status: 401, endpoint: cleanEndpoint },
+          detail: { status: 401, endpoint },
         })
       );
     }
