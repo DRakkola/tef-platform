@@ -20,6 +20,23 @@ parsed_redis = urllib.parse.urlparse(clean_redis)
 print(f'[STARTUP] Redis Target: {parsed_redis.hostname}:{parsed_redis.port or 6379}')
 "
 
+echo "[STARTUP] Verifying database schema state..."
+python -c "
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+
+async def widen_alembic_version():
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text('ALTER TABLE IF EXISTS alembic_version ALTER COLUMN version_num TYPE VARCHAR(255);'))
+        print('[STARTUP] alembic_version schema verified (VARCHAR(255)).')
+    except Exception as e:
+        print(f'[STARTUP] Pre-migration schema check: {e}')
+
+asyncio.run(widen_alembic_version())
+"
+
 echo "[STARTUP] Applying database migrations (alembic upgrade head)..."
 alembic upgrade head
 echo "[STARTUP] Database migrations completed successfully."

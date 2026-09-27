@@ -1,6 +1,7 @@
 """SQLAlchemy 2 async database engine, session management, and base models."""
 
 import datetime
+from typing import Any
 import uuid
 from collections.abc import AsyncGenerator
 

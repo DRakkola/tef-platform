@@ -21,6 +21,11 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # 0. Ensure alembic_version column is wide enough to store longer revision strings
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)")
+
     # 1. Add assessment_version_id column to attempts
     op.add_column(
         "attempts",
