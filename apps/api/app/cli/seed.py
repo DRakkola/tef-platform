@@ -106,7 +106,6 @@ async def seed_default_users(db) -> None:
         admin_user = User(
             id=uuid.uuid4(),
             email=admin_email,
-            password_hash=hash_password(admin_password),
             role=UserRole.ADMIN,
             is_active=True,
             is_verified=True,
@@ -123,7 +122,6 @@ async def seed_default_users(db) -> None:
         teacher_user = User(
             id=teacher_id,
             email=teacher_email,
-            password_hash=hash_password("TeacherPassword123!"),
             role=UserRole.TEACHER,
             is_active=True,
             is_verified=True,
@@ -193,7 +191,6 @@ async def seed_default_users(db) -> None:
             student_user = User(
                 id=st_id,
                 email=st["email"],
-                password_hash=hash_password(st["password"]),
                 role=UserRole.STUDENT,
                 is_active=True,
                 is_verified=True,

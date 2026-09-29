@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.security import decode_access_token, is_token_revoked
-from app.modules.users.models import User, UserRole
+from app.modules.users.models import StudentProfile, TeacherProfile, User, UserRole
 
 # HTTP Bearer authentication scheme (auto_error=False to allow fallback to HttpOnly cookie)
 security_bearer = HTTPBearer(auto_error=False)
@@ -72,6 +72,54 @@ async def get_current_user(
         user_uuid,
         options=[selectinload(User.student_profile), selectinload(User.teacher_profile)],
     )
+    if not user and payload.get("email"):
+        # Just-in-Time provisioning from verified Supabase token
+        email = str(payload.get("email")).strip().lower()
+        user_metadata = payload.get("user_metadata") or {}
+        role_str = str(user_metadata.get("role", "student")).upper()
+        role = UserRole.TEACHER if role_str == "TEACHER" else UserRole.STUDENT
+
+        new_user = User(
+            id=user_uuid,
+            email=email,
+            role=role,
+            is_active=True,
+            is_verified=True,
+        )
+        db.add(new_user)
+        if role == UserRole.STUDENT:
+            db.add(
+                StudentProfile(
+                    user_id=user_uuid,
+                    target_exam=user_metadata.get("target_exam", "TEF Canada"),
+                    target_level=user_metadata.get("target_level", "B2"),
+                    timezone=user_metadata.get("timezone", "UTC"),
+                )
+            )
+        elif role == UserRole.TEACHER:
+            db.add(
+                TeacherProfile(
+                    user_id=user_uuid,
+                    display_name=user_metadata.get("display_name", email.split("@")[0]),
+                    hourly_price=int(user_metadata.get("hourly_price", 3500)),
+                    timezone=user_metadata.get("timezone", "UTC"),
+                )
+            )
+        try:
+            await db.commit()
+            user = await db.get(
+                User,
+                user_uuid,
+                options=[selectinload(User.student_profile), selectinload(User.teacher_profile)],
+            )
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            user = await db.get(
+                User,
+                user_uuid,
+                options=[selectinload(User.student_profile), selectinload(User.teacher_profile)],
+            )
+
     if not user:
         raise AppException(
             message="User not found",

@@ -10,7 +10,8 @@ python -c "
 import sys, urllib.parse
 from app.core.config import settings
 
-clean_db = settings.DATABASE_URL.replace('postgresql+asyncpg://', 'http://').replace('postgresql://', 'http://').replace('postgres://', 'http://')
+target_url = settings.DIRECT_DATABASE_URL or settings.DATABASE_URL
+clean_db = target_url.replace('postgresql+asyncpg://', 'http://').replace('postgresql://', 'http://').replace('postgres://', 'http://')
 parsed = urllib.parse.urlparse(clean_db)
 print(f'[STARTUP] Environment: {settings.ENVIRONMENT}')
 print(f'[STARTUP] Database Target: {parsed.hostname}:{parsed.port or 5432} (database: {parsed.path.lstrip(\"/\")})')
@@ -24,15 +25,26 @@ echo "[STARTUP] Verifying database schema state..."
 python -c "
 import asyncio
 from sqlalchemy import text
-from app.core.database import engine
+from sqlalchemy.ext.asyncio import create_async_engine
+from app.core.config import settings
 
 async def widen_alembic_version():
+    db_url = settings.DIRECT_DATABASE_URL or settings.DATABASE_URL
+    connect_args = {}
+    if 'pooler.supabase.com' in db_url or ':6543' in db_url:
+        connect_args['statement_cache_size'] = 0
+        connect_args['prepared_statement_cache_size'] = 0
+    if 'supabase.com' in db_url or 'supabase.co' in db_url:
+        connect_args['ssl'] = 'require'
+    temp_engine = create_async_engine(db_url, connect_args=connect_args)
     try:
-        async with engine.begin() as conn:
+        async with temp_engine.begin() as conn:
             await conn.execute(text('ALTER TABLE IF EXISTS alembic_version ALTER COLUMN version_num TYPE VARCHAR(255);'))
         print('[STARTUP] alembic_version schema verified (VARCHAR(255)).')
     except Exception as e:
         print(f'[STARTUP] Pre-migration schema check: {e}')
+    finally:
+        await temp_engine.dispose()
 
 asyncio.run(widen_alembic_version())
 "

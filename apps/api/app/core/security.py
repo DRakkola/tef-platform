@@ -145,19 +145,100 @@ def create_access_token(
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
+_jwks_client: jwt.PyJWKClient | None = None
+
+
+def get_jwks_client() -> jwt.PyJWKClient:
+    """Return cached PyJWKClient instance for Supabase JWKS verification."""
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = jwt.PyJWKClient(
+            settings.supabase_jwks_endpoint,
+            cache_keys=True,
+            max_cached_keys=16,
+        )
+    return _jwks_client
+
+
 def decode_access_token(token: str) -> dict[str, Any]:
-    """Decode and validate a JWT access token.
+    """Decode and validate a JWT access token from Supabase Auth or internal signer.
+
+    Supports:
+    1. Supabase GoTrue ES256/RS256 asymmetric JWKS
+    2. Supabase symmetric HS256 secret (if configured)
+    3. Internal platform HS256 secret (for testing & backward compatibility)
 
     Raises AppException on expiration, tampering, or invalid token structure.
     """
+    try:
+        header = jwt.get_unverified_header(token)
+    except Exception as exc:
+        raise AppException(
+            message="Invalid authentication credentials",
+            code="INVALID_TOKEN",
+            status_code=401,
+        ) from exc
+
+    # Path 1: Check Supabase JWKS if token has key ID ('kid') or asymmetric algorithm
+    if header.get("kid") or header.get("alg") in ("ES256", "RS256"):
+        try:
+            jwks_client = get_jwks_client()
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256", "RS256"],
+                options={"require": ["sub", "exp"], "verify_aud": False},
+            )
+            # Verify audience if present in claims
+            aud = payload.get("aud")
+            if aud:
+                aud_list = [aud] if isinstance(aud, str) else aud
+                if "authenticated" not in aud_list:
+                    raise AppException(
+                        message="Invalid token audience",
+                        code="INVALID_TOKEN",
+                        status_code=401,
+                    )
+            return payload
+        except jwt.ExpiredSignatureError as exc:
+            raise AppException(
+                message="Authentication token has expired",
+                code="TOKEN_EXPIRED",
+                status_code=401,
+            ) from exc
+        except AppException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("supabase_jwks_verification_fallback", error=str(exc))
+
+    # Path 2: Check Supabase JWT secret if configured (HS256)
+    if settings.SUPABASE_JWT_SECRET and header.get("alg") == "HS256":
+        try:
+            return jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"require": ["sub", "exp"], "verify_aud": False},
+            )
+        except jwt.ExpiredSignatureError as exc:
+            raise AppException(
+                message="Authentication token has expired",
+                code="TOKEN_EXPIRED",
+                status_code=401,
+            ) from exc
+        except Exception:  # noqa: S110, BLE001
+            pass
+
+    # Path 3: Internal platform secret verification (HS256)
     try:
         payload = jwt.decode(
             token,
             settings.SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
-            options={"require": ["sub", "exp", "role"]},
+            options={"require": ["sub", "exp"]},
         )
-        if payload.get("type") != "access":
+        if payload.get("type") and payload.get("type") != "access":
             raise AppException(
                 message="Invalid token type",
                 code="INVALID_TOKEN",
@@ -170,6 +251,8 @@ def decode_access_token(token: str) -> dict[str, Any]:
             code="TOKEN_EXPIRED",
             status_code=401,
         ) from exc
+    except AppException:
+        raise
     except (jwt.InvalidTokenError, jwt.DecodeError) as exc:
         raise AppException(
             message="Invalid authentication credentials",

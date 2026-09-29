@@ -40,9 +40,11 @@ def test_production_settings_rejects_default_postgres_password() -> None:
     """Settings must fail fast in production if the default database password is used."""
     with pytest.raises(ValidationError) as exc_info:
         Settings(
+            _env_file=None,
             ENVIRONMENT="production",
             SECRET_KEY="a" * 48,
             POSTGRES_PASSWORD="tef_app_password",
+            DATABASE_URL="postgresql+asyncpg://tef_app:tef_app_password@localhost:5432/tef_platform",
             REDIS_PASSWORD="strong_prod_redis_password_12345",
             STORAGE_ACCESS_KEY="prod_minio_key",
             STORAGE_SECRET_KEY="prod_minio_secret_key_12345",
@@ -54,6 +56,7 @@ def test_production_settings_rejects_default_redis_password() -> None:
     """Settings must fail fast in production if the default Redis password is used."""
     with pytest.raises(ValidationError) as exc_info:
         Settings(
+            _env_file=None,
             ENVIRONMENT="production",
             SECRET_KEY="a" * 48,
             POSTGRES_HOST="db.prod.example.com",
@@ -69,14 +72,17 @@ def test_production_settings_rejects_default_minio_credentials() -> None:
     """Settings must fail fast in production if default MinIO credentials are used."""
     with pytest.raises(ValidationError) as exc_info:
         Settings(
+            _env_file=None,
             ENVIRONMENT="production",
             SECRET_KEY="a" * 48,
             POSTGRES_HOST="db.prod.example.com",
             POSTGRES_PASSWORD="strong_prod_pg_password_12345",
             REDIS_HOST="redis.prod.example.com",
             REDIS_PASSWORD="strong_prod_redis_password_12345",
+            STORAGE_ENDPOINT="localhost:9000",
             STORAGE_ACCESS_KEY="minioadmin",
             STORAGE_SECRET_KEY="minioadmin",
+            CORS_ORIGINS=["https://app.example.com"],
         )
     assert "Default MinIO credentials must not be used in production" in str(exc_info.value)
 
@@ -165,11 +171,10 @@ def test_alembic_metadata_contains_all_models() -> None:
         assert f"import {module}" in env_content, f"alembic/env.py missing import of {module}"
 
     table_names = set(Base.metadata.tables.keys())
-    assert len(table_names) == 91, f"Expected 91 tables in Base.metadata, found {len(table_names)}"
+    assert len(table_names) == 90, f"Expected 90 tables in Base.metadata, found {len(table_names)}"
 
     expected_tables = {
         "users",
-        "refresh_tokens",
         "student_profiles",
         "teacher_profiles",
         "skills",
@@ -262,3 +267,32 @@ def test_alembic_metadata_contains_all_models() -> None:
     }
     missing = expected_tables - table_names
     assert not missing, f"Missing tables from metadata: {missing}"
+
+
+def test_supabase_database_urls_and_direct_url_normalization() -> None:
+    """Verifies that Supabase pooler and direct URLs normalize to postgresql+asyncpg://."""
+    s = Settings(
+        DATABASE_URL="postgres://postgres.myproject:secret123@aws-0-us-east-1.pooler.supabase.com:6543/postgres",
+        DIRECT_DATABASE_URL="postgresql://postgres.myproject:secret123@aws-0-us-east-1.pooler.supabase.com:5432/postgres",
+    )
+    assert s.DATABASE_URL.startswith("postgresql+asyncpg://")
+    assert ":6543/postgres" in s.DATABASE_URL
+    assert s.DIRECT_DATABASE_URL is not None
+    assert s.DIRECT_DATABASE_URL.startswith("postgresql+asyncpg://")
+    assert ":5432/postgres" in s.DIRECT_DATABASE_URL
+
+
+def test_supabase_storage_alias_configuration() -> None:
+    """Verifies that Supabase S3 storage settings can be set via aliases."""
+    s = Settings(
+        STORAGE_ENDPOINT="myref.supabase.co/storage/v1/s3",
+        STORAGE_ACCESS_KEY="sb_s3_key_id",
+        STORAGE_SECRET_KEY="sb_s3_secret_key",
+        STORAGE_BUCKET_NAME="tef-private",
+        STORAGE_USE_SSL=True,
+    )
+    assert s.STORAGE_ENDPOINT == "myref.supabase.co/storage/v1/s3"
+    assert s.STORAGE_ACCESS_KEY == "sb_s3_key_id"
+    assert s.STORAGE_SECRET_KEY == "sb_s3_secret_key"
+    assert s.STORAGE_USE_SSL is True
+

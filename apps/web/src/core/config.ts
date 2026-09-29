@@ -7,6 +7,8 @@ export interface AppConfig {
   wsUrl: string;
   environment: string;
   isProduction: boolean;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
 }
 
 const resolveApiUrl = (): string => {
@@ -39,6 +41,8 @@ export const config: AppConfig = {
   wsUrl: resolveWsUrl(),
   environment: import.meta.env.MODE || "development",
   isProduction: import.meta.env.PROD,
+  supabaseUrl: import.meta.env.VITE_SUPABASE_URL || "https://lisekikckvvjshculasd.supabase.co",
+  supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || "",
 };
 
 /**

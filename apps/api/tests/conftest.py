@@ -94,7 +94,6 @@ from app.modules.teachers.models import (  # noqa: F401
     TeacherBooking,
 )
 from app.modules.users.models import (
-    RefreshToken,  # noqa: F401
     StudentProfile,
     TeacherProfile,
     TeacherVerificationStatus,
@@ -252,7 +251,6 @@ async def test_student(db_session: AsyncSession) -> User:
     """Fixture providing an active student user with profile."""
     user = User(
         email=f"student_{uuid.uuid4().hex[:8]}@example.com",
-        password_hash=hash_password("ValidPassword123!"),
         role=UserRole.STUDENT,
         is_active=True,
         is_verified=True,
@@ -279,7 +277,6 @@ async def test_teacher(db_session: AsyncSession) -> User:
     """Fixture providing an active teacher user with profile."""
     user = User(
         email=f"teacher_{uuid.uuid4().hex[:8]}@example.com",
-        password_hash=hash_password("ValidPassword123!"),
         role=UserRole.TEACHER,
         is_active=True,
         is_verified=True,
@@ -307,7 +304,6 @@ async def test_admin(db_session: AsyncSession) -> User:
     """Fixture providing an active admin user."""
     user = User(
         email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
-        password_hash=hash_password("ValidPassword123!"),
         role=UserRole.ADMIN,
         is_active=True,
         is_verified=True,

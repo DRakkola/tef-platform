@@ -1,9 +1,9 @@
 """SQLAlchemy 2 async database engine, session management, and base models."""
 
 import datetime
-from typing import Any
 import uuid
 from collections.abc import AsyncGenerator
+from typing import Any
 
 import structlog
 from sqlalchemy import DateTime, text
@@ -24,6 +24,9 @@ connect_args: dict[str, Any] = {}
 if "pooler.supabase.com" in settings.DATABASE_URL or ":6543" in settings.DATABASE_URL:
     connect_args["statement_cache_size"] = 0
     connect_args["prepared_statement_cache_size"] = 0
+
+if "supabase.com" in settings.DATABASE_URL or "supabase.co" in settings.DATABASE_URL:
+    connect_args["ssl"] = "require"
 
 # Async engine configured for PostgreSQL 18
 engine = create_async_engine(

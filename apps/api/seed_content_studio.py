@@ -52,11 +52,9 @@ ADMIN_PASSWORD = "AdminPass2026!"
 
 
 async def run_seed():
-    db_url = os.environ.get("DATABASE_URL", settings.DATABASE_URL)
-    engine = create_async_engine(db_url, echo=False)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    from app.core.database import async_session_factory
 
-    async with session_factory() as session:
+    async with async_session_factory() as session:
         print("🌱 Seeding Content Studio...")
 
         # 0. Admin User

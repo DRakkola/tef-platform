@@ -32,6 +32,38 @@ class Settings(BaseSettings):
     COOKIE_DOMAIN: str | None = None
     RATE_LIMIT_AUTH_PER_MINUTE: int = 10
 
+    # Supabase Auth
+    SUPABASE_URL: str = Field(
+        default="https://lisekikckvvjshculasd.supabase.co",
+        description="Base URL for the Supabase project",
+        validation_alias=AliasChoices("SUPABASE_URL", "VITE_SUPABASE_URL"),
+    )
+    SUPABASE_JWKS_URL: str | None = Field(
+        default=None,
+        description="JWKS endpoint URL for Supabase asymmetric JWT verification",
+    )
+    SUPABASE_JWT_SECRET: str | None = Field(
+        default=None,
+        description="Symmetric secret for Supabase JWT verification if HS256 is used",
+    )
+    SUPABASE_ANON_KEY: str | None = Field(
+        default=None,
+        description="Supabase anonymous public API key",
+        validation_alias=AliasChoices("SUPABASE_ANON_KEY", "VITE_SUPABASE_ANON_KEY"),
+    )
+    SUPABASE_SERVICE_ROLE_KEY: str | None = Field(
+        default=None,
+        description="Supabase service role secret API key for administrative tasks",
+    )
+
+    @property
+    def supabase_jwks_endpoint(self) -> str:
+        """Computed JWKS URL for Supabase Auth."""
+        if self.SUPABASE_JWKS_URL:
+            return self.SUPABASE_JWKS_URL
+        base = self.SUPABASE_URL.rstrip("/")
+        return f"{base}/auth/v1/.well-known/jwks.json"
+
     # Server
     HOST: str = "0.0.0.0"  # nosec B104
     PORT: int = 8000
@@ -77,14 +109,12 @@ class Settings(BaseSettings):
             "POSTGRES_URL",
             "SUPABASE_DATABASE_URL",
             "SUPABASE_DB_URL",
-            "SUPABASE_URL",
             "DB_URL",
             "DB_URI",
             "DATABASE_URI",
             "POSTGRESQL_URL",
             "POSTGRES_URI",
             "POSTGRES_PRISMA_URL",
-            "POSTGRES_URL_NON_POOLING",
         ),
     )
 
@@ -96,6 +126,34 @@ class Settings(BaseSettings):
                 return v.replace("postgres://", "postgresql+asyncpg://", 1)
             elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
                 return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return str(v)
+
+    DIRECT_DATABASE_URL: str | None = Field(
+        default=None,
+        description="Direct or session pooler database connection string (Port 5432) for Alembic migrations",
+        validation_alias=AliasChoices(
+            "DIRECT_DATABASE_URL",
+            "DIRECT_URL",
+            "MIGRATION_DATABASE_URL",
+            "SUPABASE_DIRECT_URL",
+            "POSTGRES_URL_NON_POOLING",
+        ),
+    )
+
+    @field_validator("DIRECT_DATABASE_URL", mode="before")
+    @classmethod
+    def assemble_direct_database_url(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v_str = v.strip()
+            if not v_str:
+                return None
+            if v_str.startswith("postgres://"):
+                return v_str.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif v_str.startswith("postgresql://") and not v_str.startswith("postgresql+asyncpg://"):
+                return v_str.replace("postgresql://", "postgresql+asyncpg://", 1)
+            return v_str
         return str(v)
 
     # Redis (Ephemeral cache and queue broker)
@@ -124,12 +182,63 @@ class Settings(BaseSettings):
     DB_STATEMENT_TIMEOUT_MS: int = 30000
 
     # Storage (MinIO / S3 compatible)
-    STORAGE_ENDPOINT: str = "localhost:9000"
-    STORAGE_ACCESS_KEY: str = "minioadmin"
-    STORAGE_SECRET_KEY: str = "minioadmin"
-    STORAGE_BUCKET_NAME: str = "tef-private"
-    STORAGE_USE_SSL: bool = False
-    STORAGE_REGION: str = "us-east-1"
+    STORAGE_ENDPOINT: str = Field(
+        default="localhost:9000",
+        description="Object storage endpoint URL or host:port",
+        validation_alias=AliasChoices(
+            "STORAGE_ENDPOINT",
+            "S3_ENDPOINT",
+            "SUPABASE_STORAGE_ENDPOINT",
+            "SUPABASE_S3_ENDPOINT",
+        ),
+    )
+    STORAGE_ACCESS_KEY: str = Field(
+        default="minioadmin",
+        description="Object storage access key ID",
+        validation_alias=AliasChoices(
+            "STORAGE_ACCESS_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "S3_ACCESS_KEY",
+            "SUPABASE_S3_ACCESS_KEY",
+        ),
+    )
+    STORAGE_SECRET_KEY: str = Field(
+        default="minioadmin",
+        description="Object storage secret key",
+        validation_alias=AliasChoices(
+            "STORAGE_SECRET_KEY",
+            "AWS_SECRET_ACCESS_KEY",
+            "S3_SECRET_KEY",
+            "SUPABASE_S3_SECRET_KEY",
+        ),
+    )
+    STORAGE_BUCKET_NAME: str = Field(
+        default="tef-private",
+        description="Object storage bucket name",
+        validation_alias=AliasChoices(
+            "STORAGE_BUCKET_NAME",
+            "S3_BUCKET_NAME",
+            "BUCKET_NAME",
+        ),
+    )
+    STORAGE_USE_SSL: bool = Field(
+        default=False,
+        description="Whether to use SSL for object storage",
+        validation_alias=AliasChoices(
+            "STORAGE_USE_SSL",
+            "S3_USE_SSL",
+        ),
+    )
+    STORAGE_REGION: str = Field(
+        default="us-east-1",
+        description="Object storage AWS/S3 region",
+        validation_alias=AliasChoices(
+            "STORAGE_REGION",
+            "AWS_REGION",
+            "AWS_DEFAULT_REGION",
+            "S3_REGION",
+        ),
+    )
 
     # Payment Provider Integration
     PAYMENT_PROVIDER: str = "mock"
@@ -219,9 +328,11 @@ class Settings(BaseSettings):
             if self.POSTGRES_HOST not in ("localhost", "127.0.0.1", "::1"):
                 if self.DATABASE_URL == default_db_url or "localhost:5432" in self.DATABASE_URL or "localhost:5433" in self.DATABASE_URL:
                     self.DATABASE_URL = f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-            elif self.POSTGRES_PASSWORD not in ("tef_app_password", "password", "postgres", "admin"):
-                if self.DATABASE_URL == default_db_url:
-                    self.DATABASE_URL = f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            elif (
+                self.POSTGRES_PASSWORD not in ("tef_app_password", "password", "postgres", "admin")
+                and self.DATABASE_URL == default_db_url
+            ):
+                self.DATABASE_URL = f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
             import urllib.parse
             clean_db = self.DATABASE_URL.replace("postgresql+asyncpg://", "http://", 1).replace("postgresql://", "http://", 1).replace("postgres://", "http://", 1)
@@ -244,9 +355,11 @@ class Settings(BaseSettings):
             if self.REDIS_HOST not in ("localhost", "127.0.0.1", "::1"):
                 if self.REDIS_URL == default_redis_url or "localhost:6379" in self.REDIS_URL or "localhost:6380" in self.REDIS_URL:
                     self.REDIS_URL = f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
-            elif self.REDIS_PASSWORD not in ("tef_redis_password", "password", "redis"):
-                if self.REDIS_URL == default_redis_url:
-                    self.REDIS_URL = f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+            elif (
+                self.REDIS_PASSWORD not in ("tef_redis_password", "password", "redis")
+                and self.REDIS_URL == default_redis_url
+            ):
+                self.REDIS_URL = f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
             clean_redis = self.REDIS_URL.replace("rediss://", "http://", 1).replace("redis://", "http://", 1)
             redis_host = urllib.parse.urlparse(clean_redis).hostname or ""

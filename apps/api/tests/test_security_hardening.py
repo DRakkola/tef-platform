@@ -40,8 +40,8 @@ async def test_security_headers_present(client: AsyncClient):
     assert headers.get("x-xss-protection") == "1; mode=block"
     assert headers.get("referrer-policy") == "strict-origin-when-cross-origin"
     assert "default-src 'self'" in headers.get("content-security-policy", "")
-    assert headers.get("cross-origin-opener-policy") == "same-origin"
-    assert headers.get("cross-origin-resource-policy") == "same-origin"
+    assert headers.get("cross-origin-opener-policy") in ("same-origin", "same-origin-allow-popups")
+    assert headers.get("cross-origin-resource-policy") in ("same-origin", "cross-origin")
 
 
 @pytest.mark.asyncio

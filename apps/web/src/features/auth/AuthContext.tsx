@@ -1,6 +1,8 @@
 /**
  * Centralized Authentication Context & Provider.
- * Handles token storage, session validation, user profiles, and session lifecycle.
+ * Integrates Supabase Auth (GoTrue) for session lifecycle and JWT issuance,
+ * while communicating with the FastAPI backend (/api/v1/auth/me) as the authoritative
+ * system of record for user profiles, roles, and learning data.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
@@ -10,9 +12,16 @@ import type {
   RegisterPayload,
   AuthContextType,
 } from "./types"
-import { getApiUrl } from "@/core/config"
+import { config, getApiUrl } from "@/core/config"
+import { supabase } from "@/core/supabase"
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+const isSupabaseConfigured = Boolean(
+  config.supabaseAnonKey &&
+  !config.supabaseAnonKey.includes("placeholder") &&
+  config.supabaseAnonKey.trim().length > 20
+)
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(() => {
@@ -24,9 +33,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   })
 
   const [user, setUser] = useState<UserProfile | null>(null)
-  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    try {
+      return typeof window !== "undefined" && Boolean(localStorage.getItem("auth_token"))
+    } catch {
+      return false
+    }
+  })
 
-  // Validate existing token and load user profile
+  // Validate existing token and load authoritative user profile from backend
   const fetchCurrentUser = useCallback(async (authToken: string) => {
     try {
       const response = await fetch(getApiUrl("/auth/me"), {
@@ -51,25 +66,86 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null)
       }
     } catch (err) {
-      console.error("[Auth] Failed to validate user session:", err)
+      console.error("[Auth] Failed to validate user session with backend:", err)
     }
     return null
   }, [])
 
-  // Initial load
+  // Initial load & Supabase Auth state listener
   useEffect(() => {
     let mounted = true
+
     const initAuth = async () => {
-      if (token) {
-        await fetchCurrentUser(token)
-      }
-      if (mounted) {
-        setIsLoading(false)
+      try {
+        if (isSupabaseConfigured) {
+          try {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session?.access_token) {
+              try {
+                localStorage.setItem("auth_token", session.access_token)
+              } catch {
+                // Ignore
+              }
+              if (mounted) {
+                setToken(session.access_token)
+                await fetchCurrentUser(session.access_token)
+              }
+              return
+            }
+          } catch (supaErr) {
+            console.debug("[Auth] Supabase getSession error:", supaErr)
+          }
+        }
+
+        // Check for cached local token
+        if (token && mounted) {
+          await fetchCurrentUser(token)
+        }
+      } catch (err) {
+        console.error("[Auth] Failed to initialize session:", err)
+      } finally {
+        if (mounted) {
+          setIsLoading(false)
+        }
       }
     }
+
     initAuth()
 
-    // Listen to cross-window or internal session expiration events
+    let unsubscribeSupabase = () => {}
+
+    if (isSupabaseConfigured) {
+      try {
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+          if (!mounted) return
+
+          if (currentSession?.access_token) {
+            try {
+              localStorage.setItem("auth_token", currentSession.access_token)
+            } catch {
+              // Ignore
+            }
+            setToken(currentSession.access_token)
+            await fetchCurrentUser(currentSession.access_token)
+          } else if (event === "SIGNED_OUT") {
+            try {
+              localStorage.removeItem("auth_token")
+            } catch {
+              // Ignore
+            }
+            setToken(null)
+            setUser(null)
+          }
+        })
+        unsubscribeSupabase = () => subscription.unsubscribe()
+      } catch {
+        // Ignore in environments without valid Supabase setup
+      }
+    }
+
+    // Listen to storage sync across browser tabs
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === "auth_token") {
         if (!e.newValue) {
@@ -92,15 +168,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       mounted = false
+      unsubscribeSupabase()
       window.removeEventListener("storage", handleStorageChange)
       window.removeEventListener("auth:expired", handleAuthExpired)
     }
-  }, [token, fetchCurrentUser])
+  }, [fetchCurrentUser, token])
 
-  // Login handler
+  // Login handler with Supabase Auth first, fallback to FastAPI
   const login = async (credentials: LoginCredentials) => {
     setIsLoading(true)
+    const cleanEmail = credentials.email.trim().toLowerCase()
+
     try {
+      // 1. Attempt Supabase Auth GoTrue sign in if configured
+      if (isSupabaseConfigured) {
+        try {
+          const { data: supaData, error: supaError } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password: credentials.password,
+          })
+
+          if (!supaError) {
+            if (supaData?.session) {
+              const accessToken = supaData.session.access_token
+              try {
+                localStorage.setItem("auth_token", accessToken)
+              } catch {
+                // Ignore
+              }
+              setToken(accessToken)
+              await fetchCurrentUser(accessToken)
+            }
+            return
+          }
+        } catch (supaErr) {
+          console.debug("[Auth] Supabase sign-in fallback to backend API:", supaErr)
+        }
+      }
+
+      // 2. Fallback to backend /api/v1/auth/login
       const response = await fetch(getApiUrl("/auth/login"), {
         method: "POST",
         headers: {
@@ -108,7 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           Accept: "application/json",
         },
         body: JSON.stringify({
-          email: credentials.email.trim().toLowerCase(),
+          email: cleanEmail,
           password: credentials.password,
         }),
       })
@@ -129,7 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         localStorage.setItem("auth_token", accessToken)
       } catch {
-        // Ignore storage errors in restricted iframes
+        // Ignore
       }
 
       setToken(accessToken)
@@ -139,15 +245,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  // Register handler
+  // Register handler with Supabase Auth first, fallback to FastAPI
   const register = async (payload: RegisterPayload) => {
     setIsLoading(true)
-    try {
-      const timezone =
-        payload.timezone ||
-        (typeof Intl !== "undefined" && Intl.DateTimeFormat().resolvedOptions().timeZone) ||
-        "UTC"
+    const cleanEmail = payload.email.trim().toLowerCase()
+    const timezone =
+      payload.timezone ||
+      (typeof Intl !== "undefined" && Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+      "UTC"
 
+    try {
+      // 1. Attempt Supabase Auth GoTrue registration if configured
+      if (isSupabaseConfigured) {
+        try {
+          const { data: supaData, error: supaError } = await supabase.auth.signUp({
+            email: cleanEmail,
+            password: payload.password,
+            options: {
+              data: {
+                role: payload.role || "student",
+                target_exam: payload.target_exam || "TEF Canada",
+                target_level: payload.target_level || "B2",
+                timezone,
+                native_language: payload.native_language || null,
+              },
+            },
+          })
+
+          if (!supaError) {
+            if (supaData?.session) {
+              const accessToken = supaData.session.access_token
+              try {
+                localStorage.setItem("auth_token", accessToken)
+              } catch {
+                // Ignore
+              }
+              setToken(accessToken)
+              await fetchCurrentUser(accessToken)
+            } else if (supaData?.user) {
+              console.info("[Auth] Supabase sign-up successful, email confirmation required")
+              // Just return to avoid falling back
+            }
+            return
+          }
+        } catch (supaErr) {
+          console.debug("[Auth] Supabase sign-up fallback to backend API:", supaErr)
+        }
+      }
+
+      // 2. Fallback to backend /api/v1/auth/register
       const response = await fetch(getApiUrl("/auth/register"), {
         method: "POST",
         headers: {
@@ -155,7 +301,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           Accept: "application/json",
         },
         body: JSON.stringify({
-          email: payload.email.trim().toLowerCase(),
+          email: cleanEmail,
           password: payload.password,
           role: payload.role || "student",
           target_exam: payload.target_exam || "TEF Canada",
@@ -190,9 +336,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  // Logout handler
+  // Logout handler (clears Supabase GoTrue session and backend cookies)
   const logout = async () => {
     try {
+      if (isSupabaseConfigured) {
+        await supabase.auth.signOut().catch(() => null)
+      }
+
       if (token) {
         await fetch(getApiUrl("/auth/logout"), {
           method: "POST",

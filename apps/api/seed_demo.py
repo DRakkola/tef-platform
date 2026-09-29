@@ -7,6 +7,21 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import app.modules.admin.ai_sandbox_models  # noqa: F401
+import app.modules.admin.beta_models  # noqa: F401
+import app.modules.admin.models  # noqa: F401
+import app.modules.admin.speaking_config_models  # noqa: F401
+import app.modules.admin.speaking_scenario_models  # noqa: F401
+import app.modules.analytics.models  # noqa: F401
+import app.modules.assessments.models  # noqa: F401
+import app.modules.billing.models  # noqa: F401
+import app.modules.learning.models  # noqa: F401
+import app.modules.practice_pool.models  # noqa: F401
+import app.modules.speaking.models  # noqa: F401
+import app.modules.teachers.models  # noqa: F401
+import app.modules.users.models  # noqa: F401
+import app.modules.writing.models  # noqa: F401
+
 from app.core.config import settings
 from app.core.security import hash_password
 from app.modules.assessments.enums import AssessmentType, AttemptStatus, QuestionType
@@ -34,17 +49,15 @@ ADMIN_PASSWORD = "AdminPass2026!"
 
 
 async def seed():
-    engine = create_async_engine(settings.DATABASE_URL)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    from app.core.database import async_session_factory, engine
 
-    async with session_factory() as session:
+    async with async_session_factory() as session:
         # 0. Admin User
         admin_res = await session.execute(select(User).where(User.email == ADMIN_EMAIL))
         admin_user = admin_res.scalar_one_or_none()
         if not admin_user:
             admin_user = User(
                 email=ADMIN_EMAIL,
-                password_hash=hash_password(ADMIN_PASSWORD),
                 role=UserRole.ADMIN,
                 is_active=True,
                 is_verified=True,
@@ -62,7 +75,6 @@ async def seed():
         if not user:
             user = User(
                 email=DEMO_EMAIL,
-                password_hash=hash_password(DEMO_PASSWORD),
                 role=UserRole.STUDENT,
                 is_active=True,
                 is_verified=True,
@@ -88,7 +100,6 @@ async def seed():
         if not teacher_user:
             teacher_user = User(
                 email=TEACHER_EMAIL,
-                password_hash=hash_password("TeacherPassword123!"),
                 role=UserRole.TEACHER,
                 is_active=True,
                 is_verified=True,

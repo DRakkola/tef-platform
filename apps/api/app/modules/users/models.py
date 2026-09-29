@@ -3,7 +3,7 @@
 import datetime
 import uuid
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from app.modules.admin.beta_models import BetaCohort
@@ -54,14 +54,13 @@ class User(TimeStampedUUIDModel):
 
     __tablename__ = "users"
 
+    # Transient in-memory attribute for test fixtures (never mapped to database)
+    _password_hash: ClassVar[str | None] = None
+
     email: Mapped[str] = mapped_column(
         String(255),
         unique=True,
         index=True,
-        nullable=False,
-    )
-    password_hash: Mapped[str] = mapped_column(
-        String(255),
         nullable=False,
     )
     role: Mapped[UserRole] = mapped_column(
@@ -99,7 +98,7 @@ class User(TimeStampedUUIDModel):
     )
 
     # Beta Cohort Relationship
-    beta_cohort: Mapped["BetaCohort | None"] = relationship(
+    beta_cohort: Mapped[BetaCohort | None] = relationship(
         "BetaCohort",
         back_populates="users",
         lazy="selectin",
@@ -121,14 +120,6 @@ class User(TimeStampedUUIDModel):
         lazy="selectin",
     )
 
-    # 1-to-many Session / Refresh Tokens
-    refresh_tokens: Mapped[list[RefreshToken]] = relationship(
-        "RefreshToken",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
     # Bookings made as a student
     student_bookings: Mapped[list[TeacherBooking]] = relationship(
         "TeacherBooking",
@@ -138,46 +129,12 @@ class User(TimeStampedUUIDModel):
         lazy="selectin",
     )
 
-
-class RefreshToken(TimeStampedUUIDModel):
-    """Persistent store for cryptographic refresh token hashes.
-
-    Plaintext tokens are NEVER stored in the database.
-    """
-
-    __tablename__ = "refresh_tokens"
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    token_hash: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        index=True,
-    )
-    expires_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        index=True,
-    )
-    revoked_at: Mapped[datetime.datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        index=True,
-    )
-    ip_address: Mapped[str | None] = mapped_column(
-        String(45),
-        nullable=True,
-    )
-    user_agent: Mapped[str | None] = mapped_column(
-        String(255),
-        nullable=True,
-    )
-
-    user: Mapped[User] = relationship("User", back_populates="refresh_tokens")
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize User entity, capturing transient password_hash in memory if provided."""
+        pw_hash = kwargs.pop("password_hash", None)
+        super().__init__(**kwargs)
+        if pw_hash:
+            self._password_hash = str(pw_hash)
 
 
 class StudentProfile(TimeStampedUUIDModel):
