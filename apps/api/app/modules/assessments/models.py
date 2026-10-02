@@ -66,6 +66,12 @@ class Skill(TimeStampedUUIDModel):
         nullable=True,
         index=True,
     )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+    )
 
     parent: Mapped[Skill | None] = relationship(
         "Skill",

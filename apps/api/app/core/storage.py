@@ -131,6 +131,7 @@ class S3StorageService(StorageService):
         endpoint = (
             f"{protocol}://{endpoint_url}" if not endpoint_url.startswith("http") else endpoint_url
         )
+        self.endpoint = endpoint
 
         self.s3_client = boto3.client(
             "s3",
@@ -140,6 +141,10 @@ class S3StorageService(StorageService):
             config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
             region_name=region,
         )
+
+    @property
+    def _is_supabase(self) -> bool:
+        return bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY and "supabase" in (self.endpoint or ""))
 
     @staticmethod
     def _validate_object_key(object_key: str) -> None:
@@ -182,7 +187,7 @@ class S3StorageService(StorageService):
         # 3. Magic byte signature verification
         validate_magic_bytes(file_obj, normalized_content_type)
 
-        # 3. Path traversal defense on folder and extension
+        # 4. Path traversal defense on folder and extension
         if ".." in folder or folder.startswith("/") or "\\" in folder:
             raise AppException(
                 message="Folder path contains illegal path traversal characters",
@@ -199,23 +204,68 @@ class S3StorageService(StorageService):
         else:
             object_key = f"{clean_folder}/{uuid.uuid4()}{ext_suffix}"
 
-        self.s3_client.upload_fileobj(
-            file_obj,
-            self.bucket_name,
-            object_key,
-            ExtraArgs={
-                "ContentType": normalized_content_type,
-            },
-        )
-        logger.info("file_uploaded", object_key=object_key, bucket=self.bucket_name, size=file_size)
-        return object_key
+        payload_bytes = file_obj.read()
+        file_obj.seek(0)
+
+        try:
+            self.s3_client.upload_fileobj(
+                file_obj,
+                self.bucket_name,
+                object_key,
+                ExtraArgs={
+                    "ContentType": normalized_content_type,
+                },
+            )
+            logger.info("file_uploaded", object_key=object_key, bucket=self.bucket_name, size=file_size)
+            return object_key
+        except Exception as exc:
+            if self._is_supabase:
+                try:
+                    import urllib.request
+                    url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/{self.bucket_name}/{object_key}"
+                    req = urllib.request.Request(
+                        url,
+                        data=payload_bytes,
+                        headers={
+                            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+                            "Content-Type": normalized_content_type,
+                        },
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        if resp.status in (200, 201):
+                            logger.info("file_uploaded_via_supabase_rest", object_key=object_key, bucket=self.bucket_name, size=file_size)
+                            return object_key
+                except Exception as rest_exc:
+                    logger.error("supabase_rest_upload_failed", error=str(rest_exc))
+            logger.error("file_upload_failed", object_key=object_key, error=str(exc))
+            raise AppException(message="Failed to upload file to storage", code="UPLOAD_FAILED", status_code=500) from exc
 
     def download_file(self, object_key: str) -> bytes:
         self._validate_object_key(object_key)
-        buffer = io.BytesIO()
-        self.s3_client.download_fileobj(self.bucket_name, object_key, buffer)
-        buffer.seek(0)
-        return buffer.read()
+        try:
+            buffer = io.BytesIO()
+            self.s3_client.download_fileobj(self.bucket_name, object_key, buffer)
+            buffer.seek(0)
+            return buffer.read()
+        except Exception as exc:
+            if self._is_supabase:
+                try:
+                    import urllib.request
+                    url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/authenticated/{self.bucket_name}/{object_key}"
+                    req = urllib.request.Request(
+                        url,
+                        headers={
+                            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+                        },
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        return resp.read()
+                except Exception as rest_exc:
+                    logger.error("supabase_rest_download_failed", error=str(rest_exc))
+            raise AppException(message=f"File '{object_key}' not found or inaccessible", code="FILE_NOT_FOUND", status_code=404) from exc
 
     def generate_presigned_url(
         self,
@@ -224,11 +274,38 @@ class S3StorageService(StorageService):
     ) -> str:
         self._validate_object_key(object_key)
         capped_expiry = min(max(60, expiration_seconds), MAX_PRESIGNED_URL_EXPIRY_SECONDS)
-        return self.s3_client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": self.bucket_name, "Key": object_key},
-            ExpiresIn=capped_expiry,
-        )
+        try:
+            return self.s3_client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": self.bucket_name, "Key": object_key},
+                ExpiresIn=capped_expiry,
+            )
+        except Exception as exc:
+            if self._is_supabase:
+                try:
+                    import json
+                    import urllib.request
+                    url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/sign/{self.bucket_name}/{object_key}"
+                    data = json.dumps({"expiresIn": capped_expiry}).encode()
+                    req = urllib.request.Request(
+                        url,
+                        data=data,
+                        headers={
+                            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+                            "Content-Type": "application/json",
+                        },
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        res = json.loads(resp.read().decode())
+                        signed_path = res.get("signedURL")
+                        if signed_path:
+                            return f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1{signed_path}"
+                except Exception as rest_exc:
+                    logger.error("supabase_rest_sign_failed", error=str(rest_exc))
+            logger.error("presigned_url_generation_failed", object_key=object_key, error=str(exc))
+            raise AppException(message="Failed to generate presigned URL", code="STORAGE_SIGN_FAILED", status_code=500) from exc
 
     def delete_file(self, object_key: str) -> bool:
         self._validate_object_key(object_key)
@@ -236,7 +313,29 @@ class S3StorageService(StorageService):
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=object_key)
             logger.info("file_deleted", object_key=object_key)
             return True
-        except ClientError as exc:
+        except Exception as exc:
+            if self._is_supabase:
+                try:
+                    import json
+                    import urllib.request
+                    url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/{self.bucket_name}"
+                    data = json.dumps({"prefixes": [object_key]}).encode()
+                    req = urllib.request.Request(
+                        url,
+                        data=data,
+                        headers={
+                            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+                            "Content-Type": "application/json",
+                        },
+                        method="DELETE",
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        if resp.status in (200, 204):
+                            logger.info("file_deleted_via_supabase_rest", object_key=object_key)
+                            return True
+                except Exception as rest_exc:
+                    logger.error("supabase_rest_delete_failed", error=str(rest_exc))
             logger.error("file_deletion_failed", object_key=object_key, error=str(exc))
             return False
 
@@ -245,6 +344,22 @@ class S3StorageService(StorageService):
             self.s3_client.head_bucket(Bucket=self.bucket_name)
             return True
         except Exception as exc:  # noqa: BLE001
+            if self._is_supabase:
+                try:
+                    import urllib.request
+                    url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/bucket/{self.bucket_name}"
+                    req = urllib.request.Request(
+                        url,
+                        headers={
+                            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+                        },
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        if resp.status == 200:
+                            return True
+                except Exception:
+                    pass
             logger.warning("storage_health_check_failed", error=str(exc))
             return False
 

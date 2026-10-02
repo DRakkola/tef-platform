@@ -23,7 +23,10 @@ export interface SkillItem {
   name: string;
   category: string;
   description?: string | null;
+  parent_id?: string | null;
+  is_active?: boolean;
   subskills?: SubSkill[];
+  usage_counts?: Record<string, any>;
 }
 
 export interface QuestionOption {

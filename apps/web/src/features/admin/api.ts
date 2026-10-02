@@ -33,10 +33,33 @@ export async function createSkill(payload: {
   name: string;
   category: string;
   description?: string;
+  is_active?: boolean;
 }): Promise<SkillItem> {
   return apiClient<SkillItem>("/admin/content/skills", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function updateSkill(
+  id: string,
+  payload: {
+    code?: string;
+    name?: string;
+    category?: string;
+    description?: string;
+    is_active?: boolean;
+  }
+): Promise<SkillItem> {
+  return apiClient<SkillItem>(`/admin/content/skills/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSkill(id: string): Promise<void> {
+  return apiClient<void>(`/admin/content/skills/${id}`, {
+    method: "DELETE",
   });
 }
 

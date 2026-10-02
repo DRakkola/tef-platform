@@ -7,7 +7,7 @@ import uuid
 from typing import Any, ClassVar
 
 import structlog
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -32,10 +32,13 @@ from app.modules.admin.schemas import (
     AdminQuestionCreate,
     AdminSectionCreate,
     AdminSkillCreate,
+    AdminSkillMetricsSummary,
+    AdminSkillUpdate,
     AdminStandaloneQuestionUpdate,
     AdminWritingTaskCreate,
     AdminWritingTaskUpdate,
     ContentReviewDecision,
+    SkillUsageCounts,
     SubSkillCreate,
     SubSkillUpdate,
     ValidationIssue,
@@ -50,9 +53,12 @@ from app.modules.assessments.models import (
     QuestionSkillTag,
     Skill,
 )
-from app.modules.learning.models import Exercise, ExerciseSkill
+from app.modules.learning.enums import SkillCategory
+from app.modules.learning.models import Exercise, ExerciseSkill, SkillAssessment, StudentSkill
+from app.modules.learning.readiness_models import SkillEvidence
+from app.modules.speaking.models import SpeakingEvaluationSkill
 from app.modules.users.models import User, UserRole
-from app.modules.writing.models import WritingTask
+from app.modules.writing.models import WritingCorrectionSkill, WritingTask
 
 logger = structlog.get_logger("tef-api.admin.service")
 
@@ -316,13 +322,19 @@ class SubSkillService:
         if not skill:
             raise AppException(message="Parent skill not found", code="SKILL_NOT_FOUND", status_code=404)
 
-        # Check unique code
-        existing = (await db.execute(select(SubSkill).where(SubSkill.code == payload.code))).scalar_one_or_none()
-        if existing:
+        # Check unique code in sub_skills
+        existing_sub = (await db.execute(select(SubSkill).where(SubSkill.code == payload.code))).scalar_one_or_none()
+        if existing_sub:
             raise AppException(message=f"Subskill with code '{payload.code}' already exists", code="DUPLICATE_CODE", status_code=409)
 
         now = datetime.datetime.now(datetime.UTC)
+        
+        # Check if legacy child Skill exists with this code
+        existing_skill_node = (await db.execute(select(Skill).where(Skill.code == payload.code))).scalar_one_or_none()
+        sub_id = existing_skill_node.id if existing_skill_node else uuid.uuid4()
+
         sub = SubSkill(
+            id=sub_id,
             skill_id=skill_id,
             code=payload.code,
             name=payload.name,
@@ -331,6 +343,26 @@ class SubSkillService:
             updated_at=now,
         )
         db.add(sub)
+
+        # Synchronize corresponding child Skill entry for question tagging and mastery evaluation
+        if not existing_skill_node:
+            shadow_skill = Skill(
+                id=sub_id,
+                code=payload.code,
+                name=payload.name,
+                category=skill.category,
+                description=payload.description,
+                parent_id=skill.id,
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(shadow_skill)
+        else:
+            existing_skill_node.parent_id = skill.id
+            existing_skill_node.name = payload.name
+            existing_skill_node.description = payload.description
+
         await db.flush()
 
         await AuditService.log_event(
@@ -359,6 +391,7 @@ class SubSkillService:
         if not sub:
             raise AppException(message="Subskill not found", code="NOT_FOUND", status_code=404)
 
+        old_code = sub.code
         if payload.code is not None and payload.code != sub.code:
             existing = (await db.execute(select(SubSkill).where(SubSkill.code == payload.code))).scalar_one_or_none()
             if existing:
@@ -371,6 +404,18 @@ class SubSkillService:
             sub.description = payload.description
 
         sub.updated_at = datetime.datetime.now(datetime.UTC)
+
+        # Update shadow Skill if present
+        shadow_skill = (await db.execute(select(Skill).where(or_(Skill.id == subskill_id, Skill.code == old_code)))).scalar_one_or_none()
+        if shadow_skill:
+            if payload.code is not None:
+                shadow_skill.code = payload.code
+            if payload.name is not None:
+                shadow_skill.name = payload.name
+            if payload.description is not None:
+                shadow_skill.description = payload.description
+            shadow_skill.updated_at = sub.updated_at
+
         await db.flush()
 
         await AuditService.log_event(
@@ -393,7 +438,25 @@ class SubSkillService:
         if not sub:
             raise AppException(message="Subskill not found", code="NOT_FOUND", status_code=404)
 
+        # Check dependencies before deleting
+        q_count = (await db.scalar(select(func.count(QuestionSkillTag.id)).where(or_(QuestionSkillTag.subskill == sub.code, QuestionSkillTag.skill_id == sub.id)))) or 0
+        ex_count = (await db.scalar(select(func.count(ExerciseSkill.id)).where(or_(ExerciseSkill.subskill == sub.code, ExerciseSkill.skill_id == sub.id)))) or 0
+
+        if q_count > 0 or ex_count > 0:
+            raise AppException(
+                message=f"Impossible de supprimer la sous-compétence '{sub.name}' car elle est utilisée dans {q_count} questions et {ex_count} exercices.",
+                code="SUBSKILL_IN_USE",
+                status_code=409,
+            )
+
+        sub_code = sub.code
         await db.delete(sub)
+
+        # Delete shadow skill if present
+        shadow_skill = (await db.execute(select(Skill).where(or_(Skill.id == subskill_id, Skill.code == sub_code)))).scalar_one_or_none()
+        if shadow_skill:
+            await db.delete(shadow_skill)
+
         await db.flush()
 
         await AuditService.log_event(
@@ -402,7 +465,7 @@ class SubSkillService:
             action=AuditAction.DELETE,
             entity_type="subskill",
             entity_id=subskill_id,
-            payload={"code": sub.code},
+            payload={"code": sub_code},
         )
 
 
@@ -1088,12 +1151,159 @@ class AdminContentService:
     # --- Skills Taxonomy ---
 
     @staticmethod
+    async def get_skill_usage(db: AsyncSession, skill_id: uuid.UUID) -> SkillUsageCounts:
+        """Aggregate real relational dependencies across all subsystems for a skill."""
+        # Questions tagged with this skill
+        q_stmt = select(func.count(func.distinct(QuestionSkillTag.question_id))).where(QuestionSkillTag.skill_id == skill_id)
+        questions_count = (await db.scalar(q_stmt)) or 0
+
+        # Exercises tagged with this skill
+        ex_stmt = select(func.count(func.distinct(ExerciseSkill.exercise_id))).where(ExerciseSkill.skill_id == skill_id)
+        exercises_count = (await db.scalar(ex_stmt)) or 0
+
+        # Assessments containing questions tagged with this skill
+        asmt_stmt = (
+            select(func.count(func.distinct(Assessment.id)))
+            .select_from(Assessment)
+            .join(AssessmentSection, AssessmentSection.assessment_id == Assessment.id)
+            .join(Question, Question.section_id == AssessmentSection.id)
+            .join(QuestionSkillTag, QuestionSkillTag.question_id == Question.id)
+            .where(QuestionSkillTag.skill_id == skill_id)
+        )
+        assessments_count = (await db.scalar(asmt_stmt)) or 0
+
+        # Student mastery records
+        sm_stmt = select(func.count(func.distinct(StudentSkill.user_id))).where(StudentSkill.skill_id == skill_id)
+        student_mastery_count = (await db.scalar(sm_stmt)) or 0
+
+        # Historical evaluation snapshots
+        sa_stmt = select(func.count(SkillAssessment.id)).where(SkillAssessment.skill_id == skill_id)
+        skill_assessments_count = (await db.scalar(sa_stmt)) or 0
+
+        # Skill readiness evidence
+        se_stmt = select(func.count(SkillEvidence.id)).where(SkillEvidence.skill_id == skill_id)
+        skill_evidence_count = (await db.scalar(se_stmt)) or 0
+
+        # Writing evaluations
+        we_stmt = select(func.count(WritingCorrectionSkill.id)).where(WritingCorrectionSkill.skill_id == skill_id)
+        writing_evals_count = (await db.scalar(we_stmt)) or 0
+
+        # Speaking evaluations
+        spe_stmt = select(func.count(SpeakingEvaluationSkill.id)).where(SpeakingEvaluationSkill.skill_id == skill_id)
+        speaking_evals_count = (await db.scalar(spe_stmt)) or 0
+
+        total_deps = (
+            questions_count
+            + exercises_count
+            + assessments_count
+            + student_mastery_count
+            + skill_assessments_count
+            + skill_evidence_count
+            + writing_evals_count
+            + speaking_evals_count
+        )
+
+        return SkillUsageCounts(
+            questions=questions_count,
+            exercises=exercises_count,
+            assessments=assessments_count,
+            student_mastery=student_mastery_count,
+            skill_assessments=skill_assessments_count,
+            skill_evidence=skill_evidence_count,
+            writing_evaluations=writing_evals_count,
+            speaking_evaluations=speaking_evals_count,
+            total_dependencies=total_deps,
+        )
+
+    @staticmethod
+    async def get_metrics_summary(db: AsyncSession) -> AdminSkillMetricsSummary:
+        """Compute real global taxonomy metrics, domain distribution, and integrity warnings."""
+        # Total root skills
+        total_skills_stmt = select(func.count(Skill.id)).where(Skill.parent_id.is_(None))
+        total_skills = (await db.scalar(total_skills_stmt)) or 0
+
+        # Total subskills in sub_skills table
+        total_subskills_stmt = select(func.count(SubSkill.id))
+        total_subskills = (await db.scalar(total_subskills_stmt)) or 0
+
+        # Distinct domains
+        domains_stmt = select(func.count(func.distinct(Skill.category))).where(Skill.parent_id.is_(None), Skill.category.is_not(None))
+        domains_count = (await db.scalar(domains_stmt)) or 0
+
+        # Domain breakdown
+        breakdown_stmt = (
+            select(Skill.category, func.count(Skill.id))
+            .where(Skill.parent_id.is_(None))
+            .group_by(Skill.category)
+        )
+        breakdown_rows = (await db.execute(breakdown_stmt)).all()
+        domain_breakdown = {
+            (r[0].value if hasattr(r[0], "value") else str(r[0])) if r[0] else "unassigned": r[1]
+            for r in breakdown_rows
+        }
+
+        # Inspect issues/warnings
+        issues: list[dict[str, Any]] = []
+
+        # 1. Root skills with 0 subskills
+        all_root_stmt = select(Skill).options(selectinload(Skill.subskills_table)).where(Skill.parent_id.is_(None))
+        all_root = (await db.execute(all_root_stmt)).scalars().all()
+        for sk in all_root:
+            if not sk.subskills_table or len(sk.subskills_table) == 0:
+                issues.append({
+                    "skill_id": str(sk.id),
+                    "skill_code": sk.code,
+                    "skill_name": sk.name,
+                    "severity": "warning",
+                    "message": f"Compétence '{sk.name}' sans sous-compétences définies.",
+                })
+            if not sk.description or len(sk.description.strip()) == 0:
+                issues.append({
+                    "skill_id": str(sk.id),
+                    "skill_code": sk.code,
+                    "skill_name": sk.name,
+                    "severity": "info",
+                    "message": f"Compétence '{sk.name}' sans description pédagogique.",
+                })
+            if not sk.is_active:
+                issues.append({
+                    "skill_id": str(sk.id),
+                    "skill_code": sk.code,
+                    "skill_name": sk.name,
+                    "severity": "info",
+                    "message": f"Compétence '{sk.name}' est actuellement archivée/inactivée.",
+                })
+
+        return AdminSkillMetricsSummary(
+            total_skills=total_skills,
+            total_subskills=total_subskills,
+            domains_count=domains_count,
+            domain_breakdown=domain_breakdown,
+            taxonomy_warnings_count=len(issues),
+            issues=issues,
+        )
+
+    @staticmethod
+    async def get_skill(db: AsyncSession, skill_id: uuid.UUID) -> tuple[Skill, SkillUsageCounts]:
+        """Fetch a single skill with its subskills and relational usage stats."""
+        stmt = select(Skill).options(selectinload(Skill.subskills_table)).where(Skill.id == skill_id)
+        skill = (await db.execute(stmt)).scalar_one_or_none()
+        if not skill:
+            raise AppException(message="Skill not found", code="SKILL_NOT_FOUND", status_code=404)
+        usage = await AdminContentService.get_skill_usage(db, skill.id)
+        return skill, usage
+
+    @staticmethod
     async def create_skill(
         db: AsyncSession,
         payload: AdminSkillCreate,
         actor_id: uuid.UUID | None = None,
-    ) -> Skill:
-        """Create skill node."""
+    ) -> tuple[Skill, SkillUsageCounts]:
+        """Create skill node with unique code verification and audit logging."""
+        existing = (await db.execute(select(Skill).where(Skill.code == payload.code))).scalar_one_or_none()
+        if existing:
+            raise AppException(message=f"Skill with code '{payload.code}' already exists", code="DUPLICATE_CODE", status_code=409)
+
         now = datetime.datetime.now(datetime.UTC)
         skill = Skill(
             code=payload.code,
@@ -1101,6 +1311,7 @@ class AdminContentService:
             category=payload.category,
             description=payload.description,
             parent_id=payload.parent_id,
+            is_active=payload.is_active,
             created_at=now,
             updated_at=now,
         )
@@ -1113,16 +1324,131 @@ class AdminContentService:
             action=AuditAction.CREATE,
             entity_type="skill",
             entity_id=skill.id,
-            payload={"code": skill.code, "name": skill.name},
+            payload={"code": skill.code, "name": skill.name, "category": skill.category},
         )
-        return skill
+        usage = await AdminContentService.get_skill_usage(db, skill.id)
+        return skill, usage
 
     @staticmethod
-    async def list_skills(db: AsyncSession, parent_id: uuid.UUID | None = None) -> list[Skill]:
-        stmt = select(Skill).options(selectinload(Skill.subskills_table)).order_by(Skill.name.asc())
-        if parent_id:
+    async def update_skill(
+        db: AsyncSession,
+        skill_id: uuid.UUID,
+        payload: AdminSkillUpdate,
+        actor_id: uuid.UUID | None = None,
+    ) -> tuple[Skill, SkillUsageCounts]:
+        """Update skill attributes with safe code propagation and audit logging."""
+        stmt = select(Skill).options(selectinload(Skill.subskills_table)).where(Skill.id == skill_id)
+        skill = (await db.execute(stmt)).scalar_one_or_none()
+        if not skill:
+            raise AppException(message="Skill not found", code="SKILL_NOT_FOUND", status_code=404)
+
+        if payload.code is not None and payload.code != skill.code:
+            existing = (await db.execute(select(Skill).where(Skill.code == payload.code))).scalar_one_or_none()
+            if existing:
+                raise AppException(message=f"Skill code '{payload.code}' is already in use", code="DUPLICATE_CODE", status_code=409)
+            skill.code = payload.code
+
+        if payload.name is not None:
+            skill.name = payload.name
+        if payload.category is not None:
+            skill.category = payload.category
+        if payload.description is not None:
+            skill.description = payload.description
+        if payload.is_active is not None:
+            skill.is_active = payload.is_active
+
+        skill.updated_at = datetime.datetime.now(datetime.UTC)
+        await db.flush()
+
+        await AuditService.log_event(
+            db=db,
+            actor_user_id=actor_id,
+            action=AuditAction.UPDATE,
+            entity_type="skill",
+            entity_id=skill.id,
+            payload={"code": skill.code, "name": skill.name, "is_active": skill.is_active},
+        )
+        usage = await AdminContentService.get_skill_usage(db, skill.id)
+        return skill, usage
+
+    @staticmethod
+    async def delete_skill(
+        db: AsyncSession,
+        skill_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+    ) -> None:
+        """Safely delete skill only when no foreign key dependencies exist across the platform."""
+        stmt = select(Skill).options(selectinload(Skill.subskills_table)).where(Skill.id == skill_id)
+        skill = (await db.execute(stmt)).scalar_one_or_none()
+        if not skill:
+            raise AppException(message="Skill not found", code="SKILL_NOT_FOUND", status_code=404)
+
+        usage = await AdminContentService.get_skill_usage(db, skill_id)
+        if usage.total_dependencies > 0:
+            raise AppException(
+                message=(
+                    f"Impossible de supprimer la compétence '{skill.name}' : {usage.total_dependencies} enregistrements en dépendent "
+                    f"({usage.questions} questions, {usage.exercises} exercices, {usage.student_mastery} profils étudiants). "
+                    f"Veuillez archiver/désactiver cette compétence à la place."
+                ),
+                code="SKILL_HAS_DEPENDENCIES",
+                status_code=409,
+            )
+
+        skill_name = skill.name
+        skill_code = skill.code
+        await db.delete(skill)
+        await db.flush()
+
+        await AuditService.log_event(
+            db=db,
+            actor_user_id=actor_id,
+            action=AuditAction.DELETE,
+            entity_type="skill",
+            entity_id=skill_id,
+            payload={"code": skill_code, "name": skill_name},
+        )
+
+    @staticmethod
+    async def list_skills(
+        db: AsyncSession,
+        parent_id: uuid.UUID | None = None,
+        q: str | None = None,
+        category: str | None = None,
+        is_active: bool | None = None,
+        has_subskills: bool | None = None,
+    ) -> list[tuple[Skill, SkillUsageCounts]]:
+        """List skills with subskills and usage metrics, filtering root competencies by default."""
+        stmt = select(Skill).options(selectinload(Skill.subskills_table))
+        if parent_id is not None:
             stmt = stmt.where(Skill.parent_id == parent_id)
-        return list((await db.execute(stmt)).scalars().all())
+        else:
+            # Default to root competencies only
+            stmt = stmt.where(Skill.parent_id.is_(None))
+
+        if q and q.strip():
+            pat = f"%{q.strip()}%"
+            stmt = stmt.where(or_(Skill.name.ilike(pat), Skill.code.ilike(pat)))
+
+        if category and category.strip():
+            stmt = stmt.where(Skill.category == category.strip())
+
+        if is_active is not None:
+            stmt = stmt.where(Skill.is_active == is_active)
+
+        stmt = stmt.order_by(Skill.name.asc())
+        skills = list((await db.execute(stmt)).scalars().all())
+
+        if has_subskills is True:
+            skills = [s for s in skills if s.subskills_table and len(s.subskills_table) > 0]
+        elif has_subskills is False:
+            skills = [s for s in skills if not s.subskills_table or len(s.subskills_table) == 0]
+
+        result: list[tuple[Skill, SkillUsageCounts]] = []
+        for sk in skills:
+            usage = await AdminContentService.get_skill_usage(db, sk.id)
+            result.append((sk, usage))
+        return result
 
     # --- Exercises ---
 

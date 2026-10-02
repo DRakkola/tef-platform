@@ -486,3 +486,89 @@ async def test_audit_logging_of_content_operations(
     assert data["total"] >= 1
     assert len(data["items"]) >= 1
     assert any(item["action"] == "CREATE" for item in data["items"])
+
+
+@pytest.mark.asyncio
+async def test_skills_metrics_summary(
+    client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+):
+    """Verify GET /admin/content/skills/metrics/summary returns accurate aggregate taxonomy stats."""
+    resp = await client.get("/api/v1/admin/content/skills/metrics/summary", headers=admin_auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "total_skills" in data
+    assert "total_subskills" in data
+    assert "domains_count" in data
+    assert "domain_breakdown" in data
+    assert "taxonomy_warnings_count" in data
+    assert isinstance(data["issues"], list)
+
+
+@pytest.mark.asyncio
+async def test_skill_get_update_and_delete_lifecycle(
+    client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+):
+    """Verify fetching, updating, and safely deleting a skill node."""
+    code_suffix = uuid.uuid4().hex[:6]
+    initial_code = f"vocab_idiom_{code_suffix}"
+
+    # 1. Create skill
+    create_resp = await client.post(
+        "/api/v1/admin/content/skills",
+        headers=admin_auth_headers,
+        json={
+            "code": initial_code,
+            "name": "Expressions idiomatiques québécoises",
+            "category": "vocabulary",
+            "description": "Compréhension des expressions locales.",
+            "is_active": True,
+        },
+    )
+    assert create_resp.status_code == 201
+    skill_data = create_resp.json()
+    skill_id = skill_data["id"]
+    assert skill_data["is_active"] is True
+    assert skill_data["usage_counts"]["total_dependencies"] == 0
+
+    # 2. Get skill by ID
+    get_resp = await client.get(f"/api/v1/admin/content/skills/{skill_id}", headers=admin_auth_headers)
+    assert get_resp.status_code == 200
+    assert get_resp.json()["id"] == skill_id
+    assert get_resp.json()["name"] == "Expressions idiomatiques québécoises"
+
+    # 3. Update skill
+    updated_name = "Expressions idiomatiques et tournures canadiennes"
+    update_resp = await client.put(
+        f"/api/v1/admin/content/skills/{skill_id}",
+        headers=admin_auth_headers,
+        json={
+            "name": updated_name,
+            "description": "Description mise à jour.",
+            "is_active": False,
+        },
+    )
+    assert update_resp.status_code == 200
+    updated_data = update_resp.json()
+    assert updated_data["name"] == updated_name
+    assert updated_data["description"] == "Description mise à jour."
+    assert updated_data["is_active"] is False
+
+    # 4. Filter skills by search query
+    search_resp = await client.get(
+        f"/api/v1/admin/content/skills?q={code_suffix}",
+        headers=admin_auth_headers,
+    )
+    assert search_resp.status_code == 200
+    search_items = search_resp.json()
+    assert any(s["id"] == skill_id for s in search_items)
+
+    # 5. Delete skill (safe because 0 dependencies)
+    del_resp = await client.delete(f"/api/v1/admin/content/skills/{skill_id}", headers=admin_auth_headers)
+    assert del_resp.status_code == 204
+
+    # 6. Verify skill is gone
+    get_gone = await client.get(f"/api/v1/admin/content/skills/{skill_id}", headers=admin_auth_headers)
+    assert get_gone.status_code == 404
+

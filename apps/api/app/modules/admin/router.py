@@ -35,7 +35,9 @@ from app.modules.admin.schemas import (
     AdminSectionCreate,
     AdminSectionResponse,
     AdminSkillCreate,
+    AdminSkillMetricsSummary,
     AdminSkillResponse,
+    AdminSkillUpdate,
     AdminStandaloneQuestionUpdate,
     AdminUserRoleUpdate,
     AdminWritingTaskCreate,
@@ -568,6 +570,18 @@ async def list_question_versions(
 # ---------------------------------------------------------------------------
 
 
+@router.get(
+    "/content/skills/metrics/summary",
+    response_model=AdminSkillMetricsSummary,
+    summary="Get global taxonomy metrics, domain distribution, and integrity warnings",
+)
+async def get_skills_metrics_summary(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminSkillMetricsSummary:
+    return await AdminContentService.get_metrics_summary(db)
+
+
 @router.post(
     "/content/skills",
     response_model=AdminSkillResponse,
@@ -579,7 +593,7 @@ async def create_skill(
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(require_role(UserRole.ADMIN)),
 ) -> AdminSkillResponse:
-    skill = await AdminContentService.create_skill(
+    skill, usage = await AdminContentService.create_skill(
         db=db,
         payload=payload,
         actor_id=current_admin.id,
@@ -591,38 +605,128 @@ async def create_skill(
         category=skill.category.value if hasattr(skill.category, "value") and skill.category else (str(skill.category) if skill.category else None),
         description=skill.description,
         parent_id=skill.parent_id,
+        is_active=skill.is_active,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
         subskills=[],
+        usage_counts=usage,
     )
 
 
 @router.get(
     "/content/skills",
     response_model=list[AdminSkillResponse],
-    summary="List skills with subskills",
+    summary="List skills with subskills and usage metrics",
 )
 async def list_skills(
     parent_id: uuid.UUID | None = None,
+    q: str | None = None,
+    category: str | None = None,
+    is_active: bool | None = None,
+    has_subskills: bool | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_role(UserRole.ADMIN)),
 ) -> list[AdminSkillResponse]:
-    skills = await AdminContentService.list_skills(db, parent_id=parent_id)
+    items = await AdminContentService.list_skills(
+        db,
+        parent_id=parent_id,
+        q=q,
+        category=category,
+        is_active=is_active,
+        has_subskills=has_subskills,
+    )
     result = []
-    for sk in skills:
+    for sk, usage in items:
         resp = AdminSkillResponse(
             id=sk.id,
             code=sk.code,
             name=sk.name,
-            category=sk.category.value if sk.category else None,
+            category=sk.category.value if hasattr(sk.category, "value") and sk.category else (str(sk.category) if sk.category else None),
             description=sk.description,
             parent_id=sk.parent_id,
+            is_active=sk.is_active,
             created_at=sk.created_at,
             updated_at=sk.updated_at,
             subskills=[SubSkillResponse.model_validate(sub) for sub in (sk.subskills_table or [])],
+            usage_counts=usage,
         )
         result.append(resp)
     return result
+
+
+@router.get(
+    "/content/skills/{skill_id}",
+    response_model=AdminSkillResponse,
+    summary="Get single skill details with subskills and relational usage stats",
+)
+async def get_skill(
+    skill_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminSkillResponse:
+    skill, usage = await AdminContentService.get_skill(db, skill_id)
+    return AdminSkillResponse(
+        id=skill.id,
+        code=skill.code,
+        name=skill.name,
+        category=skill.category.value if hasattr(skill.category, "value") and skill.category else (str(skill.category) if skill.category else None),
+        description=skill.description,
+        parent_id=skill.parent_id,
+        is_active=skill.is_active,
+        created_at=skill.created_at,
+        updated_at=skill.updated_at,
+        subskills=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills_table or [])],
+        usage_counts=usage,
+    )
+
+
+@router.put(
+    "/content/skills/{skill_id}",
+    response_model=AdminSkillResponse,
+    summary="Update parent skill node in taxonomy",
+)
+async def update_skill(
+    skill_id: uuid.UUID,
+    payload: AdminSkillUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminSkillResponse:
+    skill, usage = await AdminContentService.update_skill(
+        db=db,
+        skill_id=skill_id,
+        payload=payload,
+        actor_id=current_admin.id,
+    )
+    return AdminSkillResponse(
+        id=skill.id,
+        code=skill.code,
+        name=skill.name,
+        category=skill.category.value if hasattr(skill.category, "value") and skill.category else (str(skill.category) if skill.category else None),
+        description=skill.description,
+        parent_id=skill.parent_id,
+        is_active=skill.is_active,
+        created_at=skill.created_at,
+        updated_at=skill.updated_at,
+        subskills=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills_table or [])],
+        usage_counts=usage,
+    )
+
+
+@router.delete(
+    "/content/skills/{skill_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete parent skill only if safe and has no dependencies",
+)
+async def delete_skill(
+    skill_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> None:
+    await AdminContentService.delete_skill(
+        db=db,
+        skill_id=skill_id,
+        actor_id=current_admin.id,
+    )
 
 
 @router.post(

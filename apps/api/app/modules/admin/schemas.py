@@ -98,12 +98,33 @@ class SubSkillResponse(BaseModel):
     updated_at: datetime.datetime
 
 
+class SkillUsageCounts(BaseModel):
+    questions: int = 0
+    exercises: int = 0
+    assessments: int = 0
+    student_mastery: int = 0
+    skill_assessments: int = 0
+    skill_evidence: int = 0
+    writing_evaluations: int = 0
+    speaking_evaluations: int = 0
+    total_dependencies: int = 0
+
+
 class AdminSkillCreate(BaseModel):
     code: str
     name: str
     category: str | None = None
     description: str | None = None
     parent_id: uuid.UUID | None = None
+    is_active: bool = True
+
+
+class AdminSkillUpdate(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    category: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
 
 
 class AdminSkillResponse(BaseModel):
@@ -113,9 +134,20 @@ class AdminSkillResponse(BaseModel):
     category: str | None = None
     description: str | None = None
     parent_id: uuid.UUID | None = None
+    is_active: bool = True
     created_at: datetime.datetime
     updated_at: datetime.datetime
     subskills: list[SubSkillResponse] = Field(default_factory=list)
+    usage_counts: SkillUsageCounts = Field(default_factory=SkillUsageCounts)
+
+
+class AdminSkillMetricsSummary(BaseModel):
+    total_skills: int
+    total_subskills: int
+    domains_count: int
+    domain_breakdown: dict[str, int] = Field(default_factory=dict)
+    taxonomy_warnings_count: int = 0
+    issues: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # --- Question & Option Admin Schemas ---

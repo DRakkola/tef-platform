@@ -133,6 +133,19 @@ describe("Content Studio Admin UI", () => {
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
+      if (url.includes("/admin/content/skills/metrics/summary")) {
+        return {
+          ok: true,
+          json: async () => ({
+            total_skills: 1,
+            total_subskills: 2,
+            domains_count: 1,
+            domain_breakdown: { reading: 1 },
+            taxonomy_warnings_count: 0,
+            issues: [],
+          }),
+        } as Response;
+      }
       if (url.includes("/admin/content/skills")) {
         return {
           ok: true,
@@ -148,21 +161,25 @@ describe("Content Studio Admin UI", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("Skills & Subskills Taxonomy")).toBeInTheDocument();
-    expect(await screen.findByText("Compréhension Écrite")).toBeInTheDocument();
-    expect(screen.getByText("reading_comp")).toBeInTheDocument();
-    expect(screen.getByText("2 subskills")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^Compétences/i })).toBeInTheDocument();
+    const skillNameElements = await screen.findAllByText("Compréhension Écrite");
+    expect(skillNameElements.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("reading_comp").length).toBeGreaterThanOrEqual(1);
 
-    // Verify subskills rendered in tree
-    expect(screen.getByText("Identifier l'idée générale")).toBeInTheDocument();
+    // Verify subskills tab renders subskills
+    const subTab = screen.getByRole("tab", { name: /Sous-compétences/i });
+    expect(subTab).toBeInTheDocument();
+    fireEvent.pointerDown(subTab);
+    fireEvent.click(subTab);
+    expect(await screen.findByText("Identifier l'idée générale")).toBeInTheDocument();
     expect(screen.getByText("Déduire le sens implicite")).toBeInTheDocument();
 
-    // Verify Add Parent Skill button
-    const addBtn = screen.getByRole("button", { name: /Add Parent Skill/i });
+    // Verify Nouvelle compétence button
+    const addBtn = screen.getByRole("button", { name: /Nouvelle compétence/i });
     expect(addBtn).toBeInTheDocument();
     fireEvent.click(addBtn);
 
-    expect(screen.getByText("Create New Parent Skill")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Nouvelle compétence/i })).toBeInTheDocument();
   });
 
   it("renders AssessmentsListPage with version badges and validation report modal", async () => {
