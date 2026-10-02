@@ -574,3 +574,31 @@ class AdminUserRoleUpdate(BaseModel):
 
 class AdminUserStatusUpdate(BaseModel):
     is_active: bool
+
+
+# --- Taxonomy V2 Schemas Re-export ---
+from app.modules.admin.taxonomy_schemas import (  # noqa: F401
+    AdminSkillSummaryResponse,
+    SkillLevelDescriptorCreate,
+    SkillLevelDescriptorResponse,
+    SkillLevelDescriptorUpdate,
+    SkillRelationCreate,
+    SkillRelationResponse,
+    SkillRelationsListResponse,
+    TaskTypeCreate,
+    TaskTypeResponse,
+    TaskTypeUpdate,
+    TaxonomyChildSkillCreate,
+    TaxonomyMetadataResponse,
+    TaxonomyMetricsSummary,
+    TaxonomyReparentRequest,
+    TaxonomySkillCreate,
+    TaxonomySkillDetailResponse,
+    TaxonomySkillListItemResponse,
+    TaxonomySkillListResponse,
+    TaxonomySkillUpdate,
+    TaxonomyTreeNodeResponse,
+    TaxonomyVersionCreate,
+    TaxonomyVersionResponse,
+    TaxonomyVersionUpdate,
+)

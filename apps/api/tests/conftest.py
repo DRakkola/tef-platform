@@ -20,6 +20,13 @@ from app.modules.admin.beta_models import (  # noqa: F401
     BetaCohort,
     BetaInvitation,
 )
+from app.modules.admin.models import (  # noqa: F401
+    AuditEvent,
+    SkillLevelDescriptor,
+    SkillRelation,
+    SubSkill,
+    TaxonomyVersion,
+)
 from app.modules.analytics.models import (  # noqa: F401
     AnalyticsEvent,
     Experiment,
@@ -38,6 +45,7 @@ from app.modules.assessments.models import (  # noqa: F401
     QuestionOption,
     QuestionSkillTag,
     Skill,
+    TaskType,
 )
 from app.modules.billing.models import (  # noqa: F401
     AIUsageRecord,

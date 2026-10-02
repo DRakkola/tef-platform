@@ -23,6 +23,7 @@ from app.core.storage import check_storage_health, storage_service
 from app.modules.admin.ai_sandbox_router import router as ai_sandbox_router
 from app.modules.admin.beta_router import router as beta_router
 from app.modules.admin.router import router as admin_router
+from app.modules.admin.taxonomy_router import router as taxonomy_router
 from app.modules.analytics.router import (
     admin_analytics_router,
     admin_ops_router,
@@ -40,6 +41,8 @@ from app.modules.billing.router import (
 from app.modules.bookings.router import router as bookings_router
 from app.modules.exercises.router import (
     exercise_attempts_router,
+)
+from app.modules.exercises.router import (
     router as exercises_router,
 )
 from app.modules.learning.readiness_router import (
@@ -215,6 +218,7 @@ api_v1_router.include_router(billing_router)
 api_v1_router.include_router(teacher_billing_router)
 api_v1_router.include_router(admin_billing_router)
 api_v1_router.include_router(admin_router)
+api_v1_router.include_router(taxonomy_router)
 api_v1_router.include_router(system_router)
 api_v1_router.include_router(admin_system_router)
 api_v1_router.include_router(support_router)

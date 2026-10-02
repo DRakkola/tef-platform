@@ -53,12 +53,9 @@ from app.modules.assessments.models import (
     QuestionSkillTag,
     Skill,
 )
-from app.modules.learning.enums import SkillCategory
-from app.modules.learning.models import Exercise, ExerciseSkill, SkillAssessment, StudentSkill
-from app.modules.learning.readiness_models import SkillEvidence
-from app.modules.speaking.models import SpeakingEvaluationSkill
+from app.modules.learning.models import Exercise, ExerciseSkill
 from app.modules.users.models import User, UserRole
-from app.modules.writing.models import WritingCorrectionSkill, WritingTask
+from app.modules.writing.models import WritingTask
 
 logger = structlog.get_logger("tef-api.admin.service")
 
@@ -350,6 +347,9 @@ class SubSkillService:
                 id=sub_id,
                 code=payload.code,
                 name=payload.name,
+                dimension=skill.dimension,
+                domain=skill.domain,
+                taxonomy_version_id=skill.taxonomy_version_id,
                 category=skill.category,
                 description=payload.description,
                 parent_id=skill.id,
@@ -1153,67 +1153,9 @@ class AdminContentService:
     @staticmethod
     async def get_skill_usage(db: AsyncSession, skill_id: uuid.UUID) -> SkillUsageCounts:
         """Aggregate real relational dependencies across all subsystems for a skill."""
-        # Questions tagged with this skill
-        q_stmt = select(func.count(func.distinct(QuestionSkillTag.question_id))).where(QuestionSkillTag.skill_id == skill_id)
-        questions_count = (await db.scalar(q_stmt)) or 0
-
-        # Exercises tagged with this skill
-        ex_stmt = select(func.count(func.distinct(ExerciseSkill.exercise_id))).where(ExerciseSkill.skill_id == skill_id)
-        exercises_count = (await db.scalar(ex_stmt)) or 0
-
-        # Assessments containing questions tagged with this skill
-        asmt_stmt = (
-            select(func.count(func.distinct(Assessment.id)))
-            .select_from(Assessment)
-            .join(AssessmentSection, AssessmentSection.assessment_id == Assessment.id)
-            .join(Question, Question.section_id == AssessmentSection.id)
-            .join(QuestionSkillTag, QuestionSkillTag.question_id == Question.id)
-            .where(QuestionSkillTag.skill_id == skill_id)
-        )
-        assessments_count = (await db.scalar(asmt_stmt)) or 0
-
-        # Student mastery records
-        sm_stmt = select(func.count(func.distinct(StudentSkill.user_id))).where(StudentSkill.skill_id == skill_id)
-        student_mastery_count = (await db.scalar(sm_stmt)) or 0
-
-        # Historical evaluation snapshots
-        sa_stmt = select(func.count(SkillAssessment.id)).where(SkillAssessment.skill_id == skill_id)
-        skill_assessments_count = (await db.scalar(sa_stmt)) or 0
-
-        # Skill readiness evidence
-        se_stmt = select(func.count(SkillEvidence.id)).where(SkillEvidence.skill_id == skill_id)
-        skill_evidence_count = (await db.scalar(se_stmt)) or 0
-
-        # Writing evaluations
-        we_stmt = select(func.count(WritingCorrectionSkill.id)).where(WritingCorrectionSkill.skill_id == skill_id)
-        writing_evals_count = (await db.scalar(we_stmt)) or 0
-
-        # Speaking evaluations
-        spe_stmt = select(func.count(SpeakingEvaluationSkill.id)).where(SpeakingEvaluationSkill.skill_id == skill_id)
-        speaking_evals_count = (await db.scalar(spe_stmt)) or 0
-
-        total_deps = (
-            questions_count
-            + exercises_count
-            + assessments_count
-            + student_mastery_count
-            + skill_assessments_count
-            + skill_evidence_count
-            + writing_evals_count
-            + speaking_evals_count
-        )
-
-        return SkillUsageCounts(
-            questions=questions_count,
-            exercises=exercises_count,
-            assessments=assessments_count,
-            student_mastery=student_mastery_count,
-            skill_assessments=skill_assessments_count,
-            skill_evidence=skill_evidence_count,
-            writing_evaluations=writing_evals_count,
-            speaking_evaluations=speaking_evals_count,
-            total_dependencies=total_deps,
-        )
+        from app.modules.admin.taxonomy_service import TaxonomyService
+        usage_map = await TaxonomyService.batch_get_skill_usage(db, [skill_id])
+        return usage_map.get(skill_id, SkillUsageCounts())
 
     @staticmethod
     async def get_metrics_summary(db: AsyncSession) -> AdminSkillMetricsSummary:
@@ -1304,10 +1246,30 @@ class AdminContentService:
         if existing:
             raise AppException(message=f"Skill with code '{payload.code}' already exists", code="DUPLICATE_CODE", status_code=409)
 
+        from app.modules.admin.enums import SkillDimension
+        from app.modules.admin.taxonomy_service import TaxonomyService
+        active_version = await TaxonomyService.get_active_version(db)
+
+        dimension = SkillDimension.LANGUAGE
+        domain = "general"
+        if payload.parent_id:
+            parent = await db.get(Skill, payload.parent_id)
+            if parent:
+                dimension = parent.dimension
+                domain = parent.domain
+        elif payload.category:
+            cat_str = (payload.category.value if hasattr(payload.category, "value") else str(payload.category)).lower()
+            if any(k in cat_str for k in ("reasoning", "logic", "inference", "coherence")):
+                dimension = SkillDimension.REASONING
+            domain = cat_str
+
         now = datetime.datetime.now(datetime.UTC)
         skill = Skill(
             code=payload.code,
             name=payload.name,
+            dimension=dimension,
+            domain=domain,
+            taxonomy_version_id=active_version.id,
             category=payload.category,
             description=payload.description,
             parent_id=payload.parent_id,
@@ -1317,6 +1279,17 @@ class AdminContentService:
         )
         db.add(skill)
         await db.flush()
+
+        if payload.parent_id:
+            legacy_sub = SubSkill(
+                id=skill.id,
+                skill_id=payload.parent_id,
+                code=skill.code,
+                name=skill.name,
+                description=skill.description,
+            )
+            db.add(legacy_sub)
+            await db.flush()
 
         await AuditService.log_event(
             db=db,
@@ -1444,11 +1417,13 @@ class AdminContentService:
         elif has_subskills is False:
             skills = [s for s in skills if not s.subskills_table or len(s.subskills_table) == 0]
 
-        result: list[tuple[Skill, SkillUsageCounts]] = []
-        for sk in skills:
-            usage = await AdminContentService.get_skill_usage(db, sk.id)
-            result.append((sk, usage))
-        return result
+        if not skills:
+            return []
+
+        from app.modules.admin.taxonomy_service import TaxonomyService
+        skill_ids = [sk.id for sk in skills]
+        usage_map = await TaxonomyService.batch_get_skill_usage(db, skill_ids)
+        return [(sk, usage_map.get(sk.id, SkillUsageCounts())) for sk in skills]
 
     # --- Exercises ---
 

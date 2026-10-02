@@ -70,7 +70,7 @@ class TaxonomyVersion(TimeStampedUUIDModel):
         nullable=True,
     )
 
-    skills: Mapped[list["Skill"]] = relationship(
+    skills: Mapped[list[Skill]] = relationship(
         "Skill",
         back_populates="taxonomy_version",
     )
@@ -107,12 +107,12 @@ class SkillRelation(UUIDModel):
         nullable=False,
     )
 
-    from_skill: Mapped["Skill"] = relationship(
+    from_skill: Mapped[Skill] = relationship(
         "Skill",
         foreign_keys=[from_skill_id],
         back_populates="outgoing_relations",
     )
-    to_skill: Mapped["Skill"] = relationship(
+    to_skill: Mapped[Skill] = relationship(
         "Skill",
         foreign_keys=[to_skill_id],
         back_populates="incoming_relations",
@@ -147,7 +147,7 @@ class SkillLevelDescriptor(TimeStampedUUIDModel):
         nullable=True,
     )
 
-    skill: Mapped["Skill"] = relationship(
+    skill: Mapped[Skill] = relationship(
         "Skill",
         back_populates="level_descriptors",
     )
@@ -179,7 +179,7 @@ class SubSkill(TimeStampedUUIDModel):
         nullable=True,
     )
 
-    skill: Mapped["Skill"] = relationship("Skill", back_populates="subskills_table")
+    skill: Mapped[Skill] = relationship("Skill", back_populates="subskills_table")
 
 
 class AuditEvent(UUIDModel):
