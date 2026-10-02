@@ -22,13 +22,135 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import TimeStampedUUIDModel, UUIDModel
-from app.modules.admin.enums import MediaType
+from app.modules.admin.enums import (
+    CEFRBand,
+    MediaType,
+    SkillRelationType,
+    TaxonomyLifecycleStatus,
+)
 
 if TYPE_CHECKING:
     from app.modules.assessments.models import Assessment, Question, Skill
     from app.modules.learning.models import Exercise
     from app.modules.users.models import User
     from app.modules.writing.models import WritingTask
+
+
+class TaxonomyVersion(TimeStampedUUIDModel):
+    """Immutable or managed release snapshot of the platform competency catalog."""
+
+    __tablename__ = "taxonomy_versions"
+
+    version: Mapped[str] = mapped_column(
+        String(32),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    status: Mapped[TaxonomyLifecycleStatus] = mapped_column(
+        SQLEnum(TaxonomyLifecycleStatus, name="taxonomy_lifecycle_status", native_enum=False),
+        default=TaxonomyLifecycleStatus.DRAFT,
+        nullable=False,
+        index=True,
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    activated_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    archived_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    skills: Mapped[list["Skill"]] = relationship(
+        "Skill",
+        back_populates="taxonomy_version",
+    )
+
+
+class SkillRelation(UUIDModel):
+    """Directed dependency or equivalence edge between competencies in the learning graph."""
+
+    __tablename__ = "skill_relations"
+    __table_args__ = (
+        UniqueConstraint("from_skill_id", "to_skill_id", "relation_type", name="uq_skill_relation"),
+    )
+
+    from_skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    to_skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    relation_type: Mapped[SkillRelationType] = mapped_column(
+        SQLEnum(SkillRelationType, name="skill_relation_type", native_enum=False),
+        default=SkillRelationType.PREREQUISITE,
+        nullable=False,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+    )
+
+    from_skill: Mapped["Skill"] = relationship(
+        "Skill",
+        foreign_keys=[from_skill_id],
+        back_populates="outgoing_relations",
+    )
+    to_skill: Mapped["Skill"] = relationship(
+        "Skill",
+        foreign_keys=[to_skill_id],
+        back_populates="incoming_relations",
+    )
+
+
+class SkillLevelDescriptor(TimeStampedUUIDModel):
+    """Pedagogical can-do benchmark statement contextualizing a skill at a specific CEFR band."""
+
+    __tablename__ = "skill_level_descriptors"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "level", name="uq_skill_cefr_level"),
+    )
+
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    level: Mapped[CEFRBand] = mapped_column(
+        SQLEnum(CEFRBand, name="cefr_band", native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    descriptor: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+    evidence_guidance: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    skill: Mapped["Skill"] = relationship(
+        "Skill",
+        back_populates="level_descriptors",
+    )
 
 
 class SubSkill(TimeStampedUUIDModel):
@@ -57,7 +179,7 @@ class SubSkill(TimeStampedUUIDModel):
         nullable=True,
     )
 
-    skill: Mapped[Skill] = relationship("Skill", back_populates="subskills_table")
+    skill: Mapped["Skill"] = relationship("Skill", back_populates="subskills_table")
 
 
 class AuditEvent(UUIDModel):

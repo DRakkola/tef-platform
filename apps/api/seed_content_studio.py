@@ -19,7 +19,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.core.security import hash_password
-from app.modules.admin.enums import ContentStatus, MediaType, ReviewStatus
+from app.modules.admin.enums import (
+    ContentStatus,
+    MediaType,
+    ReviewStatus,
+    SkillDimension,
+    TaxonomyLifecycleStatus,
+)
 from app.modules.admin.models import (
     AssessmentVersion,
     AuditEvent,
@@ -28,6 +34,7 @@ from app.modules.admin.models import (
     MediaAsset,
     QuestionVersion,
     SubSkill,
+    TaxonomyVersion,
     WritingTaskVersion,
 )
 from app.modules.assessments.enums import AssessmentType, QuestionType
@@ -164,14 +171,34 @@ async def run_seed():
             },
         ]
 
+        # Resolve active taxonomy version
+        active_tax = await session.scalar(
+            select(TaxonomyVersion).where(TaxonomyVersion.status == TaxonomyLifecycleStatus.ACTIVE)
+        )
+        tax_ver_id = active_tax.id if active_tax else uuid.UUID("00000000-0000-0000-0000-000000000002")
+
+        dim_domain_map = {
+            SkillCategory.READING: (SkillDimension.REASONING, "reading"),
+            SkillCategory.LISTENING: (SkillDimension.REASONING, "listening"),
+            SkillCategory.GRAMMAR: (SkillDimension.LANGUAGE, "grammar"),
+            SkillCategory.VOCABULARY: (SkillDimension.LANGUAGE, "vocabulary"),
+            SkillCategory.CONJUGATION: (SkillDimension.LANGUAGE, "conjugation"),
+            SkillCategory.WRITING: (SkillDimension.LANGUAGE, "writing"),
+            SkillCategory.SPEAKING: (SkillDimension.LANGUAGE, "speaking"),
+        }
+
         created_skills_map = {}
         for s_data in skills_spec:
             s_res = await session.execute(select(Skill).where(Skill.code == s_data["code"]))
             sk = s_res.scalar_one_or_none()
+            dim, domain = dim_domain_map.get(s_data["category"], (SkillDimension.LANGUAGE, "general"))
             if not sk:
                 sk = Skill(
+                    taxonomy_version_id=tax_ver_id,
                     code=s_data["code"],
                     name=s_data["name"],
+                    dimension=dim,
+                    domain=domain,
                     category=s_data["category"],
                     description=s_data["description"],
                 )
@@ -180,12 +207,30 @@ async def run_seed():
                 print(f"  [+] Created skill: {sk.code}")
             created_skills_map[sk.code] = sk
 
-            # Subskills
+            # Subskills: maintain both canonical Skill hierarchy and legacy SubSkill table
             for sub_code, sub_name, sub_desc in s_data["subskills"]:
+                # Check canonical Skill table
+                canonical_sub = (await session.execute(select(Skill).where(Skill.code == sub_code))).scalar_one_or_none()
+                if not canonical_sub:
+                    canonical_sub = Skill(
+                        taxonomy_version_id=tax_ver_id,
+                        code=sub_code,
+                        name=sub_name,
+                        dimension=dim,
+                        domain=domain,
+                        parent_id=sk.id,
+                        category=s_data["category"],
+                        description=sub_desc,
+                    )
+                    session.add(canonical_sub)
+                    await session.flush()
+
+                # Legacy SubSkill table
                 sub_res = await session.execute(select(SubSkill).where(SubSkill.code == sub_code))
                 sub = sub_res.scalar_one_or_none()
                 if not sub:
                     sub = SubSkill(
+                        id=canonical_sub.id,
                         skill_id=sk.id,
                         code=sub_code,
                         name=sub_name,
@@ -193,7 +238,7 @@ async def run_seed():
                     )
                     session.add(sub)
                     await session.flush()
-        print("  [✓] 7 skills and 28 subskills synchronized.")
+        print("  [✓] 7 skills and 28 subskills synchronized with Taxonomy V2.")
 
         # 2. Media Assets
         media_items = [

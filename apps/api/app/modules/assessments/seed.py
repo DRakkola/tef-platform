@@ -1,9 +1,10 @@
-"""Original placeholder demo assessments and skills for testing and local development."""
-
+import uuid
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.admin.enums import SkillDimension, SkillTagRole, TaxonomyLifecycleStatus
+from app.modules.admin.models import TaxonomyVersion
 from app.modules.assessments.enums import (
     AssessmentType,
     NavigationPolicy,
@@ -18,6 +19,7 @@ from app.modules.assessments.models import (
     QuestionSkillTag,
     Skill,
 )
+from app.modules.learning.enums import SkillCategory
 
 logger = structlog.get_logger("tef-api.assessments.seed")
 
@@ -30,15 +32,38 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
         logger.info("demo_assessments_already_seeded")
         return
 
+    # Resolve active taxonomy version
+    active_tax = await db.scalar(
+        select(TaxonomyVersion).where(TaxonomyVersion.status == TaxonomyLifecycleStatus.ACTIVE)
+    )
+    if not active_tax:
+        active_tax = TaxonomyVersion(
+            id=uuid.uuid4(),
+            version="v2.0.0-canonical",
+            name="TEF Canada Standard Taxonomy 2026",
+            status=TaxonomyLifecycleStatus.ACTIVE,
+        )
+        db.add(active_tax)
+        await db.flush()
+    tax_ver_id = active_tax.id
+
     # Create root skills
     reading_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="reading_comprehension",
         name="Compréhension écrite",
+        dimension=SkillDimension.REASONING,
+        domain="reading",
+        category=SkillCategory.READING,
         description="Capacité à lire et comprendre des documents de la vie quotidienne et professionnelle.",
     )
     listening_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="listening_comprehension",
         name="Compréhension orale",
+        dimension=SkillDimension.REASONING,
+        domain="listening",
+        category=SkillCategory.LISTENING,
         description="Capacité à écouter et comprendre des annonces, conversations et émissions en français.",
     )
     db.add_all([reading_skill, listening_skill])
@@ -46,29 +71,49 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
 
     # Create subskills
     reading_gist = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="reading_gist",
         name="Identification du sens global",
+        dimension=SkillDimension.REASONING,
+        domain="reading",
+        category=SkillCategory.READING,
         parent_id=reading_skill.id,
     )
     reading_detail = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="reading_detail",
         name="Repérage d'informations factuelles",
+        dimension=SkillDimension.REASONING,
+        domain="reading",
+        category=SkillCategory.READING,
         parent_id=reading_skill.id,
     )
     reading_inference = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="reading_inference",
         name="Compréhension de l'implicite",
+        dimension=SkillDimension.REASONING,
+        domain="reading",
+        category=SkillCategory.READING,
         parent_id=reading_skill.id,
     )
 
     listening_announcement = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="listening_announcement",
         name="Compréhension d'annonces publiques",
+        dimension=SkillDimension.REASONING,
+        domain="listening",
+        category=SkillCategory.LISTENING,
         parent_id=listening_skill.id,
     )
     listening_interview = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="listening_interview",
         name="Suivi d'un entretien thématique",
+        dimension=SkillDimension.REASONING,
+        domain="listening",
+        category=SkillCategory.LISTENING,
         parent_id=listening_skill.id,
     )
 
@@ -158,8 +203,10 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
     db.add(
         QuestionSkillTag(
             question_id=q1_r.id,
-            skill_id=reading_detail.id,
+            skill_id=reading_skill.id,
+            subskill_id=reading_detail.id,
             subskill="reading_detail",
+            role=SkillTagRole.PRIMARY,
             weight=1.0,
         )
     )
@@ -221,8 +268,10 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
     db.add(
         QuestionSkillTag(
             question_id=q2_r.id,
-            skill_id=reading_gist.id,
+            skill_id=reading_skill.id,
+            subskill_id=reading_gist.id,
             subskill="reading_gist",
+            role=SkillTagRole.PRIMARY,
             weight=1.0,
         )
     )
@@ -298,8 +347,10 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
     db.add(
         QuestionSkillTag(
             question_id=q1_l.id,
-            skill_id=listening_announcement.id,
+            skill_id=listening_skill.id,
+            subskill_id=listening_announcement.id,
             subskill="listening_announcement",
+            role=SkillTagRole.PRIMARY,
             weight=1.0,
         )
     )

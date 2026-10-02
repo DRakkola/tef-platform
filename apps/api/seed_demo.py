@@ -24,6 +24,8 @@ import app.modules.writing.models  # noqa: F401
 
 from app.core.config import settings
 from app.core.security import hash_password
+from app.modules.admin.enums import SkillDimension, TaxonomyLifecycleStatus
+from app.modules.admin.models import TaxonomyVersion
 from app.modules.assessments.enums import AssessmentType, AttemptStatus, QuestionType
 from app.modules.assessments.models import (
     Assessment,
@@ -133,12 +135,33 @@ async def seed():
             ("WRIT_SECTB", "Expression Écrite — Section B", SkillCategory.WRITING, "Lettre formelle argumentative et plaidoyer"),
         ]
 
+        active_tax = await session.scalar(
+            select(TaxonomyVersion).where(TaxonomyVersion.status == TaxonomyLifecycleStatus.ACTIVE)
+        )
+        tax_ver_id = active_tax.id if active_tax else uuid.UUID("00000000-0000-0000-0000-000000000002")
+
+        cat_dim_map = {
+            SkillCategory.READING: (SkillDimension.REASONING, "reading"),
+            SkillCategory.LISTENING: (SkillDimension.REASONING, "listening"),
+            SkillCategory.GRAMMAR: (SkillDimension.LANGUAGE, "grammar"),
+            SkillCategory.WRITING: (SkillDimension.LANGUAGE, "writing"),
+        }
+
         created_skills = []
         for code, name, category, desc in skills_data:
             s_res = await session.execute(select(Skill).where(Skill.code == code))
             sk = s_res.scalar_one_or_none()
+            dim, domain = cat_dim_map.get(category, (SkillDimension.LANGUAGE, "general"))
             if not sk:
-                sk = Skill(code=code, name=name, category=category, description=desc)
+                sk = Skill(
+                    taxonomy_version_id=tax_ver_id,
+                    code=code,
+                    name=name,
+                    dimension=dim,
+                    domain=domain,
+                    category=category,
+                    description=desc,
+                )
                 session.add(sk)
                 await session.flush()
             created_skills.append(sk)

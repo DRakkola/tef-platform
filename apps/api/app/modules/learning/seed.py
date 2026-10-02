@@ -1,9 +1,10 @@
-"""Seed learning skills hierarchy and targeted practice exercises."""
-
+import uuid
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.admin.enums import SkillDimension, SkillTagRole, TaxonomyLifecycleStatus
+from app.modules.admin.models import TaxonomyVersion
 from app.modules.assessments.enums import QuestionType
 from app.modules.assessments.models import Skill
 from app.modules.learning.enums import SkillCategory
@@ -21,43 +22,83 @@ async def seed_learning_data(db: AsyncSession) -> None:
         logger.info("learning_skills_already_seeded")
         return
 
+    # Resolve active taxonomy version
+    active_tax = await db.scalar(
+        select(TaxonomyVersion).where(TaxonomyVersion.status == TaxonomyLifecycleStatus.ACTIVE)
+    )
+    if not active_tax:
+        active_tax = TaxonomyVersion(
+            id=uuid.uuid4(),
+            version="v2.0.0-canonical",
+            name="TEF Canada Standard Taxonomy 2026",
+            status=TaxonomyLifecycleStatus.ACTIVE,
+        )
+        db.add(active_tax)
+        await db.flush()
+    tax_ver_id = active_tax.id
+
     # Update reading and listening skills with categories if present
     reading_skill = await db.scalar(select(Skill).where(Skill.code == "reading_comprehension"))
-    if reading_skill and reading_skill.category is None:
-        reading_skill.category = SkillCategory.READING
+    if reading_skill:
+        if reading_skill.category is None:
+            reading_skill.category = SkillCategory.READING
+        if not reading_skill.dimension:
+            reading_skill.dimension = SkillDimension.REASONING
+        if not reading_skill.domain:
+            reading_skill.domain = "reading"
 
     listening_skill = await db.scalar(select(Skill).where(Skill.code == "listening_comprehension"))
-    if listening_skill and listening_skill.category is None:
-        listening_skill.category = SkillCategory.LISTENING
+    if listening_skill:
+        if listening_skill.category is None:
+            listening_skill.category = SkillCategory.LISTENING
+        if not listening_skill.dimension:
+            listening_skill.dimension = SkillDimension.REASONING
+        if not listening_skill.domain:
+            listening_skill.domain = "listening"
 
     # Root skills
     writing_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="writing_expression",
         name="Expression écrite",
+        dimension=SkillDimension.LANGUAGE,
+        domain="writing",
         description="Capacité à rédiger des textes cohérents, structurés et argumentés en français.",
         category=SkillCategory.WRITING,
     )
     speaking_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="speaking_expression",
         name="Expression orale",
+        dimension=SkillDimension.LANGUAGE,
+        domain="speaking",
         description="Capacité à s'exprimer oralement en continu et en interaction.",
         category=SkillCategory.SPEAKING,
     )
     vocab_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="vocabulary",
         name="Vocabulaire et Lexique",
+        dimension=SkillDimension.LANGUAGE,
+        domain="vocabulary",
         description="Maîtrise du vocabulaire thématique, des connecteurs et du registre de langue.",
         category=SkillCategory.VOCABULARY,
     )
     grammar_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="grammar",
         name="Grammaire et Syntaxe",
+        dimension=SkillDimension.LANGUAGE,
+        domain="grammar",
         description="Structure des phrases, accords, pronoms et constructions grammaticales.",
         category=SkillCategory.GRAMMAR,
     )
     conjugation_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="conjugation",
         name="Conjugaison et Modes",
+        dimension=SkillDimension.LANGUAGE,
+        domain="conjugation",
         description="Maîtrise des temps verbaux (passé composé, imparfait, subjonctif, conditionnel).",
         category=SkillCategory.CONJUGATION,
     )
@@ -68,15 +109,21 @@ async def seed_learning_data(db: AsyncSession) -> None:
     # Hierarchical subskills
     # Vocabulary -> connectors, collocations
     connectors_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="connectors",
         name="Connecteurs logiques et articulation",
+        dimension=SkillDimension.LANGUAGE,
+        domain="vocabulary",
         description="Utilisation des mots de liaison pour structurer un discours argumentatif.",
         parent_id=vocab_skill.id,
         category=SkillCategory.VOCABULARY,
     )
     collocations_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="collocations",
         name="Expressions idiomatiques et collocations",
+        dimension=SkillDimension.LANGUAGE,
+        domain="vocabulary",
         description="Associations de mots naturelles et expressions courantes en français.",
         parent_id=vocab_skill.id,
         category=SkillCategory.VOCABULARY,
@@ -84,15 +131,21 @@ async def seed_learning_data(db: AsyncSession) -> None:
 
     # Grammar -> relative_pronouns, subjunctive
     relative_pronouns_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="relative_pronouns",
         name="Pronoms relatifs simples et composés",
+        dimension=SkillDimension.LANGUAGE,
+        domain="grammar",
         description="Emploi de qui, que, dont, où, lequel, auquel, duquel.",
         parent_id=grammar_skill.id,
         category=SkillCategory.GRAMMAR,
     )
     subjunctive_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="subjunctive",
         name="Subjonctif et expressions d'obligation",
+        dimension=SkillDimension.LANGUAGE,
+        domain="grammar",
         description="Emploi du subjonctif présent après les verbes de volonté, sentiment, doute.",
         parent_id=grammar_skill.id,
         category=SkillCategory.GRAMMAR,
@@ -100,15 +153,21 @@ async def seed_learning_data(db: AsyncSession) -> None:
 
     # Conjugation -> past_tenses, conditional
     past_tenses_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="past_tenses",
         name="Temps du passé (Imparfait vs Passé Composé)",
+        dimension=SkillDimension.LANGUAGE,
+        domain="conjugation",
         description="Alternance entre action ponctuelle et description d'arrière-plan.",
         parent_id=conjugation_skill.id,
         category=SkillCategory.CONJUGATION,
     )
     conditional_skill = Skill(
+        taxonomy_version_id=tax_ver_id,
         code="conditional",
         name="Conditionnel présent et passé",
+        dimension=SkillDimension.LANGUAGE,
+        domain="conjugation",
         description="Expression de l'hypothèse, du souhait et de la politesse.",
         parent_id=conjugation_skill.id,
         category=SkillCategory.CONJUGATION,
@@ -167,8 +226,14 @@ async def seed_learning_data(db: AsyncSession) -> None:
     db.add(ex1)
     await db.flush()
 
-    ex1_skill1 = ExerciseSkill(exercise_id=ex1.id, skill_id=grammar_skill.id)
-    ex1_skill2 = ExerciseSkill(exercise_id=ex1.id, skill_id=relative_pronouns_skill.id)
+    ex1_skill1 = ExerciseSkill(exercise_id=ex1.id, skill_id=grammar_skill.id, role=SkillTagRole.PRIMARY)
+    ex1_skill2 = ExerciseSkill(
+        exercise_id=ex1.id,
+        skill_id=grammar_skill.id,
+        subskill_id=relative_pronouns_skill.id,
+        subskill=relative_pronouns_skill.code,
+        role=SkillTagRole.SECONDARY,
+    )
     db.add_all([ex1_skill1, ex1_skill2])
 
     ex2 = Exercise(
@@ -211,8 +276,14 @@ async def seed_learning_data(db: AsyncSession) -> None:
     db.add(ex2)
     await db.flush()
 
-    ex2_skill1 = ExerciseSkill(exercise_id=ex2.id, skill_id=vocab_skill.id)
-    ex2_skill2 = ExerciseSkill(exercise_id=ex2.id, skill_id=connectors_skill.id)
+    ex2_skill1 = ExerciseSkill(exercise_id=ex2.id, skill_id=vocab_skill.id, role=SkillTagRole.PRIMARY)
+    ex2_skill2 = ExerciseSkill(
+        exercise_id=ex2.id,
+        skill_id=vocab_skill.id,
+        subskill_id=connectors_skill.id,
+        subskill=connectors_skill.code,
+        role=SkillTagRole.SECONDARY,
+    )
     db.add_all([ex2_skill1, ex2_skill2])
 
     ex3 = Exercise(
@@ -255,8 +326,14 @@ async def seed_learning_data(db: AsyncSession) -> None:
     db.add(ex3)
     await db.flush()
 
-    ex3_skill1 = ExerciseSkill(exercise_id=ex3.id, skill_id=conjugation_skill.id)
-    ex3_skill2 = ExerciseSkill(exercise_id=ex3.id, skill_id=past_tenses_skill.id)
+    ex3_skill1 = ExerciseSkill(exercise_id=ex3.id, skill_id=conjugation_skill.id, role=SkillTagRole.PRIMARY)
+    ex3_skill2 = ExerciseSkill(
+        exercise_id=ex3.id,
+        skill_id=conjugation_skill.id,
+        subskill_id=past_tenses_skill.id,
+        subskill=past_tenses_skill.code,
+        role=SkillTagRole.SECONDARY,
+    )
     db.add_all([ex3_skill1, ex3_skill2])
 
     if reading_skill:

@@ -22,6 +22,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import TimeStampedUUIDModel, UUIDModel
+from app.modules.admin.enums import SkillTagRole
 from app.modules.assessments.enums import QuestionType
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ class StudentSkill(TimeStampedUUIDModel):
     )
     skill_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="CASCADE"),
+        ForeignKey("skills.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -108,7 +109,7 @@ class SkillAssessment(UUIDModel):
     )
     skill_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="CASCADE"),
+        ForeignKey("skills.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -173,6 +174,12 @@ class Mistake(UUIDModel):
         nullable=False,
         index=True,
     )
+    subskill_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     subskill: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
@@ -220,7 +227,8 @@ class Mistake(UUIDModel):
     )
 
     user: Mapped[User] = relationship("User")
-    skill: Mapped[Skill] = relationship("Skill")
+    skill: Mapped[Skill] = relationship("Skill", foreign_keys=[skill_id])
+    subskill_ref: Mapped[Skill | None] = relationship("Skill", foreign_keys=[subskill_id])
 
 
 class Exercise(TimeStampedUUIDModel):
@@ -320,7 +328,7 @@ class Exercise(TimeStampedUUIDModel):
 
 
 class ExerciseSkill(UUIDModel):
-    """Association table linking exercises with skills and subskills."""
+    """Association table linking exercises with primary/secondary skills and subskills."""
 
     __tablename__ = "exercise_skills"
 
@@ -332,13 +340,25 @@ class ExerciseSkill(UUIDModel):
     )
     skill_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="CASCADE"),
+        ForeignKey("skills.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
+    )
+    subskill_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="RESTRICT"),
+        nullable=True,
         index=True,
     )
     subskill: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
+    )
+    role: Mapped[SkillTagRole] = mapped_column(
+        SQLEnum(SkillTagRole, name="skill_tag_role", native_enum=False),
+        default=SkillTagRole.PRIMARY,
+        nullable=False,
+        index=True,
     )
     weight: Mapped[float] = mapped_column(
         Float,
@@ -350,7 +370,8 @@ class ExerciseSkill(UUIDModel):
         "Exercise",
         back_populates="skills",
     )
-    skill: Mapped[Skill] = relationship("Skill")
+    skill: Mapped[Skill] = relationship("Skill", foreign_keys=[skill_id])
+    subskill_ref: Mapped[Skill | None] = relationship("Skill", foreign_keys=[subskill_id])
 
 
 class ExerciseAttempt(UUIDModel):

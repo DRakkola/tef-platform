@@ -5,7 +5,14 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from app.modules.admin.models import AssessmentVersion, QuestionVersion, SubSkill
+    from app.modules.admin.models import (
+        AssessmentVersion,
+        QuestionVersion,
+        SkillLevelDescriptor,
+        SkillRelation,
+        SubSkill,
+        TaxonomyVersion,
+    )
 
 from sqlalchemy import (
     JSON,
@@ -25,6 +32,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import TimeStampedUUIDModel
+from app.modules.admin.enums import SkillDimension, SkillTagRole
 from app.modules.assessments.enums import (
     AssessmentType,
     AttemptStatus,
@@ -36,11 +44,16 @@ from app.modules.learning.enums import SkillCategory
 from app.modules.users.models import User
 
 
-class Skill(TimeStampedUUIDModel):
-    """Linguistic skill or subskill (e.g. reading comprehension, lexical structure)."""
+class TaskType(TimeStampedUUIDModel):
+    """Assessment task format and stimulus decoupled from competencies."""
 
-    __tablename__ = "skills"
+    __tablename__ = "task_types"
 
+    modality: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        index=True,
+    )
     code: Mapped[str] = mapped_column(
         String(100),
         unique=True,
@@ -50,6 +63,49 @@ class Skill(TimeStampedUUIDModel):
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+    )
+
+
+class Skill(TimeStampedUUIDModel):
+    """Authoritative competency or subskill unit in the platform."""
+
+    __tablename__ = "skills"
+
+    taxonomy_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("taxonomy_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(
+        String(100),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    dimension: Mapped[SkillDimension] = mapped_column(
+        SQLEnum(SkillDimension, name="skill_dimension", native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    domain: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
     )
     category: Mapped[SkillCategory | None] = mapped_column(
         SQLEnum(SkillCategory, name="skill_category", native_enum=False),
@@ -73,6 +129,10 @@ class Skill(TimeStampedUUIDModel):
         index=True,
     )
 
+    taxonomy_version: Mapped["TaxonomyVersion"] = relationship(
+        "TaxonomyVersion",
+        back_populates="skills",
+    )
     parent: Mapped[Skill | None] = relationship(
         "Skill",
         remote_side="Skill.id",
@@ -82,8 +142,26 @@ class Skill(TimeStampedUUIDModel):
         "Skill",
         back_populates="parent",
     )
+    outgoing_relations: Mapped[list["SkillRelation"]] = relationship(
+        "SkillRelation",
+        foreign_keys="SkillRelation.from_skill_id",
+        back_populates="from_skill",
+        cascade="all, delete-orphan",
+    )
+    incoming_relations: Mapped[list["SkillRelation"]] = relationship(
+        "SkillRelation",
+        foreign_keys="SkillRelation.to_skill_id",
+        back_populates="to_skill",
+        cascade="all, delete-orphan",
+    )
+    level_descriptors: Mapped[list["SkillLevelDescriptor"]] = relationship(
+        "SkillLevelDescriptor",
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
     question_tags: Mapped[list[QuestionSkillTag]] = relationship(
         "QuestionSkillTag",
+        foreign_keys="QuestionSkillTag.skill_id",
         back_populates="skill",
     )
     subskills_table: Mapped[list[SubSkill]] = relationship(
@@ -362,7 +440,7 @@ class QuestionOption(TimeStampedUUIDModel):
 
 
 class QuestionSkillTag(TimeStampedUUIDModel):
-    """Associates a question with a primary skill or subskill with weight."""
+    """Associates a question with a primary or secondary competency with weight and subskill FK."""
 
     __tablename__ = "question_skill_tags"
 
@@ -374,13 +452,25 @@ class QuestionSkillTag(TimeStampedUUIDModel):
     )
     skill_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="CASCADE"),
+        ForeignKey("skills.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
+    )
+    subskill_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="RESTRICT"),
+        nullable=True,
         index=True,
     )
     subskill: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
+    )
+    role: Mapped[SkillTagRole] = mapped_column(
+        SQLEnum(SkillTagRole, name="skill_tag_role", native_enum=False),
+        default=SkillTagRole.PRIMARY,
+        nullable=False,
+        index=True,
     )
     weight: Mapped[float] = mapped_column(
         Float,
@@ -394,7 +484,12 @@ class QuestionSkillTag(TimeStampedUUIDModel):
     )
     skill: Mapped[Skill] = relationship(
         "Skill",
+        foreign_keys=[skill_id],
         back_populates="question_tags",
+    )
+    subskill_ref: Mapped[Skill | None] = relationship(
+        "Skill",
+        foreign_keys=[subskill_id],
     )
 
 

@@ -58,3 +58,47 @@ class ContentAuditEventType(str, enum.Enum):
     CONTENT_ARCHIVED = "content.archived"
     MEDIA_UPLOADED = "media.uploaded"
     MEDIA_DELETED = "media.deleted"
+
+
+class SkillDimension(str, enum.Enum):
+    """Taxonomy V2 orthogonal competency dimensions."""
+
+    REASONING = "reasoning"
+    LANGUAGE = "language"
+
+
+class SkillTagRole(str, enum.Enum):
+    """Pedagogical role of a skill attached to an assessment question or exercise."""
+
+    PRIMARY = "primary"
+    SECONDARY = "secondary"
+
+
+class SkillRelationType(str, enum.Enum):
+    """Pedagogical dependency relationship between two skills in the graph."""
+
+    PREREQUISITE = "prerequisite"
+    DEPENDS_ON = "depends_on"
+    SUPPORTS = "supports"
+    RELATED = "related"
+
+
+class TaxonomyLifecycleStatus(str, enum.Enum):
+    """Lifecycle state of a taxonomy version snapshot or competency."""
+
+    DRAFT = "draft"
+    ACTIVE = "active"
+    DEPRECATED = "deprecated"
+    ARCHIVED = "archived"
+
+
+class CEFRBand(str, enum.Enum):
+    """Standard Common European Framework of Reference for Languages bands."""
+
+    A1 = "A1"
+    A2 = "A2"
+    B1 = "B1"
+    B2 = "B2"
+    C1 = "C1"
+    C2 = "C2"
+

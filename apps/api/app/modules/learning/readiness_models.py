@@ -174,7 +174,7 @@ class SkillEvidence(UUIDModel):
     )
     skill_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="CASCADE"),
+        ForeignKey("skills.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
