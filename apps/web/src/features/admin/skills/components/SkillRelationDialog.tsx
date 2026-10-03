@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { skillRelationFormSchema, type SkillRelationFormValues } from "../schemas";
-import type { TaxonomySkillDetail, TaxonomySkillItem, SkillRelationType } from "../types";
+import type { TaxonomySkillDetail, TaxonomySkillItem } from "../types";
 
 interface SkillRelationDialogProps {
   open: boolean;

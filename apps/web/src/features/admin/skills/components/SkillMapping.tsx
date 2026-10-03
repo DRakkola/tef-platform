@@ -1,18 +1,12 @@
 import React from "react";
 import {
-  Network,
   Plus,
   Trash2,
   ArrowRight,
   ArrowLeft,
-  ArrowUpDown,
-  Brain,
-  Languages,
-  CheckCircle,
-  HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { TaxonomySkillDetail, SkillRelation, SkillRelationType } from "../types";
+import type { TaxonomySkillDetail, SkillRelationType } from "../types";
 
 interface SkillMappingProps {
   skill: TaxonomySkillDetail;
@@ -60,12 +54,8 @@ export const SkillMapping: React.FC<SkillMappingProps> = ({
   const outgoing = skill.outgoing_relations || [];
   const incoming = skill.incoming_relations || [];
 
-  // Outgoing prerequisites: skills this skill unlocks
-  const outgoingPrereqs = outgoing.filter((r) => r.relation_type === "prerequisite");
   // Incoming prerequisites: skills required before this skill
   const incomingPrereqs = incoming.filter((r) => r.relation_type === "prerequisite");
-  // Other outgoing dependencies
-  const otherOutgoing = outgoing.filter((r) => r.relation_type !== "prerequisite");
 
   const totalRelations = outgoing.length + incoming.length;
 

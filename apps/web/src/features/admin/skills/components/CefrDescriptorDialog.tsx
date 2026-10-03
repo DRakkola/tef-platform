@@ -40,7 +40,6 @@ export const CefrDescriptorDialog: React.FC<CefrDescriptorDialogProps> = ({
     register,
     handleSubmit,
     reset,
-    setValue,
     formState: { errors },
   } = useForm<CefrDescriptorFormValues>({
     resolver: zodResolver(cefrDescriptorFormSchema),

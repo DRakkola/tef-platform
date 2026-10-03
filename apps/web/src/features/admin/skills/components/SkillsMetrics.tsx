@@ -1,5 +1,5 @@
 import React from "react";
-import { Brain, Languages, Layers, Network, Award, Archive } from "lucide-react";
+import { Brain, Languages, Layers, Network, Award } from "lucide-react";
 import type { TaxonomyMetricsSummary } from "../types";
 
 interface SkillsMetricsProps {

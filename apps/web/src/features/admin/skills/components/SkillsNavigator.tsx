@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { FolderTree, GitBranch } from "lucide-react";
+import { FolderTree } from "lucide-react";
 import { SkillNavigatorItem } from "./SkillNavigatorItem";
 import type { TaxonomySkillItem } from "../types";
 
@@ -35,7 +35,7 @@ export const SkillsNavigator: React.FC<SkillsNavigatorProps> = ({
 
     // If no parent_ids at all (e.g. roots_only query), treat all as roots
     if (r.length === 0 && skills.length > 0) {
-      return { roots: skills, childrenByParent: new Map() };
+      return { roots: skills, childrenByParent: new Map<string, TaxonomySkillItem[]>() };
     }
 
     return { roots: r, childrenByParent: childrenMap };
@@ -98,7 +98,7 @@ export const SkillsNavigator: React.FC<SkillsNavigatorProps> = ({
             {/* Nested Children */}
             {isExpanded && children.length > 0 && (
               <div className="space-y-1 border-l border-border/60 ml-4 pl-1">
-                {children.map((child) => (
+                {children.map((child: TaxonomySkillItem) => (
                   <SkillNavigatorItem
                     key={child.id}
                     skill={child}

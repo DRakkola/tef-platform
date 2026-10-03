@@ -192,6 +192,7 @@ export const SkillFormSheet: React.FC<SkillFormSheetProps> = ({
                 <input
                   id="skill-domain"
                   type="text"
+                  list="domain-suggestions"
                   placeholder="ex. syntax, reading, vocabulary"
                   {...register("domain")}
                   className={`w-full px-3 py-2 rounded-lg border text-xs text-foreground bg-background transition ${
@@ -200,6 +201,11 @@ export const SkillFormSheet: React.FC<SkillFormSheetProps> = ({
                       : "border-border focus:ring-primary"
                   }`}
                 />
+                <datalist id="domain-suggestions">
+                  {availableDomains.map((d) => (
+                    <option key={d} value={d} />
+                  ))}
+                </datalist>
                 {errors.domain && (
                   <p className="text-[11px] text-destructive">{errors.domain.message}</p>
                 )}

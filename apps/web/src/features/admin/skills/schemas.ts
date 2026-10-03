@@ -23,7 +23,7 @@ export const skillFormSchema = z.object({
   category: z.string().optional().nullable(),
   description: z.string().max(1000, "La description ne peut pas dépasser 1000 caractères.").optional().nullable(),
   parent_id: z.string().uuid("Identifiant parent invalide").optional().nullable(),
-  is_active: z.boolean().default(true),
+  is_active: z.boolean(),
 });
 
 export type SkillFormValues = z.infer<typeof skillFormSchema>;
@@ -43,7 +43,7 @@ export const childSkillFormSchema = z.object({
     .max(255, "Le nom ne peut pas dépasser 255 caractères."),
   description: z.string().max(1000, "La description ne peut pas dépasser 1000 caractères.").optional().nullable(),
   category: z.string().optional().nullable(),
-  is_active: z.boolean().default(true),
+  is_active: z.boolean(),
 });
 
 export type ChildSkillFormValues = z.infer<typeof childSkillFormSchema>;

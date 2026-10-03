@@ -1,5 +1,5 @@
 import React from "react";
-import { Award, Plus, Edit2, Trash2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TaxonomySkillDetail, SkillLevelDescriptor, CEFRBand } from "../types";
 

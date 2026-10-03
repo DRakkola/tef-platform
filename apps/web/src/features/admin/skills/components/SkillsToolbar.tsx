@@ -1,5 +1,5 @@
 import React from "react";
-import { Search, X, Filter, Brain, Languages } from "lucide-react";
+import { Search, X, Brain, Languages } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface SkillsToolbarProps {

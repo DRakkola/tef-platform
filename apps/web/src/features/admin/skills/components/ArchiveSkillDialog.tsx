@@ -4,12 +4,11 @@ import {
   AlertDialogContent,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { Archive, AlertCircle } from "lucide-react";
+import { Archive } from "lucide-react";
 import type { TaxonomySkillDetail, TaxonomySkillItem } from "../types";
 
 interface ArchiveSkillDialogProps {
