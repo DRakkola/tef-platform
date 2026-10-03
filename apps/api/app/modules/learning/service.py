@@ -132,6 +132,7 @@ class LearningService:
             question = question_map.get(ans.question_id)
             if not question or not question.skill_tags:
                 continue
+            item_source_id = getattr(ans, "id", None) or uuid.uuid5(attempt.id, str(question.id))
             pts_awarded = float(ans.points_awarded) if ans.points_awarded is not None else 0.0
             q_points = float(question.points)
             for tag in question.skill_tags:
@@ -143,7 +144,7 @@ class LearningService:
                     student_id=attempt.user_id,
                     skill_id=tag.skill_id,
                     source_type="assessment_item",
-                    source_id=ans.id,
+                    source_id=item_source_id,
                     raw_score=round(contribution, 4),
                     normalized_score=max(0.0, min(100.0, normalized)),
                     confidence=0.85,
@@ -177,12 +178,37 @@ class LearningService:
             pts_max = float(skill_metric["max"])
             skills_to_record.append((skill_obj, score_pct, pts_earned, pts_max))
 
+        # Explicit parent roll-up calculation (Requirement 5)
+        parent_children_map: dict[uuid.UUID, list[tuple[Skill, float, float, float]]] = {}
+        for skill_obj, score_pct, pts_earned, pts_max in skills_to_record:
             if skill_obj.parent_id:
-                parent_obj = await db.scalar(select(Skill).where(Skill.id == skill_obj.parent_id))
-                if parent_obj and parent_obj.id not in [s[0].id for s in skills_to_record]:
-                    skills_to_record.append((parent_obj, score_pct, pts_earned, pts_max))
+                parent_children_map.setdefault(skill_obj.parent_id, []).append(
+                    (skill_obj, score_pct, pts_earned, pts_max)
+                )
 
-        for target_skill, score_pct, pts_earned, pts_max in skills_to_record:
+        parent_skills_to_record: list[tuple[Skill, float, float, float]] = []
+        for parent_id, children in parent_children_map.items():
+            parent_obj = await db.scalar(select(Skill).where(Skill.id == parent_id))
+            if not parent_obj:
+                continue
+            rollup = SkillEngine.calculate_parent_rollup(
+                [
+                    {
+                        "pts_earned": c[2],
+                        "pts_max": c[3],
+                        "mastery_score": c[1],
+                        "confidence": 0.85,
+                    }
+                    for c in children
+                ]
+            )
+            parent_skills_to_record.append(
+                (parent_obj, rollup["score_pct"], rollup["pts_earned"], rollup["pts_max"])
+            )
+
+        all_skills_to_record = skills_to_record + parent_skills_to_record
+
+        for target_skill, score_pct, pts_earned, pts_max in all_skills_to_record:
             snap_level = LevelEstimationService.estimate_cefr(score_pct)
             # 2a. IMMUTABLE historical snapshot
             skill_assessment = SkillAssessment(
@@ -403,23 +429,78 @@ class LearningService:
         result = await db.execute(stmt)
         skills = result.scalars().all()
 
-        return [
-            {
-                "id": s.id,
-                "user_id": s.user_id,
-                "skill_id": s.skill_id,
-                "skill_code": s.skill.code,
-                "skill_name": s.skill.name,
-                "category": s.skill.category,
-                "mastery_score": s.mastery_score,
-                "confidence": s.confidence,
-                "attempts_count": s.attempts_count,
-                "successful_attempts": s.successful_attempts,
-                "estimated_level": s.estimated_level or LevelEstimationService.estimate_cefr(s.mastery_score),
-                "last_assessed_at": s.last_assessed_at,
-            }
-            for s in skills
-        ]
+        results = []
+        # Batch load level descriptors
+        skill_ids = [s.skill_id for s in skills]
+        descriptors_map: dict[tuple[uuid.UUID, str], str] = {}
+        if skill_ids:
+            from app.modules.admin.models import SkillLevelDescriptor
+
+            desc_stmt = select(SkillLevelDescriptor).where(SkillLevelDescriptor.skill_id.in_(skill_ids))
+            for d in (await db.execute(desc_stmt)).scalars().all():
+                level_str = d.level.value if hasattr(d.level, "value") else str(d.level)
+                descriptors_map[(d.skill_id, level_str.upper())] = d.descriptor
+
+        # Count evidence records per skill for student
+        from app.modules.learning.readiness_models import SkillEvidence
+
+        ev_count_stmt = (
+            select(SkillEvidence.skill_id, func.count(SkillEvidence.id))
+            .where(SkillEvidence.student_id == user_id)
+            .group_by(SkillEvidence.skill_id)
+        )
+        ev_counts = dict((await db.execute(ev_count_stmt)).all())
+
+        now = datetime.datetime.now(datetime.UTC)
+        for s in skills:
+            est_level = s.estimated_level or LevelEstimationService.estimate_cefr(s.mastery_score)
+            accuracy = round(s.successful_attempts / s.attempts_count, 2) if s.attempts_count > 0 else 0.0
+            last_dt = (
+                s.last_assessed_at
+                if s.last_assessed_at.tzinfo
+                else s.last_assessed_at.replace(tzinfo=datetime.UTC)
+            )
+            recency_days = round(max(0.0, (now - last_dt).total_seconds() / 86400.0), 1)
+            conf_label = (
+                "High"
+                if s.confidence >= 0.75
+                else "Medium"
+                if s.confidence >= 0.50
+                else "Low"
+                if s.attempts_count >= 2
+                else "Calibration"
+            )
+            desc_text = descriptors_map.get((s.skill_id, est_level.upper())) if est_level else None
+
+            results.append(
+                {
+                    "id": s.id,
+                    "user_id": s.user_id,
+                    "skill_id": s.skill_id,
+                    "skill_code": s.skill.code if s.skill else "",
+                    "skill_name": s.skill.name if s.skill else "Compétence",
+                    "dimension": (
+                        s.skill.dimension.value
+                        if s.skill and hasattr(s.skill, "dimension") and s.skill.dimension
+                        else None
+                    ),
+                    "domain": s.skill.domain if s.skill and hasattr(s.skill, "domain") else None,
+                    "category": s.skill.category if s.skill else None,
+                    "mastery_score": s.mastery_score,
+                    "confidence": s.confidence,
+                    "confidence_label": conf_label,
+                    "attempts_count": s.attempts_count,
+                    "successful_attempts": s.successful_attempts,
+                    "accuracy": accuracy,
+                    "recency_days": recency_days,
+                    "evidence_count": ev_counts.get(s.skill_id, s.attempts_count),
+                    "estimated_level": est_level,
+                    "last_assessed_at": s.last_assessed_at,
+                    "descriptor": desc_text,
+                }
+            )
+
+        return results
 
     @staticmethod
     async def get_skill_history(

@@ -1,10 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { FileQuestion, Dumbbell, FileCheck2, ArrowUpRight } from "lucide-react";
-import type { SkillItem } from "../types";
+import { FileQuestion, Dumbbell, FileCheck2, PenTool, Mic, ArrowUpRight } from "lucide-react";
+import type { TaxonomySkillDetail } from "../types";
 
 interface SkillLinkedContentProps {
-  skill: SkillItem;
+  skill: TaxonomySkillDetail;
 }
 
 export const SkillLinkedContent: React.FC<SkillLinkedContentProps> = ({ skill }) => {
@@ -12,6 +12,8 @@ export const SkillLinkedContent: React.FC<SkillLinkedContentProps> = ({ skill })
     questions: 0,
     exercises: 0,
     assessments: 0,
+    writing_evaluations: 0,
+    speaking_evaluations: 0,
   };
 
   return (
@@ -21,11 +23,11 @@ export const SkillLinkedContent: React.FC<SkillLinkedContentProps> = ({ skill })
           Contenus Associés & Banques d'Évaluation
         </h3>
         <p className="text-xs text-muted-foreground">
-          Navigation rapide vers les ressources pédagogiques indexées sur cette compétence.
+          Indexation pédagogique active de cette compétence à travers les différents modules d'entraînement et d'examen.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {/* Link to Questions Bank */}
         <Link
           to={`/admin/questions?skill_id=${skill.id}`}
@@ -42,17 +44,17 @@ export const SkillLinkedContent: React.FC<SkillLinkedContentProps> = ({ skill })
               {usage.questions}
             </div>
             <div className="text-xs font-semibold text-foreground mt-0.5">
-              Banque de questions
+              Questions d'examen
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
-              Consulter les questions étiquetées
+              Banque officielle d'items TEF étiquetés
             </div>
           </div>
         </Link>
 
         {/* Link to Exercises */}
         <Link
-          to={`/admin/exercises?category=${skill.category}`}
+          to={`/admin/exercises?skill_id=${skill.id}`}
           className="group p-4 rounded-xl border border-border/80 bg-card hover:border-primary/50 shadow-2xs transition flex flex-col justify-between space-y-3"
         >
           <div className="flex items-center justify-between">
@@ -69,7 +71,7 @@ export const SkillLinkedContent: React.FC<SkillLinkedContentProps> = ({ skill })
               Exercices drill
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
-              Explorer les exercices du domaine {skill.category}
+              Activités et drills d'entraînement ciblé
             </div>
           </div>
         </Link>
@@ -80,7 +82,7 @@ export const SkillLinkedContent: React.FC<SkillLinkedContentProps> = ({ skill })
           className="group p-4 rounded-xl border border-border/80 bg-card hover:border-primary/50 shadow-2xs transition flex flex-col justify-between space-y-3"
         >
           <div className="flex items-center justify-between">
-            <div className="p-2 rounded-lg bg-teal/10 text-teal-600 dark:text-teal-400">
+            <div className="p-2 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400">
               <FileCheck2 className="size-4.5" />
             </div>
             <ArrowUpRight className="size-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
@@ -93,10 +95,50 @@ export const SkillLinkedContent: React.FC<SkillLinkedContentProps> = ({ skill })
               Simulations TEF
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
-              Épreuves contenant cette compétence
+              Épreuves complètes intégrant cette compétence
             </div>
           </div>
         </Link>
+
+        {/* Writing Usage */}
+        <div className="p-4 rounded-xl border border-border/80 bg-card shadow-2xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <PenTool className="size-4.5" />
+            </div>
+          </div>
+          <div>
+            <div className="text-xl font-bold font-mono text-foreground">
+              {usage.writing_evaluations}
+            </div>
+            <div className="text-xs font-semibold text-foreground mt-0.5">
+              Corrections d'Expression Écrite
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              Critères analytiques et grilles d'évaluation IA & tuteur
+            </div>
+          </div>
+        </div>
+
+        {/* Speaking Usage */}
+        <div className="p-4 rounded-xl border border-border/80 bg-card shadow-2xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="p-2 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400">
+              <Mic className="size-4.5" />
+            </div>
+          </div>
+          <div>
+            <div className="text-xl font-bold font-mono text-foreground">
+              {usage.speaking_evaluations}
+            </div>
+            <div className="text-xs font-semibold text-foreground mt-0.5">
+              Évaluations d'Expression Orale
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              Sessions en direct ou simulation IA TEF
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

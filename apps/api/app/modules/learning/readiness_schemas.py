@@ -26,6 +26,7 @@ class ReadinessProfileResponse(BaseModel):
     summary_skills: dict[str, Any] = Field(default_factory=dict)
     summary_gaps: list[dict[str, Any]] = Field(default_factory=list)
     summary_blockers: list[dict[str, Any]] = Field(default_factory=list)
+    dimension_summary: dict[str, Any] = Field(default_factory=dict)
     last_calculated_at: datetime.datetime
     calculation_version: str = "v1.0.0"
     disclaimer: str = (
@@ -42,6 +43,8 @@ class SkillEstimateResponse(BaseModel):
     skill_id: uuid.UUID
     skill_code: str
     skill_name: str
+    dimension: str | None = None
+    domain: str | None = None
     category: str
     estimate: float | None = None
     estimated_level: str | None = None
@@ -53,6 +56,8 @@ class SkillEstimateResponse(BaseModel):
     last_observed_at: datetime.datetime | None = None
     sources_summary: dict[str, int] = Field(default_factory=dict)
     explanation: str
+    descriptor: str | None = None
+    evidence_guidance: str | None = None
 
 
 class TargetGapResponse(BaseModel):

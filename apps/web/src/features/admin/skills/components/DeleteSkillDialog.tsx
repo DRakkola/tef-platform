@@ -4,19 +4,18 @@ import {
   AlertDialogContent,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, ShieldAlert, Archive } from "lucide-react";
-import type { SkillItem } from "../types";
+import type { TaxonomySkillDetail, TaxonomySkillItem } from "../types";
 
 interface DeleteSkillDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  skill: SkillItem | null;
+  skill: TaxonomySkillDetail | TaxonomySkillItem | null;
   onConfirmDelete: () => Promise<void>;
   onArchiveInstead: () => Promise<void>;
   isDeleting: boolean;
@@ -66,7 +65,7 @@ export const DeleteSkillDialog: React.FC<DeleteSkillDialogProps> = ({
             </div>
           </div>
 
-          <AlertDialogDescription className="text-xs pt-2 text-foreground space-y-3 leading-relaxed">
+          <div className="text-xs pt-2 text-foreground space-y-3 leading-relaxed">
             {isBlocked ? (
               <>
                 <p>
@@ -79,17 +78,18 @@ export const DeleteSkillDialog: React.FC<DeleteSkillDialogProps> = ({
                   {usage.student_mastery > 0 && <div>• {usage.student_mastery} profil(s) de progression étudiant</div>}
                 </div>
                 <p className="text-muted-foreground">
-                  Une suppression supprimerait en cascade ou invaliderait l'historique d'apprentissage des candidats. Nous vous recommandons d'archiver la compétence afin de la masquer sans corrompre les données.
+                  Une suppression définitive supprimerait en cascade ou corromprait l'historique d'apprentissage des candidats.
+                  Nous vous recommandons d'archiver la compétence afin de la masquer sans altérer les données.
                 </p>
               </>
             ) : (
               <p>
                 Êtes-vous sûr de vouloir supprimer définitivement la compétence{" "}
                 <span className="font-semibold text-foreground">"{skill.name}"</span> ?{" "}
-                Ses {skill.subskills?.length || 0} sous-compétence(s) seront également supprimées. Cette action est irréversible.
+                Cette action est irréversible.
               </p>
             )}
-          </AlertDialogDescription>
+          </div>
         </AlertDialogHeader>
 
         <AlertDialogFooter className="gap-2 sm:gap-0">
@@ -100,19 +100,24 @@ export const DeleteSkillDialog: React.FC<DeleteSkillDialogProps> = ({
           {isBlocked ? (
             <Button
               type="button"
-              onClick={onArchiveInstead}
+              onClick={async () => {
+                await onArchiveInstead();
+              }}
               disabled={isDeleting}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs gap-1 cursor-pointer"
+              className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5 cursor-pointer"
             >
-              <Archive className="size-3.5" /> Archiver la compétence
+              <Archive className="size-3.5" /> Archiver à la place
             </Button>
           ) : (
             <AlertDialogAction
-              onClick={onConfirmDelete}
+              onClick={async (e) => {
+                e.preventDefault();
+                await onConfirmDelete();
+              }}
               disabled={isDeleting}
-              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold text-xs cursor-pointer"
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground cursor-pointer"
             >
-              {isDeleting ? "Suppression..." : "Supprimer définitivement"}
+              {isDeleting ? "Suppression..." : "Confirmer la suppression"}
             </AlertDialogAction>
           )}
         </AlertDialogFooter>

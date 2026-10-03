@@ -10,15 +10,15 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { subskillFormSchema, type SubskillFormValues } from "../schemas";
-import type { SkillItem, SubSkill } from "../types";
+import { childSkillFormSchema, type ChildSkillFormValues } from "../schemas";
+import type { TaxonomySkillDetail, TaxonomySkillSummary } from "../types";
 
 interface SubskillFormSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  parentSkill: SkillItem | null;
-  subskillToEdit: SubSkill | null;
-  onSubmit: (values: SubskillFormValues) => Promise<void>;
+  parentSkill: TaxonomySkillDetail | null;
+  subskillToEdit: TaxonomySkillSummary | null;
+  onSubmit: (values: ChildSkillFormValues) => Promise<void>;
   isSubmitting: boolean;
 }
 
@@ -37,12 +37,14 @@ export const SubskillFormSheet: React.FC<SubskillFormSheetProps> = ({
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<SubskillFormValues>({
-    resolver: zodResolver(subskillFormSchema),
+  } = useForm<ChildSkillFormValues>({
+    resolver: zodResolver(childSkillFormSchema),
     defaultValues: {
       code: "",
       name: "",
       description: "",
+      category: "",
+      is_active: true,
     },
   });
 
@@ -51,18 +53,24 @@ export const SubskillFormSheet: React.FC<SubskillFormSheetProps> = ({
       reset({
         code: subskillToEdit.code,
         name: subskillToEdit.name,
-        description: subskillToEdit.description || "",
+        description: "",
+        category: subskillToEdit.category || "",
+        is_active: subskillToEdit.is_active ?? true,
       });
-    } else {
+    } else if (parentSkill) {
+      // Suggest a prefixed machine code
+      const suggestedCode = `${parentSkill.code}.`;
       reset({
-        code: "",
+        code: suggestedCode,
         name: "",
         description: "",
+        category: parentSkill.category || "",
+        is_active: true,
       });
     }
-  }, [subskillToEdit, reset, open]);
+  }, [subskillToEdit, parentSkill, reset, open]);
 
-  const handleFormSubmit = async (data: SubskillFormValues) => {
+  const handleFormSubmit = async (data: ChildSkillFormValues) => {
     await onSubmit(data);
   };
 
@@ -72,99 +80,107 @@ export const SubskillFormSheet: React.FC<SubskillFormSheetProps> = ({
         <div className="space-y-6">
           <SheetHeader>
             <SheetTitle>
-              {isEditing ? "Modifier la sous-compétence" : "Ajouter une sous-compétence"}
+              {isEditing ? "Modifier la sous-compétence" : "Nouvelle sous-compétence"}
             </SheetTitle>
             <SheetDescription>
-              {isEditing
-                ? `Modification de l'unité pédagogique rattachée à ${parentSkill?.name || "la compétence"}.`
-                : `Définissez une sous-compétence pour affiner l'évaluation sous ${parentSkill?.name || "la compétence"}.`}
+              {isEditing ? (
+                "Modifiez les caractéristiques de cette micro-compétence."
+              ) : (
+                <span>
+                  Ajout d'une sous-compétence rattachée à{" "}
+                  <strong className="text-foreground font-semibold">
+                    {parentSkill?.name}
+                  </strong>{" "}
+                  ({parentSkill?.code}).
+                </span>
+              )}
             </SheetDescription>
           </SheetHeader>
 
-          {/* Parent Skill Context Pill */}
-          {parentSkill && (
-            <div className="p-3 bg-muted/40 rounded-xl border border-border/70 text-xs space-y-1">
-              <span className="text-muted-foreground font-medium block">Compétence parente :</span>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground">{parentSkill.name}</span>
-                <span className="font-mono text-[11px] text-muted-foreground">({parentSkill.code})</span>
-              </div>
-            </div>
-          )}
-
           <form id="subskill-form" onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4 text-xs sm:text-sm">
-            {/* Subskill Code */}
+            {/* Code Field */}
             <div className="space-y-1.5">
-              <label htmlFor="sub-code" className="block font-semibold text-foreground">
-                Code sous-compétence (Unique) <span className="text-destructive">*</span>
+              <label htmlFor="subskill-code" className="block font-semibold text-foreground">
+                Code machine unique <span className="text-destructive">*</span>
               </label>
               <input
-                id="sub-code"
+                id="subskill-code"
                 type="text"
                 disabled={isEditing}
-                placeholder="ex. reading_implicit_tone, grammar_subjunctive"
+                placeholder="ex. reading.detail_factuel"
                 {...register("code")}
                 className={`w-full px-3 py-2 rounded-lg border font-mono text-xs text-foreground bg-background transition ${
-                  isEditing
-                    ? "opacity-60 cursor-not-allowed bg-muted"
-                    : "focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-                } ${errors.code ? "border-destructive ring-1 ring-destructive/40" : "border-border"}`}
+                  errors.code
+                    ? "border-destructive focus:ring-destructive"
+                    : "border-border focus:ring-primary"
+                } ${isEditing ? "opacity-60 cursor-not-allowed bg-muted" : ""}`}
               />
-              {isEditing && (
-                <p className="text-[11px] text-muted-foreground">
-                  Le code unique ne peut pas être modifié après création.
-                </p>
-              )}
               {errors.code && (
-                <p className="text-xs text-destructive font-medium">{errors.code.message}</p>
+                <p className="text-[11px] text-destructive">{errors.code.message}</p>
               )}
             </div>
 
-            {/* Subskill Name */}
+            {/* Name Field */}
             <div className="space-y-1.5">
-              <label htmlFor="sub-name" className="block font-semibold text-foreground">
-                Intitulé de la sous-compétence <span className="text-destructive">*</span>
+              <label htmlFor="subskill-name" className="block font-semibold text-foreground">
+                Nom d'affichage <span className="text-destructive">*</span>
               </label>
               <input
-                id="sub-name"
+                id="subskill-name"
                 type="text"
-                placeholder="ex. Repérer le ton ironique de l'auteur"
+                placeholder="ex. Repérer une date, un lieu ou un chiffre explicite"
                 {...register("name")}
-                className={`w-full px-3 py-2 rounded-lg border text-xs sm:text-sm text-foreground bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition ${
-                  errors.name ? "border-destructive ring-1 ring-destructive/40" : "border-border"
+                className={`w-full px-3 py-2 rounded-lg border text-xs sm:text-sm text-foreground bg-background transition ${
+                  errors.name
+                    ? "border-destructive focus:ring-destructive"
+                    : "border-border focus:ring-primary"
                 }`}
               />
               {errors.name && (
-                <p className="text-xs text-destructive font-medium">{errors.name.message}</p>
+                <p className="text-[11px] text-destructive">{errors.name.message}</p>
               )}
             </div>
 
-            {/* Subskill Description */}
+            {/* Description Field */}
             <div className="space-y-1.5">
-              <label htmlFor="sub-desc" className="block font-semibold text-foreground">
-                Description pédagogique & Indicateur
+              <label htmlFor="subskill-description" className="block font-semibold text-foreground">
+                Description pédagogique
               </label>
               <textarea
-                id="sub-desc"
+                id="subskill-description"
                 rows={3}
-                placeholder="Critère diagnostique précis associé à cette micro-compétence..."
+                placeholder="Détaillez la règle linguistique ou cognitive sous-jacente..."
                 {...register("description")}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs sm:text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition"
+                className={`w-full px-3 py-2 rounded-lg border text-xs sm:text-sm text-foreground bg-background transition ${
+                  errors.description
+                    ? "border-destructive focus:ring-destructive"
+                    : "border-border focus:ring-primary"
+                }`}
               />
               {errors.description && (
-                <p className="text-xs text-destructive font-medium">
-                  {errors.description.message}
-                </p>
+                <p className="text-[11px] text-destructive">{errors.description.message}</p>
               )}
+            </div>
+
+            {/* Active Status Checkbox */}
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                id="subskill-active"
+                type="checkbox"
+                {...register("is_active")}
+                className="rounded border-border text-primary focus:ring-primary size-4 cursor-pointer"
+              />
+              <label htmlFor="subskill-active" className="text-xs font-medium text-foreground cursor-pointer">
+                Sous-compétence active
+              </label>
             </div>
           </form>
         </div>
 
-        <SheetFooter className="pt-6 border-t border-border/60">
+        <SheetFooter className="border-t border-border pt-4 mt-6 gap-2">
           <Button
             type="button"
             variant="outline"
-            size="sm"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
             className="cursor-pointer"
@@ -174,11 +190,14 @@ export const SubskillFormSheet: React.FC<SubskillFormSheetProps> = ({
           <Button
             type="submit"
             form="subskill-form"
-            size="sm"
             disabled={isSubmitting}
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold cursor-pointer"
           >
-            {isSubmitting ? "Enregistrement..." : isEditing ? "Sauvegarder" : "Ajouter la sous-compétence"}
+            {isSubmitting
+              ? "Enregistrement..."
+              : isEditing
+              ? "Enregistrer"
+              : "Créer la sous-compétence"}
           </Button>
         </SheetFooter>
       </SheetContent>

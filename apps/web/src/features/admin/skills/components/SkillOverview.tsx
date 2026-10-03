@@ -1,18 +1,28 @@
 import React from "react";
 import {
+  Brain,
+  Languages,
   FileQuestion,
   Dumbbell,
   GraduationCap,
   AlertCircle,
   FileCheck2,
+  GitFork,
+  ArrowRight,
+  ShieldCheck,
+  Activity,
+  PenTool,
+  Mic,
 } from "lucide-react";
-import type { SkillItem } from "../types";
+import { Button } from "@/components/ui/button";
+import type { TaxonomySkillDetail } from "../types";
 
 interface SkillOverviewProps {
-  skill: SkillItem;
+  skill: TaxonomySkillDetail;
+  onNavigateToSkill?: (id: string) => void;
 }
 
-export const SkillOverview: React.FC<SkillOverviewProps> = ({ skill }) => {
+export const SkillOverview: React.FC<SkillOverviewProps> = ({ skill, onNavigateToSkill }) => {
   const usage = skill.usage_counts || {
     questions: 0,
     exercises: 0,
@@ -25,13 +35,20 @@ export const SkillOverview: React.FC<SkillOverviewProps> = ({ skill }) => {
     total_dependencies: 0,
   };
 
+  const isReasoning = skill.dimension === "reasoning";
+
   return (
     <div className="space-y-6">
       {/* Educational Scope & Description */}
       <div className="bg-card border border-border/80 rounded-xl p-4 sm:p-5 space-y-3 shadow-2xs">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Périmètre Pédagogique & Objectifs
-        </h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Périmètre Pédagogique & Objectifs
+          </h3>
+          <span className="text-[11px] font-mono text-muted-foreground">
+            ID: {skill.id}
+          </span>
+        </div>
         {skill.description ? (
           <p className="text-xs sm:text-sm text-foreground leading-relaxed">
             {skill.description}
@@ -41,6 +58,71 @@ export const SkillOverview: React.FC<SkillOverviewProps> = ({ skill }) => {
             Aucune description pédagogique n'est encore renseignée pour cette compétence.
           </p>
         )}
+      </div>
+
+      {/* Dimension & Canonical Architecture Card */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Dimension Card */}
+        <div className="bg-card border border-border/80 rounded-xl p-4 space-y-2 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <div
+              className={`p-2 rounded-lg ${
+                isReasoning
+                  ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+                  : "bg-teal-500/10 text-teal-600 dark:text-teal-400"
+              }`}
+            >
+              {isReasoning ? <Brain className="size-4.5" /> : <Languages className="size-4.5" />}
+            </div>
+            <div>
+              <div className="text-xs font-bold text-foreground">
+                Dimension : {isReasoning ? "Raisonnement Cognitif" : "Maîtrise Linguistique"}
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                {isReasoning
+                  ? "Opération mentale requise pour résoudre la tâche (inférence, idée directrice, position auteur...)"
+                  : "Connaissance ou traitement linguistique requis (syntaxe, connecteurs, lexique...)"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Parent / Container Hierarchy Card */}
+        <div className="bg-card border border-border/80 rounded-xl p-4 space-y-2 shadow-2xs flex flex-col justify-between">
+          <div className="flex items-start gap-2">
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+              <GitFork className="size-4.5" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-foreground">
+                {skill.parent ? "Sous-compétence rattachée" : "Compétence Racine / Conteneur"}
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                {skill.parent ? (
+                  <span>
+                    Parent :{" "}
+                    <strong className="text-foreground">{skill.parent.name}</strong> ({skill.parent.code})
+                  </span>
+                ) : (
+                  <span>
+                    Contient {skill.children?.length || 0} sous-compétence(s) directe(s) dans le graphe.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {skill.parent && onNavigateToSkill && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigateToSkill(skill.parent!.id)}
+              className="text-xs h-7 self-start gap-1 mt-1 cursor-pointer"
+            >
+              Voir le parent <ArrowRight className="size-3" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Dependency & Relational Impact Matrix */}
@@ -107,25 +189,33 @@ export const SkillOverview: React.FC<SkillOverviewProps> = ({ skill }) => {
         {/* Secondary Evidence & Evaluation Counters */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
           <div className="p-3 bg-muted/40 rounded-lg border border-border/60 text-xs">
-            <div className="text-muted-foreground text-[11px]">Évaluations épreuve</div>
+            <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+              <Activity className="size-3" /> Évaluations épreuve
+            </div>
             <div className="font-mono font-semibold text-foreground text-sm mt-0.5">
               {usage.skill_assessments}
             </div>
           </div>
           <div className="p-3 bg-muted/40 rounded-lg border border-border/60 text-xs">
-            <div className="text-muted-foreground text-[11px]">Flux de preuves (Readiness)</div>
+            <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+              <ShieldCheck className="size-3" /> Preuves observées
+            </div>
             <div className="font-mono font-semibold text-foreground text-sm mt-0.5">
               {usage.skill_evidence}
             </div>
           </div>
           <div className="p-3 bg-muted/40 rounded-lg border border-border/60 text-xs">
-            <div className="text-muted-foreground text-[11px]">Corrections Écrites</div>
+            <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+              <PenTool className="size-3" /> Corrections Écrites
+            </div>
             <div className="font-mono font-semibold text-foreground text-sm mt-0.5">
               {usage.writing_evaluations}
             </div>
           </div>
           <div className="p-3 bg-muted/40 rounded-lg border border-border/60 text-xs">
-            <div className="text-muted-foreground text-[11px]">Évaluations Orales</div>
+            <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+              <Mic className="size-3" /> Évaluations Orales
+            </div>
             <div className="font-mono font-semibold text-foreground text-sm mt-0.5">
               {usage.speaking_evaluations}
             </div>
@@ -141,7 +231,7 @@ export const SkillOverview: React.FC<SkillOverviewProps> = ({ skill }) => {
             <span className="font-semibold">Compétence protégée contre la suppression :</span>{" "}
             Cette compétence est activement référencée par {usage.total_dependencies} enregistrements.
             La suppression directe est verrouillée pour préserver la cohérence des notes des candidats.
-            Vous pouvez archiver cette compétence si elle ne doit plus être proposée.
+            Vous pouvez archiver cette compétence si elle ne doit plus être proposée sur les nouveaux contenus.
           </div>
         </div>
       )}

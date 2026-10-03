@@ -94,6 +94,7 @@ async def get_my_readiness(
         summary_skills=profile.summary_skills or {},
         summary_gaps=profile.summary_gaps or [],
         summary_blockers=profile.summary_blockers or [],
+        dimension_summary=(profile.summary_skills or {}).get("_dimension_summary", {}),
         last_calculated_at=profile.last_calculated_at,
         calculation_version=profile.calculation_version,
     )
@@ -161,14 +162,19 @@ async def get_my_readiness_skills(
         if cached_data.get("last_observed_at"):
             try:
                 last_obs = datetime.datetime.fromisoformat(cached_data["last_observed_at"])
-            except Exception:
-                pass
+            except (ValueError, TypeError):
+                last_obs = None
+
+        dim_val = s.dimension.value if hasattr(s, "dimension") and s.dimension else None
+        dom_val = s.domain if hasattr(s, "domain") else None
 
         results.append(
             SkillEstimateResponse(
                 skill_id=s.id,
                 skill_code=s.code,
                 skill_name=s.name,
+                dimension=dim_val,
+                domain=dom_val,
                 category=cat,
                 estimate=cached_data.get("estimate"),
                 estimated_level=cached_data.get("estimated_level"),
@@ -183,6 +189,8 @@ async def get_my_readiness_skills(
                     "explanation",
                     "Données insuffisantes. Complétez des entraînements pour calibrer.",
                 ),
+                descriptor=cached_data.get("descriptor"),
+                evidence_guidance=cached_data.get("evidence_guidance"),
             )
         )
 

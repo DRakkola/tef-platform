@@ -2,11 +2,14 @@
 
 import datetime
 import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token, hash_password
+from app.modules.admin.enums import SkillDimension
+from app.modules.admin.models import TaxonomyVersion
 from app.modules.assessments.models import Skill
 from app.modules.learning.enums import SkillCategory
 from app.modules.learning.readiness_engine import ReadinessEngine
@@ -34,7 +37,7 @@ async def test_student(db_session: AsyncSession) -> User:
         target_exam="TEF Canada",
         target_level="B2",
         daily_minutes_available=30,
-        target_date=datetime.date.today() + datetime.timedelta(days=60),
+        target_date=datetime.datetime.now(datetime.UTC).date() + datetime.timedelta(days=60),
     )
     db_session.add(profile)
     await db_session.commit()
@@ -62,27 +65,47 @@ async def test_admin(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def sample_skills(db_session: AsyncSession) -> dict[str, Skill]:
     """Create core exam skills for reading, listening, writing, speaking."""
+    tv = TaxonomyVersion(
+        version=f"v-readiness-{uuid.uuid4().hex[:6]}",
+        name="Readiness Test Taxonomy",
+        status="active",
+    )
+    db_session.add(tv)
+    await db_session.flush()
+
     skills = {
         "reading": Skill(
             id=uuid.uuid4(),
+            taxonomy_version_id=tv.id,
+            dimension=SkillDimension.REASONING,
+            domain="reading",
             name="Compréhension écrite",
             code=f"CE_{uuid.uuid4().hex[:4]}",
             category=SkillCategory.READING,
         ),
         "listening": Skill(
             id=uuid.uuid4(),
+            taxonomy_version_id=tv.id,
+            dimension=SkillDimension.REASONING,
+            domain="listening",
             name="Compréhension orale",
             code=f"CO_{uuid.uuid4().hex[:4]}",
             category=SkillCategory.LISTENING,
         ),
         "writing": Skill(
             id=uuid.uuid4(),
+            taxonomy_version_id=tv.id,
+            dimension=SkillDimension.LANGUAGE,
+            domain="writing",
             name="Expression écrite",
             code=f"EE_{uuid.uuid4().hex[:4]}",
             category=SkillCategory.WRITING,
         ),
         "speaking": Skill(
             id=uuid.uuid4(),
+            taxonomy_version_id=tv.id,
+            dimension=SkillDimension.LANGUAGE,
+            domain="speaking",
             name="Expression orale",
             code=f"EO_{uuid.uuid4().hex[:4]}",
             category=SkillCategory.SPEAKING,

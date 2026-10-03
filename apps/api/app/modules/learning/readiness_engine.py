@@ -11,15 +11,15 @@ import time
 import uuid
 from typing import Any, ClassVar
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.metrics import metrics
+from app.modules.admin.models import SkillLevelDescriptor
 from app.modules.assessments.models import Skill
 from app.modules.learning.assessment_mapping import default_mapping_provider
+from app.modules.learning.engine import SkillEngine
 from app.modules.learning.enums import SkillCategory
-from app.modules.learning.levels import LevelEstimationService
 from app.modules.learning.models import (
     Mistake,
     ReadinessBand,
@@ -28,7 +28,7 @@ from app.modules.learning.models import (
     SkillEvidence,
     SkillTrendState,
 )
-from app.modules.users.models import StudentProfile, User
+from app.modules.users.models import StudentProfile
 
 
 class ReadinessEngine:
@@ -115,7 +115,7 @@ class ReadinessEngine:
                 elif stdev > 25.0:
                     # V2: Explicit variance penalty for contradictory scores prevents overconfidence
                     consistency_factor = -0.15
-            except Exception:
+            except (TypeError, ValueError, statistics.StatisticsError):
                 consistency_factor = 0.0
 
         # 4. Recency factor
@@ -306,7 +306,7 @@ class ReadinessEngine:
         if confidence >= cls.MIN_CONFIDENCE_THRESHOLD:
             base_priority += 10.0
 
-        priority = max(1, min(100, int(round(base_priority))))
+        priority = max(1, min(100, round(base_priority)))
 
         return {
             "skill_id": str(skill_id),
@@ -591,7 +591,6 @@ class ReadinessEngine:
 
             # 2. Fetch all skills
             all_skills = (await db.execute(select(Skill))).scalars().all()
-            skills_by_id = {s.id: s for s in all_skills}
 
             # 3. Fetch student evidence grouped by skill
             evidences = (
@@ -619,6 +618,14 @@ class ReadinessEngine:
             mistake_rows = (await db.execute(mistakes_stmt)).all()
             mistakes_by_skill = {row[0]: int(row[1]) for row in mistake_rows}
 
+            # 4b. Batch load skill level descriptors for explainability (Requirement 8)
+            desc_stmt = select(SkillLevelDescriptor)
+            desc_rows = (await db.execute(desc_stmt)).scalars().all()
+            descriptors_by_skill_level: dict[tuple[uuid.UUID, str], SkillLevelDescriptor] = {
+                (d.skill_id, (d.level.value if hasattr(d.level, "value") else str(d.level)).upper()): d
+                for d in desc_rows
+            }
+
             # 5. Calculate skill estimates & target gaps
             skills_summary: list[dict[str, Any]] = []
             gaps: list[dict[str, Any]] = []
@@ -627,11 +634,54 @@ class ReadinessEngine:
                 skill_evs = ev_by_skill.get(s.id, [])
                 estimate_data = cls.calculate_skill_estimate(skill_evs, now=now)
                 cat = s.category.value if s.category and hasattr(s.category, "value") else str(s.category or "general")
+                dim = s.dimension.value if hasattr(s, "dimension") and s.dimension else None
+                dom = s.domain if hasattr(s, "domain") else None
+                parent_str = str(s.parent_id) if s.parent_id else None
+                children = [c for c in all_skills if c.parent_id == s.id]
+
+                # Parent container roll-up if direct evidence is absent (Requirement 5)
+                if estimate_data["estimate"] is None and children:
+                    child_metrics = []
+                    for c in children:
+                        c_evs = ev_by_skill.get(c.id, [])
+                        if c_evs:
+                            c_est = cls.calculate_skill_estimate(c_evs, now=now)
+                            if c_est["estimate"] is not None:
+                                child_metrics.append({
+                                    "pts_earned": 0.0,
+                                    "pts_max": 0.0,
+                                    "mastery_score": c_est["estimate"],
+                                    "confidence": c_est["confidence"],
+                                })
+                    if child_metrics:
+                        rollup = SkillEngine.calculate_parent_rollup(
+                            child_metrics, total_children_count=len(children)
+                        )
+                        estimate_data["estimate"] = rollup["mastery_score"]
+                        estimate_data["estimated_level"] = rollup["estimated_level"]
+                        estimate_data["confidence"] = rollup["confidence"]
+                        estimate_data["confidence_label"] = rollup["confidence_label"]
+                        estimate_data["insufficient_data"] = rollup["insufficient_data"]
+                        estimate_data["observation_count"] = sum(
+                            len(ev_by_skill.get(c.id, [])) for c in children
+                        )
+                        estimate_data["explanation"] = (
+                            f"Estimation agrégée à partir de {len(child_metrics)} sous-compétence(s)."
+                        )
+
+                est_lvl = estimate_data["estimated_level"] or target_level
+                desc_obj = descriptors_by_skill_level.get((s.id, est_lvl.upper()))
+                desc_text = desc_obj.descriptor if desc_obj else None
+                guidance_text = desc_obj.evidence_guidance if desc_obj else None
 
                 skill_entry = {
                     "skill_id": str(s.id),
                     "skill_code": s.code,
                     "skill_name": s.name,
+                    "dimension": dim,
+                    "domain": dom,
+                    "parent_id": parent_str,
+                    "is_parent": bool(children),
                     "category": cat,
                     "estimate": estimate_data["estimate"],
                     "estimated_level": estimate_data["estimated_level"],
@@ -642,6 +692,8 @@ class ReadinessEngine:
                     "last_observed_at": (
                         estimate_data["last_observed_at"].isoformat() if estimate_data["last_observed_at"] else None
                     ),
+                    "descriptor": desc_text,
+                    "evidence_guidance": guidance_text,
                     "explanation": estimate_data["explanation"],
                 }
                 skills_summary.append(skill_entry)
@@ -659,6 +711,44 @@ class ReadinessEngine:
                 )
                 gaps.append(gap_data)
 
+            # 5b. Compute dimension breakdown (Requirement 6)
+            reasoning_skills = [
+                s for s in skills_summary
+                if s.get("dimension") == "reasoning" and not s.get("insufficient_data")
+            ]
+            language_skills = [
+                s for s in skills_summary
+                if s.get("dimension") == "language" and not s.get("insufficient_data")
+            ]
+            dimension_summary = {
+                "reasoning": {
+                    "estimate": (
+                        round(sum(s["estimate"] for s in reasoning_skills) / len(reasoning_skills), 1)
+                        if reasoning_skills
+                        else None
+                    ),
+                    "confidence": (
+                        round(sum(s["confidence"] for s in reasoning_skills) / len(reasoning_skills), 2)
+                        if reasoning_skills
+                        else 0.0
+                    ),
+                    "skills_count": len(reasoning_skills),
+                },
+                "language": {
+                    "estimate": (
+                        round(sum(s["estimate"] for s in language_skills) / len(language_skills), 1)
+                        if language_skills
+                        else None
+                    ),
+                    "confidence": (
+                        round(sum(s["confidence"] for s in language_skills) / len(language_skills), 2)
+                        if language_skills
+                        else 0.0
+                    ),
+                    "skills_count": len(language_skills),
+                },
+            }
+
             # 6. Identify blocking competencies
             blockers = cls.identify_blocking_skills(gaps)
 
@@ -667,6 +757,10 @@ class ReadinessEngine:
                 skills_summary=skills_summary,
                 target_level=target_level,
             )
+
+            # Build summary_skills map including dimension breakdown
+            summary_skills_payload = {str(s["skill_id"]): s for s in skills_summary}
+            summary_skills_payload["_dimension_summary"] = dimension_summary
 
             # 8. Persist/Update ReadinessProfile
             readiness_profile = await db.scalar(
@@ -683,7 +777,7 @@ class ReadinessEngine:
                     confidence=conf,
                     confidence_label=conf_label,
                     readiness_band=band,
-                    summary_skills={str(s["skill_id"]): s for s in skills_summary},
+                    summary_skills=summary_skills_payload,
                     summary_gaps=[
                         {**g, "skill_id": str(g["skill_id"])}
                         for g in gaps
@@ -705,7 +799,7 @@ class ReadinessEngine:
                 readiness_profile.confidence = conf
                 readiness_profile.confidence_label = conf_label
                 readiness_profile.readiness_band = band
-                readiness_profile.summary_skills = {str(s["skill_id"]): s for s in skills_summary}
+                readiness_profile.summary_skills = summary_skills_payload
                 readiness_profile.summary_gaps = [
                     {**g, "skill_id": str(g["skill_id"])}
                     for g in gaps
@@ -725,7 +819,7 @@ class ReadinessEngine:
                 confidence=conf,
                 confidence_label=conf_label,
                 readiness_band=band.value if hasattr(band, "value") else str(band),
-                skills={str(s["skill_id"]): s for s in skills_summary},
+                skills=summary_skills_payload,
                 gaps=[{**g, "skill_id": str(g["skill_id"])} for g in gaps],
                 blockers=[{**b, "skill_id": str(b["skill_id"])} for b in blockers],
                 recommendations=[],

@@ -869,7 +869,8 @@ class AdminContentService:
         stmt = (
             select(Assessment)
             .options(
-                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.options)
+                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.options),
+                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.skill_tags),
             )
             .order_by(Assessment.created_at.desc())
         )
@@ -1023,7 +1024,11 @@ class AdminContentService:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Question], int]:
-        stmt = select(Question).options(selectinload(Question.options)).order_by(Question.created_at.desc())
+        stmt = (
+            select(Question)
+            .options(selectinload(Question.options), selectinload(Question.skill_tags))
+            .order_by(Question.created_at.desc())
+        )
         if section_id:
             stmt = stmt.where(Question.section_id == section_id)
         if level:

@@ -22,13 +22,20 @@ class StudentSkillResponse(BaseModel):
     skill_id: uuid.UUID
     skill_code: str
     skill_name: str
+    dimension: str | None = None
+    domain: str | None = None
     category: SkillCategory | None = None
     mastery_score: float
     confidence: float
+    confidence_label: str | None = None
     attempts_count: int
     successful_attempts: int = 0
+    accuracy: float = 0.0
+    recency_days: float | None = None
+    evidence_count: int = 0
     estimated_level: str | None = None
     last_assessed_at: datetime.datetime
+    descriptor: str | None = None
 
 
 class SkillAssessmentResponse(BaseModel):
