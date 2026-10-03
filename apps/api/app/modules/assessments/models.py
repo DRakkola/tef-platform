@@ -129,7 +129,7 @@ class Skill(TimeStampedUUIDModel):
         index=True,
     )
 
-    taxonomy_version: Mapped["TaxonomyVersion"] = relationship(
+    taxonomy_version: Mapped[TaxonomyVersion] = relationship(
         "TaxonomyVersion",
         back_populates="skills",
     )
@@ -142,19 +142,19 @@ class Skill(TimeStampedUUIDModel):
         "Skill",
         back_populates="parent",
     )
-    outgoing_relations: Mapped[list["SkillRelation"]] = relationship(
+    outgoing_relations: Mapped[list[SkillRelation]] = relationship(
         "SkillRelation",
         foreign_keys="SkillRelation.from_skill_id",
         back_populates="from_skill",
         cascade="all, delete-orphan",
     )
-    incoming_relations: Mapped[list["SkillRelation"]] = relationship(
+    incoming_relations: Mapped[list[SkillRelation]] = relationship(
         "SkillRelation",
         foreign_keys="SkillRelation.to_skill_id",
         back_populates="to_skill",
         cascade="all, delete-orphan",
     )
-    level_descriptors: Mapped[list["SkillLevelDescriptor"]] = relationship(
+    level_descriptors: Mapped[list[SkillLevelDescriptor]] = relationship(
         "SkillLevelDescriptor",
         back_populates="skill",
         cascade="all, delete-orphan",
@@ -380,6 +380,12 @@ class Question(TimeStampedUUIDModel):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    task_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("task_types.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     section: Mapped[AssessmentSection] = relationship(
         "AssessmentSection",
@@ -476,6 +482,10 @@ class QuestionSkillTag(TimeStampedUUIDModel):
         Float,
         default=1.0,
         nullable=False,
+    )
+    context: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
     )
 
     question: Mapped[Question] = relationship(

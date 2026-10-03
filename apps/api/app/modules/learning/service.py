@@ -114,6 +114,7 @@ class LearningService:
                         mistake = Mistake(
                             user_id=attempt.user_id,
                             skill_id=tag.skill_id,
+                            subskill_id=getattr(tag, "subskill_id", None),
                             subskill=tag.subskill,
                             source_type="assessment",
                             source_id=attempt.id,
@@ -126,6 +127,36 @@ class LearningService:
                         )
                         db.add(mistake)
 
+        # 1b. Per-tag granular SkillEvidence from all evaluated answers
+        for ans in score_result.evaluated_answers:
+            question = question_map.get(ans.question_id)
+            if not question or not question.skill_tags:
+                continue
+            pts_awarded = float(ans.points_awarded) if ans.points_awarded is not None else 0.0
+            q_points = float(question.points)
+            for tag in question.skill_tags:
+                tag_weight = float(getattr(tag, "weight", 1.0))
+                contribution = pts_awarded * tag_weight
+                normalized = round((contribution / (q_points * tag_weight) * 100.0), 2) if q_points > 0 else 0.0
+                await ReadinessEngine.ingest_evidence(
+                    db=db,
+                    student_id=attempt.user_id,
+                    skill_id=tag.skill_id,
+                    source_type="assessment_item",
+                    source_id=ans.id,
+                    raw_score=round(contribution, 4),
+                    normalized_score=max(0.0, min(100.0, normalized)),
+                    confidence=0.85,
+                    weight=tag_weight,
+                    observed_at=now,
+                    metadata_payload={
+                        "question_id": str(question.id),
+                        "attempt_id": str(attempt.id),
+                        "role": getattr(tag, "role", "primary").value if hasattr(getattr(tag, "role", "primary"), "value") else str(getattr(tag, "role", "primary")),
+                        "points_possible": q_points * tag_weight,
+                    },
+                )
+
         # 2. Record immutable SkillAssessments and update StudentSkills
         # Collect skills to update: skill_obj and its parent hierarchy
         skills_to_record: list[tuple[Skill, float, float, float]] = []
@@ -136,7 +167,7 @@ class LearningService:
                 try:
                     uuid_val = uuid.UUID(skill_code)
                     skill_obj = await db.scalar(select(Skill).where(Skill.id == uuid_val))
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     continue
             if not skill_obj:
                 continue
@@ -568,8 +599,8 @@ class LearningService:
                 status_code=404,
             )
 
-        from app.modules.analytics.models import UserFeedback
         from app.modules.analytics.enums import FeedbackCategory
+        from app.modules.analytics.models import UserFeedback
 
         feedback = UserFeedback(
             user_id=user_id,
@@ -754,19 +785,24 @@ class LearningService:
             )
             db.add(snap)
 
-            # Ingest append-only SkillEvidence
+            # Ingest append-only SkillEvidence — use tag weight for contribution
+            es_weight = float(getattr(es, "weight", 1.0))
             await ReadinessEngine.ingest_evidence(
                 db=db,
                 student_id=user_id,
                 skill_id=es.skill_id,
                 source_type="exercise",
                 source_id=attempt.id,
-                raw_score=pts_awarded,
+                raw_score=round(pts_awarded * es_weight, 4),
                 normalized_score=score_pct,
                 confidence=0.70,
-                weight=0.70,
+                weight=es_weight,
                 observed_at=now,
-                metadata_payload={"exercise_id": str(ex.id), "is_correct": is_correct},
+                metadata_payload={
+                    "exercise_id": str(ex.id),
+                    "is_correct": is_correct,
+                    "role": getattr(es, "role", "primary").value if hasattr(getattr(es, "role", "primary"), "value") else str(getattr(es, "role", "primary")),
+                },
             )
 
             # Rolling student skill
@@ -814,6 +850,7 @@ class LearningService:
                 mistake = Mistake(
                     user_id=user_id,
                     skill_id=es.skill_id,
+                    subskill_id=getattr(es, "subskill_id", None),
                     subskill=es.subskill,
                     source_type="exercise",
                     source_id=attempt.id,

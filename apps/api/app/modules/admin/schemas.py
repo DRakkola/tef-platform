@@ -171,8 +171,20 @@ class AdminOptionResponse(BaseModel):
 
 class AdminQuestionSkillTagCreate(BaseModel):
     skill_id: uuid.UUID
-    subskill: str | None = None
+    role: str = "primary"  # SkillTagRole.PRIMARY
+    subskill_id: uuid.UUID | None = None
+    subskill: str | None = None  # Deprecated: use subskill_id
     weight: float = 1.0
+    context: dict | None = None
+
+
+class AdminExerciseSkillTagCreate(BaseModel):
+    skill_id: uuid.UUID
+    role: str = "primary"  # SkillTagRole.PRIMARY
+    subskill_id: uuid.UUID | None = None
+    subskill: str | None = None  # Deprecated: use subskill_id
+    weight: float = 1.0
+    context: dict | None = None
 
 
 class AdminQuestionCreate(BaseModel):
@@ -187,6 +199,7 @@ class AdminQuestionCreate(BaseModel):
     explanation: str | None = None
     points: int = 1
     penalty_points: int = 0
+    task_type_id: uuid.UUID | None = None
     options: list[AdminOptionCreate] = Field(default_factory=list)
     skill_tags: list[AdminQuestionSkillTagCreate] = Field(default_factory=list)
 
@@ -204,6 +217,7 @@ class AdminStandaloneQuestionCreate(BaseModel):
     explanation: str | None = None
     points: int = 1
     penalty_points: int = 0
+    task_type_id: uuid.UUID | None = None
     options: list[AdminOptionCreate] = Field(default_factory=list)
     skill_tags: list[AdminQuestionSkillTagCreate] = Field(default_factory=list)
 
@@ -219,7 +233,21 @@ class AdminStandaloneQuestionUpdate(BaseModel):
     media_url: str | None = None
     order_index: int | None = None
     status: ContentStatus | None = None
+    task_type_id: uuid.UUID | None = None
     options: list[AdminOptionCreate] | None = None
+    skill_tags: list[AdminQuestionSkillTagCreate] | None = None
+
+
+class AdminQuestionSkillTagResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    skill_id: uuid.UUID
+    subskill_id: uuid.UUID | None = None
+    subskill: str | None = None
+    role: str = "primary"
+    weight: float = 1.0
+    context: dict | None = None
 
 
 class AdminQuestionResponse(BaseModel):
@@ -240,11 +268,13 @@ class AdminQuestionResponse(BaseModel):
     penalty_points: int
     status: str = "published"
     version: int = 1
+    task_type_id: uuid.UUID | None = None
     created_by_user_id: uuid.UUID | None = None
     updated_by_user_id: uuid.UUID | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
     options: list[AdminOptionResponse] = Field(default_factory=list)
+    skill_tags: list[AdminQuestionSkillTagResponse] = Field(default_factory=list)
 
 
 class AdminQuestionListResponse(BaseModel):
@@ -464,7 +494,9 @@ class AdminExerciseCreate(BaseModel):
     points: int = 10
     options_payload: list[dict[str, Any]] = Field(default_factory=list)
     status: ContentStatus = ContentStatus.DRAFT
-    skill_ids: list[uuid.UUID] = Field(default_factory=list)
+    task_type_id: uuid.UUID | None = None
+    skill_ids: list[uuid.UUID] = Field(default_factory=list)  # Deprecated: use skill_tags
+    skill_tags: list[AdminExerciseSkillTagCreate] = Field(default_factory=list)
 
 
 class AdminExerciseUpdate(BaseModel):
@@ -479,7 +511,9 @@ class AdminExerciseUpdate(BaseModel):
     points: int | None = None
     options_payload: list[dict[str, Any]] | None = None
     status: ContentStatus | None = None
-    skill_ids: list[uuid.UUID] | None = None
+    task_type_id: uuid.UUID | None = None
+    skill_ids: list[uuid.UUID] | None = None  # Deprecated: use skill_tags
+    skill_tags: list[AdminExerciseSkillTagCreate] | None = None
 
 
 class AdminExerciseResponse(BaseModel):

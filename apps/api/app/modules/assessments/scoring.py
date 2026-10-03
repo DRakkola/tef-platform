@@ -67,18 +67,21 @@ class ScoringEngine:
                 q_points = float(question.points)
                 max_points += q_points
 
-                # Track skill max points
+                # Track skill max points — use canonical skill_id as key
                 for tag in question.skill_tags:
-                    skill_code = tag.subskill if tag.subskill else str(tag.skill_id)
+                    tag_weight = float(getattr(tag, "weight", 1.0))
+                    skill_code = str(tag.skill_id)
                     if skill_code not in skill_tracker:
                         skill_tracker[skill_code] = SkillScoreDetail()
-                    skill_tracker[skill_code].max += q_points
+                    skill_tracker[skill_code].max += q_points * tag_weight
 
-                    if tag.subskill:
+                    # Maintain subskill breakdown by subskill_id or legacy subskill string
+                    sub_key = str(getattr(tag, "subskill_id", None) or tag.subskill or "")
+                    if sub_key:
                         sub = skill_tracker[skill_code].subskills.setdefault(
-                            tag.subskill, {"earned": 0.0, "max": 0.0}
+                            sub_key, {"earned": 0.0, "max": 0.0}
                         )
-                        sub["max"] += q_points
+                        sub["max"] += q_points * tag_weight
 
                 answer = answer_map.get(question.id)
                 if not answer:
@@ -129,14 +132,17 @@ class ScoringEngine:
                 total_points += points_awarded
                 evaluated_answers.append(answer)
 
-                # Track skill earned points
+                # Track skill earned points — use canonical skill_id as key
                 if is_correct:
                     for tag in question.skill_tags:
-                        skill_code = tag.subskill if tag.subskill else str(tag.skill_id)
-                        skill_tracker[skill_code].earned += points_awarded
-                        if tag.subskill and tag.subskill in skill_tracker[skill_code].subskills:
-                            skill_tracker[skill_code].subskills[tag.subskill]["earned"] += (
-                                points_awarded
+                        tag_weight = float(getattr(tag, "weight", 1.0))
+                        skill_code = str(tag.skill_id)
+                        skill_tracker[skill_code].earned += points_awarded * tag_weight
+
+                        sub_key = str(getattr(tag, "subskill_id", None) or tag.subskill or "")
+                        if sub_key and sub_key in skill_tracker[skill_code].subskills:
+                            skill_tracker[skill_code].subskills[sub_key]["earned"] += (
+                                points_awarded * tag_weight
                             )
 
         # Apply scoring policy adjustment if needed

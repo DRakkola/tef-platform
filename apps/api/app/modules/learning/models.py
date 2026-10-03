@@ -309,6 +309,12 @@ class Exercise(TimeStampedUUIDModel):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    task_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("task_types.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     skills: Mapped[list[ExerciseSkill]] = relationship(
         "ExerciseSkill",
@@ -364,6 +370,10 @@ class ExerciseSkill(UUIDModel):
         Float,
         default=1.0,
         nullable=False,
+    )
+    context: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
     )
 
     exercise: Mapped[Exercise] = relationship(
@@ -531,21 +541,21 @@ from app.modules.learning.readiness_models import (
 )
 
 __all__ = [
-    "StudentSkill",
-    "SkillAssessment",
-    "Mistake",
     "Exercise",
-    "ExerciseSkill",
     "ExerciseAttempt",
-    "Recommendation",
-    "StudentActivityEvent",
-    "ReadinessProfile",
+    "ExerciseEffectiveness",
+    "ExerciseSkill",
+    "Mistake",
     "ReadinessBand",
+    "ReadinessProfile",
+    "ReadinessSnapshot",
+    "Recommendation",
+    "SkillAssessment",
     "SkillEvidence",
     "SkillEvidenceSourceType",
-    "ReadinessSnapshot",
-    "ExerciseEffectiveness",
-    "SpacedReviewItem",
     "SkillTrendState",
+    "SpacedReviewItem",
+    "StudentActivityEvent",
+    "StudentSkill",
 ]
 

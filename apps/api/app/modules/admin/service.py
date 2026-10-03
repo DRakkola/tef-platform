@@ -941,6 +941,7 @@ class AdminContentService:
             explanation=payload.explanation,
             points=payload.points,
             penalty_points=payload.penalty_points,
+            task_type_id=getattr(payload, "task_type_id", None),
             status=ContentStatus.DRAFT.value,
             version=1,
             created_by_user_id=actor_id,
@@ -963,12 +964,24 @@ class AdminContentService:
             )
             db.add(q_opt)
 
+        if payload.skill_tags:
+            from app.modules.admin.enums import SkillTagRole
+            from app.modules.admin.tagging_service import TaggingValidationEngine
+            await TaggingValidationEngine.validate_skill_tags(
+                db=db,
+                tags=payload.skill_tags,
+                task_type_id=getattr(payload, "task_type_id", None),
+            )
         for tag in payload.skill_tags:
+            role_val = getattr(tag, "role", "primary")
             q_tag = QuestionSkillTag(
                 question_id=q.id,
                 skill_id=tag.skill_id,
+                subskill_id=getattr(tag, "subskill_id", None),
                 subskill=tag.subskill,
+                role=SkillTagRole(role_val) if isinstance(role_val, str) else role_val,
                 weight=tag.weight,
+                context=getattr(tag, "context", None),
                 created_at=now,
                 updated_at=now,
             )
@@ -1080,6 +1093,37 @@ class AdminContentService:
                     updated_at=now,
                 )
                 db.add(q_opt)
+
+        if payload.task_type_id is not None:
+            q.task_type_id = payload.task_type_id
+
+        # Replace skill tags if provided
+        if getattr(payload, "skill_tags", None) is not None:
+            from sqlalchemy import delete as sa_delete
+
+            from app.modules.admin.enums import SkillTagRole
+            from app.modules.admin.tagging_service import TaggingValidationEngine
+            await TaggingValidationEngine.validate_skill_tags(
+                db=db,
+                tags=payload.skill_tags,
+                task_type_id=q.task_type_id,
+            )
+            await db.execute(sa_delete(QuestionSkillTag).where(QuestionSkillTag.question_id == question_id))
+            now_tags = datetime.datetime.now(datetime.UTC)
+            for tag in payload.skill_tags:
+                role_val = getattr(tag, "role", "primary")
+                q_tag = QuestionSkillTag(
+                    question_id=q.id,
+                    skill_id=tag.skill_id,
+                    subskill_id=getattr(tag, "subskill_id", None),
+                    subskill=tag.subskill,
+                    role=SkillTagRole(role_val) if isinstance(role_val, str) else role_val,
+                    weight=tag.weight,
+                    context=getattr(tag, "context", None),
+                    created_at=now_tags,
+                    updated_at=now_tags,
+                )
+                db.add(q_tag)
 
         q.updated_by_user_id = actor_id
         q.updated_at = datetime.datetime.now(datetime.UTC)
@@ -1457,13 +1501,40 @@ class AdminContentService:
         db.add(ex)
         await db.flush()
 
-        for sk_id in payload.skill_ids:
-            es = ExerciseSkill(
-                exercise_id=ex.id,
-                skill_id=sk_id,
-                weight=1.0,
+        # Support new skill_tags (canonical) with fallback to legacy skill_ids
+        exercise_skill_tags = getattr(payload, "skill_tags", []) or []
+        if exercise_skill_tags:
+            from app.modules.admin.enums import SkillTagRole
+            from app.modules.admin.tagging_service import TaggingValidationEngine
+            await TaggingValidationEngine.validate_skill_tags(
+                db=db,
+                tags=exercise_skill_tags,
+                task_type_id=getattr(payload, "task_type_id", None),
             )
-            db.add(es)
+            for tag in exercise_skill_tags:
+                role_val = getattr(tag, "role", "primary")
+                es = ExerciseSkill(
+                    exercise_id=ex.id,
+                    skill_id=tag.skill_id,
+                    subskill_id=getattr(tag, "subskill_id", None),
+                    subskill=tag.subskill,
+                    role=SkillTagRole(role_val) if isinstance(role_val, str) else role_val,
+                    weight=tag.weight,
+                    context=getattr(tag, "context", None),
+                )
+                db.add(es)
+        else:
+            # Legacy: plain skill_ids with weight=1.0
+            for sk_id in payload.skill_ids:
+                es = ExerciseSkill(
+                    exercise_id=ex.id,
+                    skill_id=sk_id,
+                    weight=1.0,
+                )
+                db.add(es)
+
+        if getattr(payload, "task_type_id", None):
+            ex.task_type_id = payload.task_type_id
 
         await db.flush()
 
@@ -1513,7 +1584,33 @@ class AdminContentService:
             ex.status = payload.status.value
             ex.is_published = (payload.status == ContentStatus.PUBLISHED)
 
-        if payload.skill_ids is not None:
+        if payload.task_type_id is not None:
+            ex.task_type_id = payload.task_type_id
+
+        # Support new skill_tags (canonical) with fallback to legacy skill_ids
+        new_skill_tags = getattr(payload, "skill_tags", None)
+        if new_skill_tags is not None:
+            from app.modules.admin.enums import SkillTagRole
+            from app.modules.admin.tagging_service import TaggingValidationEngine
+            await TaggingValidationEngine.validate_skill_tags(
+                db=db,
+                tags=new_skill_tags,
+                task_type_id=ex.task_type_id,
+            )
+            await db.execute(delete(ExerciseSkill).where(ExerciseSkill.exercise_id == exercise_id))
+            for tag in new_skill_tags:
+                role_val = getattr(tag, "role", "primary")
+                db.add(ExerciseSkill(
+                    exercise_id=ex.id,
+                    skill_id=tag.skill_id,
+                    subskill_id=getattr(tag, "subskill_id", None),
+                    subskill=tag.subskill,
+                    role=SkillTagRole(role_val) if isinstance(role_val, str) else role_val,
+                    weight=tag.weight,
+                    context=getattr(tag, "context", None),
+                ))
+        elif payload.skill_ids is not None:
+            # Legacy path
             await db.execute(delete(ExerciseSkill).where(ExerciseSkill.exercise_id == exercise_id))
             for sk_id in payload.skill_ids:
                 db.add(ExerciseSkill(exercise_id=ex.id, skill_id=sk_id, weight=1.0))
