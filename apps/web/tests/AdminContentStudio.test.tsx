@@ -105,51 +105,105 @@ describe("Content Studio Admin UI", () => {
   });
 
   it("renders SkillsManagerPage and lists canonical skills with subskills", async () => {
-    const mockSkills = [
+    const mockTaxonomyMetadata = {
+      dimensions: ["reasoning", "language"],
+      domains: ["reading"],
+      relation_types: ["prerequisite", "depends_on", "supports", "related"],
+      cefr_bands: ["A1", "A2", "B1", "B2", "C1", "C2"],
+      active_version: {
+        id: "v-1",
+        version: "v2.0.0-tef-canada",
+        name: "TEF Canada 2026",
+      },
+      metrics: {
+        total_skills: 1,
+        total_subskills: 2,
+        total_competencies: 3,
+        dimensions_breakdown: { reasoning: 3, language: 0 },
+        domains_breakdown: { reading: 3 },
+        active_skills: 3,
+        archived_skills: 0,
+        total_relations: 0,
+        total_descriptors: 0,
+      },
+    };
+
+    const mockSkillsList = [
       {
         id: "skill-reading",
+        taxonomy_version_id: "v-1",
         code: "reading_comp",
         name: "Compréhension Écrite",
+        dimension: "reasoning",
+        domain: "reading",
         category: "reading",
         description: "Compréhension de documents rédigés.",
-        subskills: [
-          {
-            id: "sub-1",
-            skill_id: "skill-reading",
-            code: "reading_main_idea",
-            name: "Identifier l'idée générale",
-            description: "Dégager le thème central.",
-          },
-          {
-            id: "sub-2",
-            skill_id: "skill-reading",
-            code: "reading_implicit",
-            name: "Déduire le sens implicite",
-            description: "Inférer des intentions.",
-          },
-        ],
+        parent_id: null,
+        is_active: true,
+        subskill_count: 2,
+        usage_counts: {
+          questions: 5,
+          exercises: 2,
+          assessments: 1,
+          student_mastery: 10,
+          skill_assessments: 0,
+          skill_evidence: 4,
+          writing_evaluations: 0,
+          speaking_evaluations: 0,
+          total_dependencies: 22,
+        },
       },
     ];
 
+    const mockSkillDetail = {
+      ...mockSkillsList[0],
+      children: [
+        {
+          id: "sub-1",
+          code: "reading_main_idea",
+          name: "Identifier l'idée générale",
+          dimension: "reasoning",
+          domain: "reading",
+          is_active: true,
+        },
+        {
+          id: "sub-2",
+          code: "reading_implicit",
+          name: "Déduire le sens implicite",
+          dimension: "reasoning",
+          domain: "reading",
+          is_active: true,
+        },
+      ],
+      level_descriptors: [],
+      outgoing_relations: [],
+      incoming_relations: [],
+    };
+
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url.includes("/admin/content/skills/metrics/summary")) {
+      if (url.includes("/admin/taxonomy/metadata")) {
+        return {
+          ok: true,
+          json: async () => mockTaxonomyMetadata,
+        } as Response;
+      }
+      if (url.includes("/admin/taxonomy/skills/skill-reading")) {
+        return {
+          ok: true,
+          json: async () => mockSkillDetail,
+        } as Response;
+      }
+      if (url.includes("/admin/taxonomy/skills")) {
         return {
           ok: true,
           json: async () => ({
-            total_skills: 1,
-            total_subskills: 2,
-            domains_count: 1,
-            domain_breakdown: { reading: 1 },
-            taxonomy_warnings_count: 0,
-            issues: [],
+            items: mockSkillsList,
+            total: 1,
+            page: 1,
+            page_size: 100,
+            total_pages: 1,
           }),
-        } as Response;
-      }
-      if (url.includes("/admin/content/skills")) {
-        return {
-          ok: true,
-          json: async () => mockSkills,
         } as Response;
       }
       return { ok: false, status: 404 } as Response;
@@ -161,16 +215,15 @@ describe("Content Studio Admin UI", () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole("heading", { name: /^Compétences/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /compétences/i })).toBeInTheDocument();
     const skillNameElements = await screen.findAllByText("Compréhension Écrite");
     expect(skillNameElements.length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("reading_comp").length).toBeGreaterThanOrEqual(1);
 
     // Verify subskills tab renders subskills
-    const subTab = screen.getByRole("tab", { name: /Sous-compétences/i });
+    const subTab = await screen.findByRole("tab", { name: /Sous-compétences/i });
     expect(subTab).toBeInTheDocument();
-    fireEvent.pointerDown(subTab);
-    fireEvent.click(subTab);
+    fireEvent.mouseDown(subTab, { button: 0 });
     expect(await screen.findByText("Identifier l'idée générale")).toBeInTheDocument();
     expect(screen.getByText("Déduire le sens implicite")).toBeInTheDocument();
 
