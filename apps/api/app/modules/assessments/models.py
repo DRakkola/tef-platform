@@ -31,7 +31,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import TimeStampedUUIDModel
+from app.core.database import SQLEnumValues, TimeStampedUUIDModel
 from app.modules.admin.enums import SkillDimension, SkillTagRole
 from app.modules.assessments.enums import (
     AssessmentType,
@@ -81,10 +81,10 @@ class Skill(TimeStampedUUIDModel):
 
     __tablename__ = "skills"
 
-    taxonomy_version_id: Mapped[uuid.UUID] = mapped_column(
+    taxonomy_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("taxonomy_versions.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     code: Mapped[str] = mapped_column(
@@ -98,13 +98,15 @@ class Skill(TimeStampedUUIDModel):
         nullable=False,
     )
     dimension: Mapped[SkillDimension] = mapped_column(
-        SQLEnum(SkillDimension, name="skill_dimension", native_enum=False),
-        nullable=False,
+        SQLEnumValues(SkillDimension, name="skill_dimension", native_enum=False),
+        default=SkillDimension.LANGUAGE,
+        nullable=True,
         index=True,
     )
     domain: Mapped[str] = mapped_column(
         String(50),
-        nullable=False,
+        default="general",
+        nullable=True,
         index=True,
     )
     category: Mapped[SkillCategory | None] = mapped_column(
@@ -473,7 +475,7 @@ class QuestionSkillTag(TimeStampedUUIDModel):
         nullable=True,
     )
     role: Mapped[SkillTagRole] = mapped_column(
-        SQLEnum(SkillTagRole, name="skill_tag_role", native_enum=False),
+        SQLEnumValues(SkillTagRole, name="skill_tag_role", native_enum=False),
         default=SkillTagRole.PRIMARY,
         nullable=False,
         index=True,

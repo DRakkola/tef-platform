@@ -171,13 +171,17 @@ def test_alembic_metadata_contains_all_models() -> None:
         assert f"import {module}" in env_content, f"alembic/env.py missing import of {module}"
 
     table_names = set(Base.metadata.tables.keys())
-    assert len(table_names) == 90, f"Expected 90 tables in Base.metadata, found {len(table_names)}"
+    assert len(table_names) == 94, f"Expected 94 tables in Base.metadata, found {len(table_names)}"
 
     expected_tables = {
         "users",
         "student_profiles",
         "teacher_profiles",
+        "taxonomy_versions",
+        "task_types",
         "skills",
+        "skill_relations",
+        "skill_level_descriptors",
         "sub_skills",
         "assessments",
         "assessment_sections",

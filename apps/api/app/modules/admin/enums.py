@@ -66,12 +66,30 @@ class SkillDimension(str, enum.Enum):
     REASONING = "reasoning"
     LANGUAGE = "language"
 
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
+
 
 class SkillTagRole(str, enum.Enum):
     """Pedagogical role of a skill attached to an assessment question or exercise."""
 
     PRIMARY = "primary"
     SECONDARY = "secondary"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
 
 
 class SkillRelationType(str, enum.Enum):
@@ -82,6 +100,15 @@ class SkillRelationType(str, enum.Enum):
     SUPPORTS = "supports"
     RELATED = "related"
 
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
+
 
 class TaxonomyLifecycleStatus(str, enum.Enum):
     """Lifecycle state of a taxonomy version snapshot or competency."""
@@ -90,6 +117,15 @@ class TaxonomyLifecycleStatus(str, enum.Enum):
     ACTIVE = "active"
     DEPRECATED = "deprecated"
     ARCHIVED = "archived"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
 
 
 class CEFRBand(str, enum.Enum):
@@ -101,4 +137,13 @@ class CEFRBand(str, enum.Enum):
     B2 = "B2"
     C1 = "C1"
     C2 = "C2"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_upper = value.upper()
+            for member in cls:
+                if member.value == val_upper or member.name == val_upper:
+                    return member
+        return None
 

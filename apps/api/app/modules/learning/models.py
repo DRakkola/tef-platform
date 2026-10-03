@@ -21,7 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import TimeStampedUUIDModel, UUIDModel
+from app.core.database import SQLEnumValues, TimeStampedUUIDModel, UUIDModel
 from app.modules.admin.enums import SkillTagRole
 from app.modules.assessments.enums import QuestionType
 
@@ -361,7 +361,7 @@ class ExerciseSkill(UUIDModel):
         nullable=True,
     )
     role: Mapped[SkillTagRole] = mapped_column(
-        SQLEnum(SkillTagRole, name="skill_tag_role", native_enum=False),
+        SQLEnumValues(SkillTagRole, name="skill_tag_role", native_enum=False),
         default=SkillTagRole.PRIMARY,
         nullable=False,
         index=True,

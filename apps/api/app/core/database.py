@@ -5,8 +5,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-import structlog
-from sqlalchemy import DateTime, text
+from sqlalchemy import DateTime, Enum as SQLEnum, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import (
     AsyncAttrs,
@@ -16,9 +15,33 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+import structlog
+
 from app.core.config import settings
 
 logger = structlog.get_logger("tef-api.database")
+
+
+class SQLEnumValues(SQLEnum):
+    """SQLAlchemy Enum that serializes/deserializes using Python enum values (.value)
+    and supports case-insensitive string lookups when mapping database records.
+    """
+
+    def __init__(self, *enums: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("values_callable", lambda obj: [e.value for e in obj])
+        super().__init__(*enums, **kwargs)
+
+    def _object_value_for_elem(self, elem: Any) -> Any:
+        if elem is None:
+            return None
+        if elem in self._object_lookup:
+            return self._object_lookup[elem]
+        if isinstance(elem, str):
+            if elem.lower() in self._object_lookup:
+                return self._object_lookup[elem.lower()]
+            if elem.upper() in self._object_lookup:
+                return self._object_lookup[elem.upper()]
+        return super()._object_value_for_elem(elem)
 
 connect_args: dict[str, Any] = {}
 if "pooler.supabase.com" in settings.DATABASE_URL or ":6543" in settings.DATABASE_URL:

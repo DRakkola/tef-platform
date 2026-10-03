@@ -21,7 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import TimeStampedUUIDModel, UUIDModel
+from app.core.database import SQLEnumValues, TimeStampedUUIDModel, UUIDModel
 from app.modules.admin.enums import (
     CEFRBand,
     MediaType,
@@ -52,7 +52,7 @@ class TaxonomyVersion(TimeStampedUUIDModel):
         nullable=False,
     )
     status: Mapped[TaxonomyLifecycleStatus] = mapped_column(
-        SQLEnum(TaxonomyLifecycleStatus, name="taxonomy_lifecycle_status", native_enum=False),
+        SQLEnumValues(TaxonomyLifecycleStatus, name="taxonomy_lifecycle_status", native_enum=False),
         default=TaxonomyLifecycleStatus.DRAFT,
         nullable=False,
         index=True,
@@ -97,7 +97,7 @@ class SkillRelation(UUIDModel):
         index=True,
     )
     relation_type: Mapped[SkillRelationType] = mapped_column(
-        SQLEnum(SkillRelationType, name="skill_relation_type", native_enum=False),
+        SQLEnumValues(SkillRelationType, name="skill_relation_type", native_enum=False),
         default=SkillRelationType.PREREQUISITE,
         nullable=False,
     )
@@ -134,7 +134,7 @@ class SkillLevelDescriptor(TimeStampedUUIDModel):
         index=True,
     )
     level: Mapped[CEFRBand] = mapped_column(
-        SQLEnum(CEFRBand, name="cefr_band", native_enum=False),
+        SQLEnumValues(CEFRBand, name="cefr_band", native_enum=False),
         nullable=False,
         index=True,
     )
