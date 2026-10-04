@@ -155,7 +155,7 @@ class AIQuestionGenerationRequest(BaseModel):
     questions_per_stimulus: int = Field(default=1, ge=1, le=4)
     count: int = Field(default=1, ge=1, le=10)
     temperature: float = Field(default=0.7, ge=0.0, le=1.5)
-    model: str = "models/gemini-2.5-flash"
+    model: str = "models/gemini-3.5-flash"
     api_key_override: str | None = None
     force_simulation: bool = False
 
@@ -194,7 +194,7 @@ class CandidateRegenerateRequest(BaseModel):
     component: str = "distractors"  # "distractors", "prompt", "explanation"
     custom_instructions: str | None = None
     temperature: float = Field(default=0.7, ge=0.0, le=1.5)
-    model: str = "models/gemini-2.5-flash"
+    model: str = "models/gemini-3.5-flash"
     api_key_override: str | None = None
     force_simulation: bool = False
 
@@ -209,7 +209,7 @@ class AIStimulusGenerationRequest(BaseModel):
     topic: str | None = None
     format: str = "multi_document"  # "multi_document", "table", "passage", "audio_transcript"
     temperature: float = Field(default=0.7, ge=0.0, le=1.5)
-    model: str = "models/gemini-2.5-flash"
+    model: str = "models/gemini-3.5-flash"
     api_key_override: str | None = None
     force_simulation: bool = False
 
