@@ -33,7 +33,9 @@ from app.modules.admin.schemas import (
     AdminSkillCreate,
     AdminSkillMetricsSummary,
     AdminSkillUpdate,
+    AdminStandaloneQuestionCreate,
     AdminStandaloneQuestionUpdate,
+    AdminStimulusCreate,
     AdminWritingTaskCreate,
     AdminWritingTaskUpdate,
     ContentReviewDecision,
@@ -50,7 +52,9 @@ from app.modules.assessments.models import (
     Question,
     QuestionOption,
     QuestionSkillTag,
+    QuestionValidation,
     Skill,
+    Stimulus,
 )
 from app.modules.learning.models import Exercise, ExerciseSkill
 from app.modules.users.models import User, UserRole
@@ -1065,8 +1069,16 @@ class AdminContentService:
         db: AsyncSession,
         section_id: uuid.UUID | None = None,
         level: str | None = None,
+        target_cefr: str | None = None,
         difficulty: int | None = None,
         question_type: QuestionType | None = None,
+        response_type: str | None = None,
+        status: str | None = None,
+        task_type_id: uuid.UUID | None = None,
+        search: str | None = None,
+        validation_status: str | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Question], int]:
@@ -1079,31 +1091,133 @@ class AdminContentService:
                 selectinload(Question.provenance),
                 selectinload(Question.validations),
             )
-            .order_by(Question.created_at.desc())
         )
+        count_stmt = select(func.count(Question.id))
+
         if section_id:
             stmt = stmt.where(Question.section_id == section_id)
-        if level:
-            stmt = stmt.where(Question.level == level)
-        if difficulty:
-            stmt = stmt.where(Question.difficulty == difficulty)
-        if question_type:
-            stmt = stmt.where(Question.question_type == question_type)
-
-        count_stmt = select(func.count(Question.id))
-        if section_id:
             count_stmt = count_stmt.where(Question.section_id == section_id)
         if level:
+            stmt = stmt.where(Question.level == level)
             count_stmt = count_stmt.where(Question.level == level)
+        if target_cefr:
+            stmt = stmt.where(Question.target_cefr == target_cefr)
+            count_stmt = count_stmt.where(Question.target_cefr == target_cefr)
         if difficulty:
+            stmt = stmt.where(Question.difficulty == difficulty)
             count_stmt = count_stmt.where(Question.difficulty == difficulty)
         if question_type:
+            stmt = stmt.where(Question.question_type == question_type)
             count_stmt = count_stmt.where(Question.question_type == question_type)
+        if response_type:
+            stmt = stmt.where(Question.response_type == response_type)
+            count_stmt = count_stmt.where(Question.response_type == response_type)
+        if status:
+            stmt = stmt.where(Question.status == status)
+            count_stmt = count_stmt.where(Question.status == status)
+        if task_type_id:
+            stmt = stmt.where(Question.task_type_id == task_type_id)
+            count_stmt = count_stmt.where(Question.task_type_id == task_type_id)
+        if search:
+            search_clause = Question.prompt.ilike(f"%{search}%")
+            stmt = stmt.where(search_clause)
+            count_stmt = count_stmt.where(search_clause)
+        if validation_status:
+            stmt = stmt.join(Question.validations).where(QuestionValidation.validation_status == validation_status)
+            count_stmt = count_stmt.join(Question.validations).where(QuestionValidation.validation_status == validation_status)
+
+        # Dynamic Sorting
+        sort_col = getattr(Question, sort_by, Question.created_at)
+        if sort_order.lower() == "asc":
+            stmt = stmt.order_by(sort_col.asc())
+        else:
+            stmt = stmt.order_by(sort_col.desc())
 
         total = (await db.execute(count_stmt)).scalar() or 0
         paged = stmt.offset((page - 1) * page_size).limit(page_size)
         items = list((await db.execute(paged)).scalars().all())
         return items, total
+
+    @staticmethod
+    async def create_standalone_question(
+        db: AsyncSession,
+        payload: AdminStandaloneQuestionCreate,
+        actor_id: uuid.UUID | None = None,
+    ) -> Question:
+        """Create a question directly from the Question Authoring Workspace."""
+        from app.modules.admin.schemas import AdminQuestionCreate
+        create_payload = AdminQuestionCreate(**payload.model_dump())
+        return await AdminContentService.add_question(
+            db=db,
+            section_id=payload.section_id,
+            payload=create_payload,
+            actor_id=actor_id,
+        )
+
+    # --- Reusable Stimuli Management ---
+
+    @staticmethod
+    async def create_stimulus(
+        db: AsyncSession,
+        payload: AdminStimulusCreate,
+        actor_id: uuid.UUID | None = None,
+    ) -> Stimulus:
+        """Create or reuse an existing Stimulus record matching content hash."""
+        import hashlib
+        content_for_hash = f"{payload.title}:{payload.modality}:{payload.content_text or ''}:{payload.media_url or ''}"
+        c_hash = hashlib.sha256(content_for_hash.encode("utf-8")).hexdigest()
+
+        existing = await db.scalar(select(Stimulus).where(Stimulus.content_hash == c_hash))
+        if existing:
+            return existing
+
+        word_count = payload.word_count
+        if word_count is None and payload.content_text:
+            word_count = len(payload.content_text.split())
+
+        stim = Stimulus(
+            title=payload.title,
+            modality=payload.modality,
+            content_text=payload.content_text,
+            text_format=payload.text_format or "plain",
+            word_count=word_count,
+            media_url=payload.media_url,
+            source_citation=payload.source_citation,
+            content_hash=c_hash,
+        )
+        db.add(stim)
+        await db.flush()
+        return stim
+
+    @staticmethod
+    async def list_stimuli(
+        db: AsyncSession,
+        modality: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Stimulus], int]:
+        stmt = select(Stimulus).order_by(Stimulus.created_at.desc())
+        count_stmt = select(func.count(Stimulus.id))
+        if modality:
+            stmt = stmt.where(Stimulus.modality == modality)
+            count_stmt = count_stmt.where(Stimulus.modality == modality)
+        if search:
+            search_clause = Stimulus.title.ilike(f"%{search}%") | Stimulus.content_text.ilike(f"%{search}%")
+            stmt = stmt.where(search_clause)
+            count_stmt = count_stmt.where(search_clause)
+
+        total = (await db.execute(count_stmt)).scalar() or 0
+        paged = stmt.offset((page - 1) * page_size).limit(page_size)
+        items = list((await db.execute(paged)).scalars().all())
+        return items, total
+
+    @staticmethod
+    async def get_stimulus(db: AsyncSession, stimulus_id: uuid.UUID) -> Stimulus:
+        stim = await db.scalar(select(Stimulus).where(Stimulus.id == stimulus_id))
+        if not stim:
+            raise AppException(message="Stimulus not found", code="NOT_FOUND", status_code=404)
+        return stim
 
     @staticmethod
     async def update_question(

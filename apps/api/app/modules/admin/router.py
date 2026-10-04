@@ -38,7 +38,11 @@ from app.modules.admin.schemas import (
     AdminSkillMetricsSummary,
     AdminSkillResponse,
     AdminSkillUpdate,
+    AdminStandaloneQuestionCreate,
     AdminStandaloneQuestionUpdate,
+    AdminStimulusCreate,
+    AdminStimulusListResponse,
+    AdminStimulusResponse,
     AdminUserRoleUpdate,
     AdminWritingTaskCreate,
     AdminWritingTaskListResponse,
@@ -474,16 +478,43 @@ async def add_section_question(
     return AdminQuestionResponse.model_validate(q)
 
 
+@router.post(
+    "/content/questions",
+    response_model=AdminQuestionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a standalone question from Question Authoring Workspace",
+)
+async def create_question_endpoint(
+    payload: AdminStandaloneQuestionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.create_standalone_question(
+        db=db,
+        payload=payload,
+        actor_id=current_admin.id,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
 @router.get(
     "/content/questions",
     response_model=AdminQuestionListResponse,
-    summary="List questions across sections",
+    summary="List questions across sections with advanced filtering and search",
 )
 async def list_questions(
     section_id: uuid.UUID | None = None,
     level: str | None = None,
+    target_cefr: str | None = None,
     difficulty: int | None = None,
     question_type: QuestionType | None = None,
+    response_type: str | None = None,
+    status: str | None = None,
+    task_type_id: uuid.UUID | None = None,
+    search: str | None = None,
+    validation_status: str | None = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     db: AsyncSession = Depends(get_db),
@@ -493,8 +524,16 @@ async def list_questions(
         db=db,
         section_id=section_id,
         level=level,
+        target_cefr=target_cefr,
         difficulty=difficulty,
         question_type=question_type,
+        response_type=response_type,
+        status=status,
+        task_type_id=task_type_id,
+        search=search,
+        validation_status=validation_status,
+        sort_by=sort_by,
+        sort_order=sort_order,
         page=page,
         page_size=page_size,
     )
@@ -504,6 +543,72 @@ async def list_questions(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# Reusable Stimuli Management
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/content/stimuli",
+    response_model=AdminStimulusListResponse,
+    summary="List reusable stimuli with modality filtering and search",
+)
+async def list_stimuli(
+    modality: str | None = None,
+    search: str | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminStimulusListResponse:
+    items, total = await AdminContentService.list_stimuli(
+        db=db,
+        modality=modality,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+    return AdminStimulusListResponse(
+        items=[AdminStimulusResponse.model_validate(s) for s in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post(
+    "/content/stimuli",
+    response_model=AdminStimulusResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create or reuse a stimulus record",
+)
+async def create_stimulus(
+    payload: AdminStimulusCreate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminStimulusResponse:
+    stim = await AdminContentService.create_stimulus(
+        db=db,
+        payload=payload,
+        actor_id=current_admin.id,
+    )
+    return AdminStimulusResponse.model_validate(stim)
+
+
+@router.get(
+    "/content/stimuli/{stimulus_id}",
+    response_model=AdminStimulusResponse,
+    summary="Get stimulus details",
+)
+async def get_stimulus(
+    stimulus_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminStimulusResponse:
+    stim = await AdminContentService.get_stimulus(db, stimulus_id)
+    return AdminStimulusResponse.model_validate(stim)
 
 
 @router.get(

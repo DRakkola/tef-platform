@@ -6,6 +6,7 @@ export * from "./SkillsManagerPage";
 export * from "./AssessmentsListPage";
 export * from "./AssessmentEditorPage";
 export * from "./QuestionsListPage";
+export * from "./questions/QuestionWorkspacePage";
 export * from "./ExercisesListPage";
 export * from "./WritingTasksListPage";
 export * from "./MediaManagerPage";

@@ -4,6 +4,7 @@
 
 import { apiClient } from "@/core/api";
 import type {
+  AdminStimulus,
   AssessmentItem,
   AssessmentSectionItem,
   AssessmentVersionItem,
@@ -12,8 +13,12 @@ import type {
   ContentStatus,
   ExerciseItem,
   MediaAssetItem,
+  QuestionCreatePayload,
+  QuestionFilterParams,
   QuestionItem,
   QuestionSkillTag,
+  QuestionValidationResult,
+  QuestionVersionItem,
   SkillItem,
   SubSkill,
   ValidationReport,
@@ -234,27 +239,29 @@ export async function fetchAssessmentVersions(
 }
 
 // ---------------------------------------------------------------------------
-// Standalone Questions
+// Standalone Questions (Question V2 Workspace)
 // ---------------------------------------------------------------------------
 
-export async function fetchQuestions(params?: {
-  section_id?: string;
-  level?: string;
-  difficulty?: number;
-  question_type?: string;
-  page?: number;
-  page_size?: number;
-}): Promise<{ items: QuestionItem[]; total: number }> {
+export async function fetchQuestions(
+  params?: QuestionFilterParams
+): Promise<{ items: QuestionItem[]; total: number; page?: number; page_size?: number }> {
   const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
   if (params?.section_id) query.set("section_id", params.section_id);
-  if (params?.level) query.set("level", params.level);
-  if (params?.difficulty) query.set("difficulty", params.difficulty.toString());
-  if (params?.question_type) query.set("question_type", params.question_type);
+  if (params?.modality && params.modality !== "all") query.set("modality", params.modality);
+  if (params?.task_type_id && params.task_type_id !== "all") query.set("task_type_id", params.task_type_id);
+  if (params?.response_type && params.response_type !== "all") query.set("response_type", params.response_type);
+  if (params?.target_cefr && params.target_cefr !== "all") query.set("target_cefr", params.target_cefr);
+  if (params?.difficulty !== undefined) query.set("difficulty", params.difficulty.toString());
+  if (params?.status && params.status !== "all") query.set("status", params.status);
+  if (params?.validation_status && params.validation_status !== "all") query.set("validation_status", params.validation_status);
+  if (params?.sort_by) query.set("sort_by", params.sort_by);
+  if (params?.sort_order) query.set("sort_order", params.sort_order);
   if (params?.page) query.set("page", params.page.toString());
   if (params?.page_size) query.set("page_size", params.page_size.toString());
 
   const qs = query.toString();
-  return apiClient<{ items: QuestionItem[]; total: number }>(
+  return apiClient<{ items: QuestionItem[]; total: number; page?: number; page_size?: number }>(
     `/admin/content/questions${qs ? `?${qs}` : ""}`
   );
 }
@@ -263,13 +270,85 @@ export async function getQuestion(id: string): Promise<QuestionItem> {
   return apiClient<QuestionItem>(`/admin/content/questions/${id}`);
 }
 
+export async function createQuestion(payload: QuestionCreatePayload): Promise<QuestionItem> {
+  return apiClient<QuestionItem>("/admin/content/questions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function updateQuestion(
   id: string,
-  payload: Partial<QuestionItem>
+  payload: Partial<QuestionItem> & { expected_version?: number }
 ): Promise<QuestionItem> {
   return apiClient<QuestionItem>(`/admin/content/questions/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function validateQuestion(id: string): Promise<QuestionValidationResult> {
+  return apiClient<QuestionValidationResult>(`/admin/content/questions/${id}/validate`, {
+    method: "POST",
+  });
+}
+
+export async function submitQuestionForReview(id: string, comments?: string): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${id}/submit-review`, {
+    method: "POST",
+    body: JSON.stringify({ comments }),
+  });
+}
+
+export async function approveQuestion(id: string, notes?: string): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function rejectQuestion(id: string, notes?: string): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function revertQuestionToDraft(id: string, reason?: string): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${id}/revert-draft`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function publishQuestion(id: string, changelog?: string): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${id}/publish`, {
+    method: "POST",
+    body: JSON.stringify({ changelog }),
+  });
+}
+
+export async function archiveQuestion(id: string, reason?: string): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${id}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ notes: reason }),
+  });
+}
+
+export async function createDraftVersion(id: string, changelog?: string): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${id}/create-draft-version`, {
+    method: "POST",
+    body: JSON.stringify({ changelog }),
+  });
+}
+
+export async function forkQuestion(
+  id: string,
+  payload?: { prompt_prefix?: string; changelog?: string }
+): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${id}/fork`, {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
   });
 }
 
@@ -279,8 +358,49 @@ export async function forkQuestionVersion(id: string): Promise<QuestionItem> {
   });
 }
 
-export async function fetchQuestionVersions(id: string): Promise<any[]> {
-  return apiClient<any[]>(`/admin/content/questions/${id}/versions`);
+export async function fetchQuestionVersions(id: string): Promise<QuestionVersionItem[]> {
+  return apiClient<QuestionVersionItem[]>(`/admin/content/questions/${id}/versions`);
+}
+
+export async function getQuestionVersion(id: string, versionNumber: number): Promise<QuestionVersionItem> {
+  return apiClient<QuestionVersionItem>(`/admin/content/questions/${id}/versions/${versionNumber}`);
+}
+
+export async function getQuestionHistory(id: string): Promise<AuditEventItem[]> {
+  return apiClient<AuditEventItem[]>(`/admin/content/questions/${id}/history`);
+}
+
+// ---------------------------------------------------------------------------
+// Stimuli
+// ---------------------------------------------------------------------------
+
+export async function fetchStimuli(params?: {
+  modality?: string;
+  search?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<{ items: AdminStimulus[]; total: number; page?: number; page_size?: number }> {
+  const query = new URLSearchParams();
+  if (params?.modality && params.modality !== "all") query.set("modality", params.modality);
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", params.page.toString());
+  if (params?.page_size) query.set("page_size", params.page_size.toString());
+
+  const qs = query.toString();
+  return apiClient<{ items: AdminStimulus[]; total: number; page?: number; page_size?: number }>(
+    `/admin/content/stimuli${qs ? `?${qs}` : ""}`
+  );
+}
+
+export async function getStimulus(id: string): Promise<AdminStimulus> {
+  return apiClient<AdminStimulus>(`/admin/content/stimuli/${id}`);
+}
+
+export async function createStimulus(payload: Partial<AdminStimulus>): Promise<AdminStimulus> {
+  return apiClient<AdminStimulus>("/admin/content/stimuli", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ---------------------------------------------------------------------------
