@@ -12,11 +12,13 @@ Provides complete management for the TEF unified competency taxonomy:
 """
 
 import datetime
+import re
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, cast, delete, func, or_, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,11 +29,16 @@ from app.modules.admin.enums import (
     SkillDimension,
     SkillRelationType,
     TaxonomyLifecycleStatus,
+    TaxonomyMigrationStatus,
 )
 from app.modules.admin.models import (
+    SkillAlias,
     SkillLevelDescriptor,
+    SkillModality,
     SkillRelation,
     SubSkill,
+    TaskTypeSkill,
+    TaxonomyMigrationRecord,
     TaxonomyVersion,
 )
 from app.modules.admin.schemas import (
@@ -41,8 +48,10 @@ from app.modules.admin.schemas import (
 from app.modules.admin.service import AuditService
 from app.modules.admin.taxonomy_schemas import (
     AdminSkillSummaryResponse,
+    SkillAliasResponse,
     SkillLevelDescriptorCreate,
     SkillLevelDescriptorResponse,
+    SkillModalityResponse,
     SkillRelationCreate,
     SkillRelationResponse,
     SkillRelationsListResponse,
@@ -109,40 +118,87 @@ class TaxonomyService:
             }
         )
 
-        # 1. Questions tagged with skills
+        # 1. Questions tagged with skills (either as primary skill_id or subskill_id)
+        q_primary = select(
+            QuestionSkillTag.skill_id.label("matched_skill_id"),
+            QuestionSkillTag.question_id.label("question_id"),
+        ).where(QuestionSkillTag.skill_id.in_(unique_ids))
+
+        q_sub = select(
+            QuestionSkillTag.subskill_id.label("matched_skill_id"),
+            QuestionSkillTag.question_id.label("question_id"),
+        ).where(
+            QuestionSkillTag.subskill_id.is_not(None),
+            QuestionSkillTag.subskill_id.in_(unique_ids),
+        )
+
+        q_union = union(q_primary, q_sub).subquery()
         q_stmt = (
             select(
-                QuestionSkillTag.skill_id,
-                func.count(func.distinct(QuestionSkillTag.question_id)),
+                q_union.c.matched_skill_id,
+                func.count(func.distinct(q_union.c.question_id)),
             )
-            .where(QuestionSkillTag.skill_id.in_(unique_ids))
-            .group_by(QuestionSkillTag.skill_id)
+            .group_by(q_union.c.matched_skill_id)
         )
         for sk_id, count in (await db.execute(q_stmt)).all():
             results[sk_id]["questions"] = count
 
-        # 2. Exercises tagged with skills
+        # 2. Exercises tagged with skills (either as primary skill_id or subskill_id)
+        ex_primary = select(
+            ExerciseSkill.skill_id.label("matched_skill_id"),
+            ExerciseSkill.exercise_id.label("exercise_id"),
+        ).where(ExerciseSkill.skill_id.in_(unique_ids))
+
+        ex_sub = select(
+            ExerciseSkill.subskill_id.label("matched_skill_id"),
+            ExerciseSkill.exercise_id.label("exercise_id"),
+        ).where(
+            ExerciseSkill.subskill_id.is_not(None),
+            ExerciseSkill.subskill_id.in_(unique_ids),
+        )
+
+        ex_union = union(ex_primary, ex_sub).subquery()
         ex_stmt = (
             select(
-                ExerciseSkill.skill_id,
-                func.count(func.distinct(ExerciseSkill.exercise_id)),
+                ex_union.c.matched_skill_id,
+                func.count(func.distinct(ex_union.c.exercise_id)),
             )
-            .where(ExerciseSkill.skill_id.in_(unique_ids))
-            .group_by(ExerciseSkill.skill_id)
+            .group_by(ex_union.c.matched_skill_id)
         )
         for sk_id, count in (await db.execute(ex_stmt)).all():
             results[sk_id]["exercises"] = count
 
-        # 3. Assessments containing questions tagged with skills
-        asmt_stmt = (
+        # 3. Assessments containing questions tagged with skills (either as primary skill_id or subskill_id)
+        asmt_primary = (
             select(
-                QuestionSkillTag.skill_id,
-                func.count(func.distinct(AssessmentSection.assessment_id)),
+                QuestionSkillTag.skill_id.label("matched_skill_id"),
+                AssessmentSection.assessment_id.label("assessment_id"),
             )
             .join(Question, Question.id == QuestionSkillTag.question_id)
             .join(AssessmentSection, AssessmentSection.id == Question.section_id)
             .where(QuestionSkillTag.skill_id.in_(unique_ids))
-            .group_by(QuestionSkillTag.skill_id)
+        )
+
+        asmt_sub = (
+            select(
+                QuestionSkillTag.subskill_id.label("matched_skill_id"),
+                AssessmentSection.assessment_id.label("assessment_id"),
+            )
+            .join(Question, Question.id == QuestionSkillTag.question_id)
+            .join(AssessmentSection, AssessmentSection.id == Question.section_id)
+            .where(
+                QuestionSkillTag.subskill_id.is_not(None),
+                QuestionSkillTag.subskill_id.in_(unique_ids),
+            )
+        )
+
+        asmt_union = union(asmt_primary, asmt_sub).subquery()
+        asmt_stmt = (
+            select(
+                asmt_union.c.matched_skill_id,
+                func.count(func.distinct(asmt_union.c.assessment_id)),
+            )
+            .group_by(asmt_union.c.matched_skill_id)
         )
         for sk_id, count in (await db.execute(asmt_stmt)).all():
             results[sk_id]["assessments"] = count
@@ -275,7 +331,12 @@ class TaxonomyService:
     @staticmethod
     async def get_active_version(db: AsyncSession) -> TaxonomyVersion:
         """Retrieve the currently active taxonomy version or the default fallback."""
-        stmt = select(TaxonomyVersion).where(TaxonomyVersion.status == TaxonomyLifecycleStatus.ACTIVE).limit(1)
+        stmt = (
+            select(TaxonomyVersion)
+            .where(TaxonomyVersion.status == TaxonomyLifecycleStatus.ACTIVE)
+            .order_by(TaxonomyVersion.created_at.desc())
+            .limit(1)
+        )
         active = (await db.execute(stmt)).scalar_one_or_none()
         if active:
             return active
@@ -780,10 +841,11 @@ class TaxonomyService:
             .options(
                 selectinload(Skill.parent),
                 selectinload(Skill.subskills),
-                selectinload(Skill.subskills_table),
                 selectinload(Skill.level_descriptors),
                 selectinload(Skill.outgoing_relations).joinedload(SkillRelation.to_skill),
                 selectinload(Skill.incoming_relations).joinedload(SkillRelation.from_skill),
+                selectinload(Skill.modalities),
+                selectinload(Skill.aliases),
             )
             .where(Skill.id == skill_id)
         )
@@ -853,6 +915,15 @@ class TaxonomyService:
             for rel in (skill.incoming_relations or [])
         ]
 
+        modalities = [
+            SkillModalityResponse.model_validate(m)
+            for m in (skill.modalities or [])
+        ]
+        aliases = [
+            SkillAliasResponse.model_validate(a)
+            for a in (skill.aliases or [])
+        ]
+
         return TaxonomySkillDetailResponse(
             id=skill.id,
             taxonomy_version_id=skill.taxonomy_version_id,
@@ -868,10 +939,12 @@ class TaxonomyService:
             updated_at=skill.updated_at,
             parent=parent_summary,
             children=children_summaries,
-            subskills_legacy=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills_table or [])],
+            subskills_legacy=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills or [])],
             level_descriptors=descriptors,
             outgoing_relations=outgoing,
             incoming_relations=incoming,
+            modalities=modalities,
+            aliases=aliases,
             usage_counts=usage,
         )
 
@@ -880,13 +953,25 @@ class TaxonomyService:
     # ---------------------------------------------------------------------------
 
     @staticmethod
+    def validate_canonical_code(code: str) -> str:
+        """Validate and format skill code to canonical convention (lowercase, snake_case)."""
+        cleaned = code.strip().lower()
+        if not re.match(r"^[a-z0-9]+(?:_[a-z0-9]+)*$", cleaned):
+            raise AppException(
+                message=f"Skill code '{code}' violates canonical convention. Must be lowercase snake_case (e.g. 'reasoning_locate_information').",
+                code="INVALID_SKILL_CODE",
+                status_code=400,
+            )
+        return cleaned
+
+    @staticmethod
     async def create_skill(
         db: AsyncSession,
         payload: TaxonomySkillCreate,
         actor_id: uuid.UUID | None = None,
     ) -> TaxonomySkillDetailResponse:
         """Create a new root or child skill node in the unified taxonomy."""
-        code = payload.code.strip().upper()
+        code = TaxonomyService.validate_canonical_code(payload.code)
         existing = await db.scalar(select(Skill).where(Skill.code == code))
         if existing:
             raise AppException(f"Skill with code '{code}' already exists", status_code=400)
@@ -922,18 +1007,6 @@ class TaxonomyService:
         db.add(skill)
         await db.flush()
 
-        # Dual-sync: if created with parent_id, also insert into sub_skills table
-        if payload.parent_id:
-            legacy_sub = SubSkill(
-                id=skill.id,
-                skill_id=payload.parent_id,
-                code=skill.code,
-                name=skill.name,
-                description=skill.description,
-            )
-            db.add(legacy_sub)
-            await db.flush()
-
         await AuditService.log_event(
             db=db,
             actor_user_id=actor_id,
@@ -963,7 +1036,7 @@ class TaxonomyService:
             raise AppException("Skill not found in taxonomy", status_code=404)
 
         if payload.code is not None:
-            new_code = payload.code.strip().upper()
+            new_code = TaxonomyService.validate_canonical_code(payload.code)
             if new_code != skill.code:
                 existing = await db.scalar(select(Skill).where(Skill.code == new_code))
                 if existing and existing.id != skill.id:
@@ -1004,28 +1077,9 @@ class TaxonomyService:
                     curr = await db.get(Skill, curr.parent_id)
 
                 skill.parent_id = new_parent_id
-                # Sync sub_skills entry
-                legacy_sub = await db.get(SubSkill, skill.id)
-                if legacy_sub:
-                    legacy_sub.skill_id = new_parent_id
-                    legacy_sub.code = skill.code
-                    legacy_sub.name = skill.name
-                else:
-                    db.add(
-                        SubSkill(
-                            id=skill.id,
-                            skill_id=new_parent_id,
-                            code=skill.code,
-                            name=skill.name,
-                            description=skill.description,
-                        )
-                    )
             else:
                 # Making skill a root competency
                 skill.parent_id = None
-                legacy_sub = await db.get(SubSkill, skill.id)
-                if legacy_sub:
-                    await db.delete(legacy_sub)
 
         await db.flush()
 
@@ -1118,11 +1172,6 @@ class TaxonomyService:
                 "Archive the skill instead to maintain educational history integrity.",
                 status_code=400,
             )
-
-        # Remove legacy sub_skills entry if exists
-        legacy_sub = await db.get(SubSkill, skill_id)
-        if legacy_sub:
-            await db.delete(legacy_sub)
 
         await db.delete(skill)
         await db.flush()
@@ -1473,3 +1522,626 @@ class TaxonomyService:
             entity_id=relation_id,
             payload={"relation_type": relation.relation_type.value},
         )
+
+    # ---------------------------------------------------------------------------
+    # Database Integrity & Sole Source Verification
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    async def verify_canonical_taxonomy_integrity(db: AsyncSession) -> dict[str, Any]:
+        """Verify that every active taxonomy competency exists exclusively in canonical skills hierarchy."""
+        total_skills = (await db.scalar(select(func.count(Skill.id)))) or 0
+        active_skills = (await db.scalar(select(func.count(Skill.id)).where(Skill.is_active.is_(True)))) or 0
+        root_skills = (await db.scalar(select(func.count(Skill.id)).where(Skill.parent_id.is_(None)))) or 0
+        child_skills = (await db.scalar(select(func.count(Skill.id)).where(Skill.parent_id.is_not(None)))) or 0
+
+        # Check for broken parent references
+        orphan_children_stmt = (
+            select(Skill.id, Skill.code)
+            .where(
+                Skill.parent_id.is_not(None),
+                ~Skill.parent_id.in_(select(Skill.id)),
+            )
+        )
+        orphan_children = list((await db.execute(orphan_children_stmt)).all())
+
+        # Check legacy sub_skills parity: any row in sub_skills that does not exist in skills
+        unmapped_subskills_stmt = (
+            select(SubSkill.id, SubSkill.code)
+            .where(~SubSkill.id.in_(select(Skill.id)))
+        )
+        unmapped_subskills = list((await db.execute(unmapped_subskills_stmt)).all())
+
+        # Check tagging foreign keys: question tags without valid skill
+        broken_q_tags_stmt = (
+            select(QuestionSkillTag.id)
+            .where(
+                ~QuestionSkillTag.skill_id.in_(select(Skill.id))
+                | (QuestionSkillTag.subskill_id.is_not(None) & ~QuestionSkillTag.subskill_id.in_(select(Skill.id)))
+            )
+        )
+        broken_q_tags = list((await db.execute(broken_q_tags_stmt)).all())
+
+        # Check exercise tagging foreign keys
+        broken_ex_tags_stmt = (
+            select(ExerciseSkill.id)
+            .where(
+                ~ExerciseSkill.skill_id.in_(select(Skill.id))
+                | (ExerciseSkill.subskill_id.is_not(None) & ~ExerciseSkill.subskill_id.in_(select(Skill.id)))
+            )
+        )
+        broken_ex_tags = list((await db.execute(broken_ex_tags_stmt)).all())
+
+        is_valid = (
+            len(orphan_children) == 0
+            and len(unmapped_subskills) == 0
+            and len(broken_q_tags) == 0
+            and len(broken_ex_tags) == 0
+        )
+
+        return {
+            "is_valid": is_valid,
+            "total_skills": total_skills,
+            "active_skills": active_skills,
+            "root_skills": root_skills,
+            "child_skills": child_skills,
+            "orphan_children_count": len(orphan_children),
+            "unmapped_legacy_subskills_count": len(unmapped_subskills),
+            "broken_question_tags_count": len(broken_q_tags),
+            "broken_exercise_tags_count": len(broken_ex_tags),
+            "canonical_sole_source": is_valid,
+        }
+
+    # ---------------------------------------------------------------------------
+    # Relational Taxonomy Metadata & Aliases (F-06, F-10, F-15)
+    # ---------------------------------------------------------------------------
+
+    @classmethod
+    async def resolve_skill_by_code_or_alias(
+        cls,
+        db: AsyncSession,
+        identifier: str,
+        taxonomy_version_id: uuid.UUID | None = None,
+    ) -> Skill | None:
+        """Resolve a competency by canonical code or registered legacy alias with version-scoping."""
+        if not identifier or not identifier.strip():
+            return None
+        target = identifier.strip().lower()
+
+        # If taxonomy_version_id is provided, search within that version first
+        if taxonomy_version_id is not None:
+            skill = await db.scalar(
+                select(Skill).where(
+                    Skill.taxonomy_version_id == taxonomy_version_id,
+                    Skill.code == target,
+                )
+            )
+            if skill:
+                return skill
+
+            skill = await db.scalar(
+                select(Skill).where(
+                    Skill.taxonomy_version_id == taxonomy_version_id,
+                    func.lower(Skill.code) == target,
+                )
+            )
+            if skill:
+                return skill
+
+            alias_stmt = (
+                select(Skill)
+                .join(SkillAlias, SkillAlias.skill_id == Skill.id)
+                .where(
+                    Skill.taxonomy_version_id == taxonomy_version_id,
+                    func.lower(SkillAlias.alias_code) == target,
+                )
+            )
+            skill = await db.scalar(alias_stmt)
+            if skill:
+                return skill
+
+        # If not found or taxonomy_version_id was not provided, check the active taxonomy version
+        active_ver = await cls.get_active_version(db)
+        if active_ver and (taxonomy_version_id is None or active_ver.id != taxonomy_version_id):
+            skill = await db.scalar(
+                select(Skill).where(
+                    Skill.taxonomy_version_id == active_ver.id,
+                    func.lower(Skill.code) == target,
+                )
+            )
+            if skill:
+                return skill
+
+            alias_stmt = (
+                select(Skill)
+                .join(SkillAlias, SkillAlias.skill_id == Skill.id)
+                .where(
+                    Skill.taxonomy_version_id == active_ver.id,
+                    func.lower(SkillAlias.alias_code) == target,
+                )
+            )
+            skill = await db.scalar(alias_stmt)
+            if skill:
+                return skill
+
+        # Global fallback (any version, prioritizing active skills and latest versions)
+        skill = await db.scalar(
+            select(Skill)
+            .where(func.lower(Skill.code) == target)
+            .order_by(Skill.is_active.desc(), Skill.created_at.desc())
+        )
+        if skill:
+            return skill
+
+        alias_stmt = (
+            select(Skill)
+            .join(SkillAlias, SkillAlias.skill_id == Skill.id)
+            .where(func.lower(SkillAlias.alias_code) == target)
+            .order_by(Skill.is_active.desc(), Skill.created_at.desc())
+        )
+        return await db.scalar(alias_stmt)
+
+    @classmethod
+    async def resolve_active_successor(
+        cls,
+        db: AsyncSession,
+        skill_id: uuid.UUID,
+    ) -> list[Skill]:
+        """Resolve active canonical successor skill(s) through migration relation edges."""
+        skill = await db.get(Skill, skill_id)
+        if not skill:
+            return []
+
+        active_ver = await cls.get_active_version(db)
+        if skill.is_active and (active_ver is None or skill.taxonomy_version_id == active_ver.id):
+            return [skill]
+
+        # 1. Traverse explicit replacement, split, or merge relations
+        stmt = (
+            select(Skill)
+            .join(SkillRelation, SkillRelation.to_skill_id == Skill.id)
+            .where(
+                SkillRelation.from_skill_id == skill_id,
+                SkillRelation.relation_type.in_(
+                    [
+                        SkillRelationType.REPLACED_BY,
+                        SkillRelationType.SPLIT_INTO,
+                        SkillRelationType.MERGED_INTO,
+                    ]
+                ),
+            )
+        )
+        successors = list((await db.execute(stmt)).scalars().all())
+        if successors:
+            return successors
+
+        # 2. Match active skill with the same code in active version
+        if active_ver:
+            active_counterpart = await db.scalar(
+                select(Skill).where(
+                    Skill.taxonomy_version_id == active_ver.id,
+                    Skill.code == skill.code,
+                    Skill.is_active.is_(True),
+                )
+            )
+            if active_counterpart:
+                return [active_counterpart]
+
+        # 3. Retain historical identity
+        return [skill]
+
+    @classmethod
+    async def record_skill_replacement(
+        cls,
+        db: AsyncSession,
+        old_skill_id: uuid.UUID,
+        new_skill_id: uuid.UUID,
+        notes: str | None = None,
+    ) -> SkillRelation:
+        """Record that old_skill was replaced by new_skill."""
+        old_skill = await db.get(Skill, old_skill_id)
+        new_skill = await db.get(Skill, new_skill_id)
+        if not old_skill or not new_skill:
+            raise AppException("Source or target skill not found", status_code=404)
+
+        existing = await db.scalar(
+            select(SkillRelation).where(
+                SkillRelation.from_skill_id == old_skill_id,
+                SkillRelation.to_skill_id == new_skill_id,
+                SkillRelation.relation_type == SkillRelationType.REPLACED_BY,
+            )
+        )
+        if not existing:
+            existing = SkillRelation(
+                from_skill_id=old_skill_id,
+                to_skill_id=new_skill_id,
+                relation_type=SkillRelationType.REPLACED_BY,
+                created_at=datetime.datetime.now(datetime.UTC),
+            )
+            db.add(existing)
+
+        old_skill.is_active = False
+
+        if old_skill.code != new_skill.code:
+            await cls.register_skill_alias(
+                db=db,
+                skill_id=new_skill_id,
+                alias_code=old_skill.code,
+                notes=f"Replaced {old_skill.code} with {new_skill.code}",
+            )
+
+        mig_rec = await db.scalar(
+            select(TaxonomyMigrationRecord).where(
+                TaxonomyMigrationRecord.source_table == "skills",
+                TaxonomyMigrationRecord.source_id == old_skill_id,
+            )
+        )
+        if not mig_rec:
+            mig_rec = TaxonomyMigrationRecord(
+                source_table="skills",
+                source_id=old_skill_id,
+                source_code=old_skill.code,
+                source_name=old_skill.name,
+                target_skill_id=new_skill_id,
+                status=TaxonomyMigrationStatus.MIGRATED,
+                migration_type="replaced_by",
+                notes=notes,
+            )
+            db.add(mig_rec)
+        else:
+            mig_rec.target_skill_id = new_skill_id
+            mig_rec.status = TaxonomyMigrationStatus.MIGRATED
+            mig_rec.migration_type = "replaced_by"
+            mig_rec.notes = notes
+
+        await db.flush()
+        return existing
+
+    @classmethod
+    async def record_skill_split(
+        cls,
+        db: AsyncSession,
+        old_skill_id: uuid.UUID,
+        target_skill_ids: list[uuid.UUID],
+        notes: str | None = None,
+    ) -> list[SkillRelation]:
+        """Record that old_skill was split into multiple finer-grained skills."""
+        old_skill = await db.get(Skill, old_skill_id)
+        if not old_skill:
+            raise AppException("Old skill not found", status_code=404)
+
+        relations: list[SkillRelation] = []
+        for tid in target_skill_ids:
+            target = await db.get(Skill, tid)
+            if not target:
+                continue
+            existing = await db.scalar(
+                select(SkillRelation).where(
+                    SkillRelation.from_skill_id == old_skill_id,
+                    SkillRelation.to_skill_id == tid,
+                    SkillRelation.relation_type == SkillRelationType.SPLIT_INTO,
+                )
+            )
+            if not existing:
+                existing = SkillRelation(
+                    from_skill_id=old_skill_id,
+                    to_skill_id=tid,
+                    relation_type=SkillRelationType.SPLIT_INTO,
+                    created_at=datetime.datetime.now(datetime.UTC),
+                )
+                db.add(existing)
+            relations.append(existing)
+
+        old_skill.is_active = False
+
+        target_summary = f"Split into {len(target_skill_ids)} skills: {[str(t) for t in target_skill_ids]}"
+        mig_rec = await db.scalar(
+            select(TaxonomyMigrationRecord).where(
+                TaxonomyMigrationRecord.source_table == "skills",
+                TaxonomyMigrationRecord.source_id == old_skill_id,
+            )
+        )
+        if not mig_rec:
+            mig_rec = TaxonomyMigrationRecord(
+                source_table="skills",
+                source_id=old_skill_id,
+                source_code=old_skill.code,
+                source_name=old_skill.name,
+                target_skill_id=target_skill_ids[0] if target_skill_ids else None,
+                status=TaxonomyMigrationStatus.MIGRATED,
+                migration_type="split_into",
+                notes=f"{notes or ''} | {target_summary}".strip(" |"),
+            )
+            db.add(mig_rec)
+        else:
+            mig_rec.status = TaxonomyMigrationStatus.MIGRATED
+            mig_rec.migration_type = "split_into"
+            mig_rec.notes = f"{notes or ''} | {target_summary}".strip(" |")
+
+        await db.flush()
+        return relations
+
+    @classmethod
+    async def reconcile_legacy_nodes(cls, db: AsyncSession) -> dict[str, int]:
+        """Audit and resolve all legacy skills/subskills with zero silent orphaning.
+
+        Ensures every legacy skill or subskill record ends in one of:
+        - MIGRATED (with target_skill_id)
+        - DEPRECATED (explicitly retired)
+        - UNRESOLVED (flagged for administrator review)
+        """
+        active_ver = await cls.get_active_version(db)
+        stats = {"migrated": 0, "deprecated": 0, "unresolved": 0}
+
+        # 1. Inspect unversioned or historical skills
+        historical_skills = (
+            await db.execute(
+                select(Skill).where(
+                    or_(
+                        Skill.taxonomy_version_id.is_(None),
+                        Skill.taxonomy_version_id != (active_ver.id if active_ver else None),
+                    )
+                )
+            )
+        ).scalars().all()
+
+        for h_skill in historical_skills:
+            existing_rec = await db.scalar(
+                select(TaxonomyMigrationRecord).where(
+                    TaxonomyMigrationRecord.source_table == "skills",
+                    TaxonomyMigrationRecord.source_id == h_skill.id,
+                )
+            )
+            if existing_rec:
+                continue
+
+            active_match = None
+            if active_ver:
+                active_match = await db.scalar(
+                    select(Skill).where(
+                        Skill.taxonomy_version_id == active_ver.id,
+                        Skill.code == h_skill.code,
+                    )
+                )
+
+            if active_match:
+                rec = TaxonomyMigrationRecord(
+                    source_table="skills",
+                    source_id=h_skill.id,
+                    source_code=h_skill.code,
+                    source_name=h_skill.name,
+                    target_skill_id=active_match.id,
+                    status=TaxonomyMigrationStatus.MIGRATED,
+                    migration_type="direct",
+                    notes="Direct code alignment with active taxonomy version.",
+                )
+                stats["migrated"] += 1
+            elif not h_skill.is_active:
+                rec = TaxonomyMigrationRecord(
+                    source_table="skills",
+                    source_id=h_skill.id,
+                    source_code=h_skill.code,
+                    source_name=h_skill.name,
+                    target_skill_id=None,
+                    status=TaxonomyMigrationStatus.DEPRECATED,
+                    migration_type="deprecated",
+                    notes="Explicitly archived legacy skill without active counterpart.",
+                )
+                stats["deprecated"] += 1
+            else:
+                rec = TaxonomyMigrationRecord(
+                    source_table="skills",
+                    source_id=h_skill.id,
+                    source_code=h_skill.code,
+                    source_name=h_skill.name,
+                    target_skill_id=None,
+                    status=TaxonomyMigrationStatus.UNRESOLVED,
+                    migration_type=None,
+                    notes="Legacy skill active without active taxonomy counterpart. Requires mapping.",
+                )
+                stats["unresolved"] += 1
+            db.add(rec)
+
+        # 2. Inspect sub_skills table
+        subskills = (await db.execute(select(SubSkill))).scalars().all()
+        for sub in subskills:
+            existing_rec = await db.scalar(
+                select(TaxonomyMigrationRecord).where(
+                    TaxonomyMigrationRecord.source_table == "sub_skills",
+                    TaxonomyMigrationRecord.source_id == sub.id,
+                )
+            )
+            if existing_rec:
+                continue
+
+            matching_skill = await db.scalar(select(Skill).where(Skill.id == sub.id))
+            if matching_skill:
+                rec = TaxonomyMigrationRecord(
+                    source_table="sub_skills",
+                    source_id=sub.id,
+                    source_code=sub.code,
+                    source_name=sub.name,
+                    target_skill_id=matching_skill.id,
+                    status=TaxonomyMigrationStatus.MIGRATED,
+                    migration_type="direct_shadow",
+                    notes="Migrated from legacy sub_skills to canonical skills table.",
+                )
+                stats["migrated"] += 1
+            else:
+                rec = TaxonomyMigrationRecord(
+                    source_table="sub_skills",
+                    source_id=sub.id,
+                    source_code=sub.code,
+                    source_name=sub.name,
+                    target_skill_id=None,
+                    status=TaxonomyMigrationStatus.UNRESOLVED,
+                    migration_type=None,
+                    notes="SubSkill not found in canonical skills table.",
+                )
+                stats["unresolved"] += 1
+            db.add(rec)
+
+        await db.flush()
+        return stats
+
+    @staticmethod
+    async def get_skill_modalities(db: AsyncSession, skill_id: uuid.UUID) -> list[str]:
+        """Query all exam modalities associated with a competency."""
+        stmt = (
+            select(SkillModality.modality)
+            .where(SkillModality.skill_id == skill_id)
+            .order_by(SkillModality.modality)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    @staticmethod
+    async def set_skill_modalities(
+        db: AsyncSession,
+        skill_id: uuid.UUID,
+        modalities: list[str],
+        primary_modality: str | None = None,
+    ) -> list[str]:
+        """Set the allowed exam modalities for a skill, replacing existing mappings."""
+        skill = await db.get(Skill, skill_id)
+        if not skill:
+            raise AppException("Skill not found", status_code=404)
+        await db.execute(delete(SkillModality).where(SkillModality.skill_id == skill_id))
+        now = datetime.datetime.now(datetime.UTC)
+        cleaned = [m.strip().lower() for m in modalities if m and m.strip()]
+        for m in cleaned:
+            db.add(
+                SkillModality(
+                    skill_id=skill_id,
+                    modality=m,
+                    is_primary=(m == primary_modality) if primary_modality else True,
+                    created_at=now,
+                )
+            )
+        await db.flush()
+        return cleaned
+
+    @staticmethod
+    async def get_skills_by_modality(
+        db: AsyncSession,
+        modality: str,
+        is_active: bool = True,
+    ) -> list[Skill]:
+        """Retrieve all skills linked to an exam modality via SkillModality with legacy fallback."""
+        target_mod = modality.strip().lower()
+
+        # 1. Query canonical SkillModality table
+        stmt = (
+            select(Skill)
+            .join(SkillModality, SkillModality.skill_id == Skill.id)
+            .where(SkillModality.modality == target_mod)
+        )
+        if is_active is not None:
+            stmt = stmt.where(Skill.is_active == is_active)
+        stmt = stmt.order_by(SkillModality.is_primary.desc(), Skill.name.asc())
+        skills = list((await db.execute(stmt)).scalars().all())
+        if skills:
+            return skills
+
+        # 2. Fallback to domain/category if skill_modalities not yet populated
+        fb_stmt = select(Skill).where(
+            or_(
+                func.lower(Skill.domain) == target_mod,
+                func.lower(cast(Skill.category, String)) == target_mod,
+            )
+        )
+        if is_active is not None:
+            fb_stmt = fb_stmt.where(Skill.is_active == is_active)
+        fb_stmt = fb_stmt.order_by(Skill.name.asc())
+        return list((await db.execute(fb_stmt)).scalars().all())
+
+    @staticmethod
+    async def get_task_type_skills(db: AsyncSession, task_type_id: uuid.UUID) -> list[Skill]:
+        """Retrieve all skills supported by a task type via TaskTypeSkill."""
+        stmt = (
+            select(Skill)
+            .join(TaskTypeSkill, TaskTypeSkill.skill_id == Skill.id)
+            .where(TaskTypeSkill.task_type_id == task_type_id)
+            .order_by(Skill.name.asc())
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    @staticmethod
+    async def add_task_type_skill(
+        db: AsyncSession,
+        task_type_id: uuid.UUID,
+        skill_id: uuid.UUID,
+    ) -> TaskTypeSkill:
+        """Associate a supported skill with a task type."""
+        tt = await db.get(TaskType, task_type_id)
+        if not tt:
+            raise AppException("Task type not found", status_code=404)
+        sk = await db.get(Skill, skill_id)
+        if not sk:
+            raise AppException("Skill not found", status_code=404)
+        existing = await db.scalar(
+            select(TaskTypeSkill).where(
+                TaskTypeSkill.task_type_id == task_type_id,
+                TaskTypeSkill.skill_id == skill_id,
+            )
+        )
+        if existing:
+            return existing
+        link = TaskTypeSkill(
+            task_type_id=task_type_id,
+            skill_id=skill_id,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        db.add(link)
+        await db.flush()
+        return link
+
+    @staticmethod
+    async def remove_task_type_skill(
+        db: AsyncSession,
+        task_type_id: uuid.UUID,
+        skill_id: uuid.UUID,
+    ) -> bool:
+        """Remove a skill relationship from a task type."""
+        res = await db.execute(
+            delete(TaskTypeSkill).where(
+                TaskTypeSkill.task_type_id == task_type_id,
+                TaskTypeSkill.skill_id == skill_id,
+            )
+        )
+        await db.flush()
+        return bool(res.rowcount and res.rowcount > 0)
+
+    @staticmethod
+    async def register_skill_alias(
+        db: AsyncSession,
+        skill_id: uuid.UUID,
+        alias_code: str,
+        notes: str | None = None,
+    ) -> SkillAlias:
+        """Register a legacy alias pointing to a canonical skill."""
+        skill = await db.get(Skill, skill_id)
+        if not skill:
+            raise AppException("Skill not found", status_code=404)
+        target_alias = alias_code.strip()
+        existing = await db.scalar(select(SkillAlias).where(SkillAlias.alias_code == target_alias))
+        if existing:
+            if existing.skill_id == skill_id:
+                return existing
+            raise AppException(f"Alias '{target_alias}' already maps to skill {existing.skill_id}", status_code=400)
+        alias = SkillAlias(
+            skill_id=skill_id,
+            alias_code=target_alias,
+            notes=notes,
+            created_at=datetime.datetime.now(datetime.UTC),
+        )
+        db.add(alias)
+        await db.flush()
+        return alias
+
+    @staticmethod
+    async def remove_skill_alias(db: AsyncSession, alias_code: str) -> bool:
+        """Remove a registered skill alias."""
+        res = await db.execute(delete(SkillAlias).where(SkillAlias.alias_code == alias_code.strip()))
+        await db.flush()
+        return bool(res.rowcount and res.rowcount > 0)
+

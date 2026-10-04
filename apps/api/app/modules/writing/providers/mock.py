@@ -110,6 +110,10 @@ class MockCorrectionProvider(CorrectionProvider):
             f"Niveau estimé : {level}. Le candidat démontre une bonne compréhension du sujet avec {word_count} mots."
         )
 
+        # Compute criterion breakdown
+        tc_score = round(max(30.0, min(100.0, 85.0 if task.min_words <= word_count <= task.max_words + 20 else 60.0)), 1)
+        coh_score = round(max(30.0, min(100.0, 80.0 if len(paragraphs) >= 3 and len(found_connectors) >= 2 else 65.0)), 1)
+
         return CorrectionResult(
             provider=CorrectionProviderType.MOCK,
             score=final_score,
@@ -119,4 +123,11 @@ class MockCorrectionProvider(CorrectionProvider):
             comments=comments,
             corrected_content=text_content,  # In mock, returns verified copy
             recommendations=recommendations,
+            task_completion=tc_score,
+            coherence=coh_score,
+            vocabulary=final_score,
+            grammar=final_score,
+            syntax=final_score,
+            spelling=final_score,
+            register=80.0,
         )

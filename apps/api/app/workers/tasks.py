@@ -516,9 +516,6 @@ async def evaluate_speaking_exam_core(db: AsyncSession, exam_id: Any) -> dict[st
     from sqlalchemy.orm import selectinload
 
     from app.core.config import settings
-    from app.modules.assessments.models import Skill, SkillCategory
-    from app.modules.learning.readiness_engine import ReadinessEngine
-    from app.modules.learning.readiness_models import SkillEvidenceSourceType
     from app.modules.speaking.enums import (
         SpeakingEvaluatorType,
         SpeakingExamState,
@@ -527,7 +524,6 @@ async def evaluate_speaking_exam_core(db: AsyncSession, exam_id: Any) -> dict[st
     )
     from app.modules.speaking.models import (
         SpeakingEvaluation,
-        SpeakingEvaluationSkill,
         SpeakingExam,
         SpeakingSection,
     )
@@ -669,43 +665,14 @@ async def evaluate_speaking_exam_core(db: AsyncSession, exam_id: Any) -> dict[st
         exam.session.status = SpeakingSessionState.COMPLETED
         exam.session.evaluation = evaluation
 
-    # Skills attachment and ReadinessEngine ingestion
-    skills_stmt = select(Skill).where(Skill.category == SkillCategory.SPEAKING).limit(3)
-    skills = (await db.execute(skills_stmt)).scalars().all()
-    for s in skills:
-        eval_skill = SpeakingEvaluationSkill(
-            evaluation_id=evaluation.id,
-            skill_id=s.id,
-            score=eval_result.overall_score,
-            notes=f"Compétence évaluée pour {s.name}",
-        )
-        db.add(eval_skill)
-
-    for s in skills:
-        try:
-            async with db.begin_nested():
-                await ReadinessEngine.ingest_evidence(
-                    db=db,
-                    student_id=exam.student_id,
-                    skill_id=s.id,
-                    source_type=SkillEvidenceSourceType.AI_EVALUATION.value,
-                    source_id=evaluation.id,
-                    raw_score=eval_result.overall_score,
-                    normalized_score=eval_result.overall_score,
-                    confidence=0.85,
-                    weight=1.0,
-                    observed_at=now,
-                    metadata_payload={"exam_id": str(exam.id), "evaluator": eval_model_name},
-                )
-        except Exception:  # noqa: BLE001, S110
-            pass
-
-    if skills:
-        try:
-            async with db.begin_nested():
-                await ReadinessEngine.recalculate_student_readiness(db, exam.student_id)
-        except Exception:  # noqa: BLE001, S110
-            pass
+    # Skills attachment and ReadinessEngine ingestion via canonical taxonomy
+    from app.modules.learning.evaluation_mapper import EvaluationSkillMapper
+    await EvaluationSkillMapper.apply_speaking_evaluation_evidence(
+        db=db,
+        evaluation=evaluation,
+        student_id=exam.student_id,
+        section_context="both",
+    )
 
     await db.commit()
     logger.info(

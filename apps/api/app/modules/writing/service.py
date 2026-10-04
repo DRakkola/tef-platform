@@ -11,17 +11,10 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import AppException
 from app.core.storage import StorageService
 from app.modules.admin.models import WritingTaskVersion
-from app.modules.assessments.models import Skill
-from app.modules.learning.engine import SkillEngine
-from app.modules.learning.levels import LevelEstimationService
 from app.modules.learning.models import (
     Mistake,
-    SkillAssessment,
     StudentActivityEvent,
-    StudentSkill,
 )
-from app.modules.learning.readiness_engine import ReadinessEngine
-from app.modules.learning.readiness_models import SkillEvidenceSourceType
 from app.modules.learning.recommendations_v2 import RecommendationEngineV2
 from app.modules.notifications.service import NotificationService
 from app.modules.writing.enums import (
@@ -750,16 +743,21 @@ class WritingService:
             )
             db.add(c_item)
 
-        # Add skill evaluations
-        for skill_data in req.skills:
-            c_skill = WritingCorrectionSkill(
-                correction_id=correction.id,
-                skill_id=skill_data.skill_id,
-                score=skill_data.score,
-                level=skill_data.level,
-                feedback=skill_data.feedback,
-            )
-            db.add(c_skill)
+        # Attach skill evaluations & update learning intelligence via EvaluationSkillMapper
+        from app.modules.learning.evaluation_mapper import EvaluationSkillMapper
+        task_type_str = (
+            submission.task.task_type.value
+            if submission.task and hasattr(submission.task.task_type, "value")
+            else str(getattr(submission.task, "task_type", "section_a"))
+        )
+        await EvaluationSkillMapper.apply_writing_evaluation_evidence(
+            db=db,
+            correction=correction,
+            student_id=submission.user_id,
+            task_type=task_type_str,
+            is_teacher=True,
+            custom_skills=req.skills if req.skills else None,
+        )
 
         # Transition submission to returned
         submission.status = WritingSubmissionStatus.RETURNED
@@ -774,60 +772,6 @@ class WritingService:
         if assignment:
             assignment.status = "completed"
             assignment.completed_at = now
-
-        # Update learning intelligence: SkillAssessments, StudentSkills, Mistakes, StudentActivityEvent
-        for skill_data in req.skills:
-            existing_sa = await db.scalar(
-                select(SkillAssessment).where(
-                    SkillAssessment.source_id == correction.id,
-                    SkillAssessment.skill_id == skill_data.skill_id,
-                    SkillAssessment.source_type == "writing_correction",
-                )
-            )
-            if not existing_sa:
-                sa = SkillAssessment(
-                    user_id=submission.user_id,
-                    skill_id=skill_data.skill_id,
-                    source_type="writing_correction",
-                    source_id=correction.id,
-                    score=skill_data.score,
-                    points_earned=skill_data.score,
-                    points_possible=100.0,
-                    estimated_level=skill_data.level,
-                    confidence=0.85,
-                    assessed_at=now,
-                )
-                db.add(sa)
-
-            # Update rolling StudentSkill estimate
-            st_skill = await db.scalar(
-                select(StudentSkill).where(
-                    StudentSkill.user_id == submission.user_id,
-                    StudentSkill.skill_id == skill_data.skill_id,
-                )
-            )
-            if st_skill:
-                new_mastery, new_conf = SkillEngine.update_mastery(
-                    current_mastery=st_skill.mastery_score,
-                    attempts_count=st_skill.attempts_count,
-                    performance_score=skill_data.score,
-                )
-                st_skill.mastery_score = new_mastery
-                st_skill.confidence = new_conf
-                st_skill.attempts_count += 1
-                st_skill.last_assessed_at = now
-                st_skill.estimated_level = LevelEstimationService.estimate_cefr(new_mastery)
-            else:
-                st_skill = StudentSkill(
-                    user_id=submission.user_id,
-                    skill_id=skill_data.skill_id,
-                    mastery_score=skill_data.score,
-                    confidence=0.5,
-                    attempts_count=1,
-                    last_assessed_at=now,
-                    estimated_level=skill_data.level,
-                )
-                db.add(st_skill)
 
         # Record linguistic mistakes
         for item_data in req.items:
@@ -864,36 +808,8 @@ class WritingService:
         # Trigger deterministic recommendations update
         try:
             await RecommendationEngineV2.generate_recommendations(db, submission.user_id)
-        except Exception:  # noqa: BLE001
-            pass
-
-        # Ingest into ReadinessEngine
-        for skill_data in req.skills:
-            try:
-                await ReadinessEngine.ingest_evidence(
-                    db=db,
-                    student_id=submission.user_id,
-                    skill_id=skill_data.skill_id,
-                    source_type=SkillEvidenceSourceType.TEACHER_EVALUATION.value,
-                    source_id=correction.id,
-                    raw_score=skill_data.score,
-                    normalized_score=skill_data.score,
-                    confidence=0.90,
-                    weight=1.0,
-                    observed_at=now,
-                    metadata_payload={
-                        "submission_id": str(submission.id),
-                        "teacher_id": str(teacher_id),
-                        "level": skill_data.level,
-                    },
-                )
-            except Exception as e_ev:  # noqa: BLE001
-                logger.warning("failed_ingesting_writing_teacher_evidence", error=str(e_ev))
-
-        try:
-            await ReadinessEngine.recalculate_student_readiness(db, submission.user_id)
         except Exception as e_rec:  # noqa: BLE001
-            logger.warning("failed_recalculating_readiness_after_writing_correction", error=str(e_rec))
+            logger.warning("failed_generating_recommendations_after_writing_correction", error=str(e_rec))
 
         await db.flush()
 
@@ -970,8 +886,8 @@ class WritingService:
         if storage and sub.storage_object_key:
             try:
                 content = WritingStorage.get_submission_text(storage, sub.storage_object_key)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e_text:  # noqa: BLE001
+                logger.warning("failed_reading_submission_text_from_storage", error=str(e_text))
 
         corr_data: dict[str, Any] | None = None
         if sub.correction:
@@ -1088,6 +1004,13 @@ class WritingService:
             corrected_by_user_id=None,
             score=result.score,
             estimated_level=result.estimated_level,
+            task_completion=result.task_completion,
+            coherence=result.coherence,
+            vocabulary=result.vocabulary,
+            grammar=result.grammar,
+            syntax=result.syntax,
+            spelling=result.spelling,
+            register=result.register,
             strengths=result.strengths,
             weaknesses=result.weaknesses,
             comments=result.comments,
@@ -1102,37 +1025,20 @@ class WritingService:
         submission.status = WritingSubmissionStatus.RETURNED
         await db.flush()
 
-        # Ingest AI evaluation evidence into ReadinessEngine if writing skill found
-        writing_skill = (
-            await db.execute(
-                select(Skill).where(Skill.code.in_(["writing", "expression_ecrite", "EE", "writing_b2"]))
-            )
-        ).scalar_one_or_none()
-        if not writing_skill:
-            writing_skill = (
-                await db.execute(
-                    select(Skill).where(Skill.name.ilike("%writing%") | Skill.name.ilike("%écrite%"))
-                )
-            ).scalars().first()
-
-        if writing_skill:
-            try:
-                await ReadinessEngine.ingest_evidence(
-                    db=db,
-                    student_id=submission.user_id,
-                    skill_id=writing_skill.id,
-                    source_type=SkillEvidenceSourceType.AI_EVALUATION.value,
-                    source_id=correction.id,
-                    raw_score=correction.score,
-                    normalized_score=correction.score,
-                    confidence=0.80,
-                    weight=1.0,
-                    observed_at=now,
-                    metadata_payload={"submission_id": str(submission.id), "provider": "mock"},
-                )
-                await ReadinessEngine.recalculate_student_readiness(db, submission.user_id)
-            except Exception as e_ai:  # noqa: BLE001
-                logger.warning("failed_ingesting_writing_mock_evidence", error=str(e_ai))
+        # Ingest AI evaluation evidence and attach canonical skills via EvaluationSkillMapper
+        from app.modules.learning.evaluation_mapper import EvaluationSkillMapper
+        task_type_str = (
+            submission.task.task_type.value
+            if submission.task and hasattr(submission.task.task_type, "value")
+            else str(getattr(submission.task, "task_type", "section_a"))
+        )
+        await EvaluationSkillMapper.apply_writing_evaluation_evidence(
+            db=db,
+            correction=correction,
+            student_id=submission.user_id,
+            task_type=task_type_str,
+            is_teacher=False,
+        )
 
         # Emit student notification
         try:

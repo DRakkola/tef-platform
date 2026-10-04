@@ -19,6 +19,13 @@ class CorrectionResult:
     comments: str = ""
     corrected_content: str | None = None
     recommendations: list[str] = field(default_factory=list)
+    task_completion: float | None = None
+    coherence: float | None = None
+    vocabulary: float | None = None
+    grammar: float | None = None
+    syntax: float | None = None
+    spelling: float | None = None
+    register: float | None = None
 
 
 class CorrectionProvider(ABC):

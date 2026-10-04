@@ -44,19 +44,12 @@ class LevelEstimationService:
 
     @classmethod
     def estimate_cefr(cls, score: float) -> str:
-        """Map percentage score (0-100) to CEFR level."""
-        score = max(0.0, min(100.0, score))
-        if score < 35.0:
-            return "A1"
-        if score < 50.0:
-            return "A2"
-        if score < 65.0:
-            return "B1"
-        if score < 80.0:
-            return "B2"
-        if score < 90.0:
-            return "C1"
-        return "C2"
+        """Map percentage score (0-100) to canonical CEFR level."""
+        score = max(0.0, min(100.0, float(score)))
+        for level in ("C2", "C1", "B2", "B1", "A2"):
+            if score >= CEFR_LEVEL_THRESHOLDS[level]:
+                return level
+        return "A1"
 
     @classmethod
     def estimate_nclc(cls, score: float, cefr: str | None = None) -> str:

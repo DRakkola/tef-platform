@@ -27,6 +27,7 @@ from app.modules.assessments.models import (
     AssessmentSection,
     Question,
     QuestionSkillTag,
+    Skill,
 )
 from app.modules.learning.models import Exercise, ExerciseSkill, StudentSkill
 from app.modules.users.models import User
@@ -126,7 +127,7 @@ async def test_skill_crud_search_and_pagination(
     admin_auth_headers: dict[str, str],
 ):
     """Test full skills CRUD, duplicate code protection, search, and pagination."""
-    code = f"SKILL_ROOT_{uuid.uuid4().hex[:6].upper()}"
+    code = f"skill_root_{uuid.uuid4().hex[:6]}"
     payload = {
         "code": code,
         "name": "Synthèse et inférence critique",
@@ -193,7 +194,7 @@ async def test_subskills_and_reparenting(
     db_session: AsyncSession,
 ):
     """Test child subskill creation, domain inheritance, dual-table sync, and cycle-safe reparenting."""
-    parent_code = f"PARENT_{uuid.uuid4().hex[:6].upper()}"
+    parent_code = f"parent_{uuid.uuid4().hex[:6]}"
     p_resp = await client.post(
         "/api/v1/admin/taxonomy/skills",
         json={
@@ -208,7 +209,7 @@ async def test_subskills_and_reparenting(
     parent_id = p_resp.json()["id"]
 
     # Create child subskill
-    child_code = f"CHILD_{uuid.uuid4().hex[:6].upper()}"
+    child_code = f"child_{uuid.uuid4().hex[:6]}"
     c_resp = await client.post(
         f"/api/v1/admin/taxonomy/skills/{parent_id}/children",
         json={
@@ -224,10 +225,14 @@ async def test_subskills_and_reparenting(
     assert child["dimension"] == "language"
     assert child["domain"] == "grammar"
 
-    # Verify dual-sync in sub_skills table
+    # Verify child is in canonical skills table with parent_id and NOT duplicated in legacy sub_skills
+    canonical_child = await db_session.get(Skill, uuid.UUID(child_id))
+    assert canonical_child is not None
+    assert canonical_child.code == child_code
+    assert str(canonical_child.parent_id) == str(parent_id)
+
     sub_row = await db_session.get(SubSkill, uuid.UUID(child_id))
-    assert sub_row is not None
-    assert sub_row.code == child_code
+    assert sub_row is None
 
     # List children
     children_resp = await client.get(f"/api/v1/admin/taxonomy/skills/{parent_id}/children", headers=admin_auth_headers)
@@ -237,7 +242,7 @@ async def test_subskills_and_reparenting(
     assert c_items[0]["id"] == child_id
 
     # Create another parent for reparenting
-    parent2_code = f"PARENT2_{uuid.uuid4().hex[:6].upper()}"
+    parent2_code = f"parent2_{uuid.uuid4().hex[:6]}"
     p2_resp = await client.post(
         "/api/v1/admin/taxonomy/skills",
         json={
@@ -278,7 +283,7 @@ async def test_cefr_descriptors(
     admin_auth_headers: dict[str, str],
 ):
     """Test CEFR level can-do descriptors and evidence guidance."""
-    sk_code = f"SK_CEFR_{uuid.uuid4().hex[:6].upper()}"
+    sk_code = f"sk_cefr_{uuid.uuid4().hex[:6]}"
     sk_resp = await client.post(
         "/api/v1/admin/taxonomy/skills",
         json={
@@ -343,7 +348,7 @@ async def test_skill_relations_and_cycle_prevention(
     resp_a = await client.post(
         "/api/v1/admin/taxonomy/skills",
         json={
-            "code": f"REL_A_{uuid.uuid4().hex[:6].upper()}",
+            "code": f"rel_a_{uuid.uuid4().hex[:6]}",
             "name": "Conjugaison de base",
             "dimension": "language",
             "domain": "grammar",
@@ -355,7 +360,7 @@ async def test_skill_relations_and_cycle_prevention(
     resp_b = await client.post(
         "/api/v1/admin/taxonomy/skills",
         json={
-            "code": f"REL_B_{uuid.uuid4().hex[:6].upper()}",
+            "code": f"rel_b_{uuid.uuid4().hex[:6]}",
             "name": "Concordance des temps complexe",
             "dimension": "language",
             "domain": "grammar",
@@ -416,7 +421,7 @@ async def test_relational_usage_counts_and_deletion_protection(
     sk_resp = await client.post(
         "/api/v1/admin/taxonomy/skills",
         json={
-            "code": f"USAGE_{uuid.uuid4().hex[:6].upper()}",
+            "code": f"usage_{uuid.uuid4().hex[:6]}",
             "name": "Accords participes passés complexes",
             "dimension": "language",
             "domain": "grammar",
@@ -516,7 +521,7 @@ async def test_backward_compatibility_content_skills(
         assert "usage_counts" in first
 
     # Create legacy skill
-    leg_code = f"LEG_SKILL_{uuid.uuid4().hex[:6].upper()}"
+    leg_code = f"leg_skill_{uuid.uuid4().hex[:6]}"
     create_resp = await client.post(
         "/api/v1/admin/content/skills",
         json={
@@ -532,7 +537,7 @@ async def test_backward_compatibility_content_skills(
     parent_id = created["id"]
 
     # Create legacy subskill under parent
-    sub_code = f"LEG_SUB_{uuid.uuid4().hex[:6].upper()}"
+    sub_code = f"leg_sub_{uuid.uuid4().hex[:6]}"
     sub_resp = await client.post(
         f"/api/v1/admin/content/skills/{parent_id}/subskills",
         json={

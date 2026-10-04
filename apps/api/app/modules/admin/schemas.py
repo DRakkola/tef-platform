@@ -4,7 +4,7 @@ import datetime
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.modules.admin.enums import ContentStatus, MediaType, ReviewStatus
 from app.modules.assessments.enums import (
@@ -87,10 +87,10 @@ class SubSkillUpdate(BaseModel):
 
 
 class SubSkillResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: uuid.UUID
-    skill_id: uuid.UUID
+    skill_id: uuid.UUID = Field(validation_alias=AliasChoices("skill_id", "parent_id"))
     code: str
     name: str
     description: str | None = None
@@ -611,28 +611,32 @@ class AdminUserStatusUpdate(BaseModel):
 
 
 # --- Taxonomy V2 Schemas Re-export ---
-from app.modules.admin.taxonomy_schemas import (  # noqa: F401
-    AdminSkillSummaryResponse,
-    SkillLevelDescriptorCreate,
-    SkillLevelDescriptorResponse,
-    SkillLevelDescriptorUpdate,
-    SkillRelationCreate,
-    SkillRelationResponse,
-    SkillRelationsListResponse,
-    TaskTypeCreate,
-    TaskTypeResponse,
-    TaskTypeUpdate,
-    TaxonomyChildSkillCreate,
-    TaxonomyMetadataResponse,
-    TaxonomyMetricsSummary,
-    TaxonomyReparentRequest,
-    TaxonomySkillCreate,
-    TaxonomySkillDetailResponse,
-    TaxonomySkillListItemResponse,
-    TaxonomySkillListResponse,
-    TaxonomySkillUpdate,
-    TaxonomyTreeNodeResponse,
-    TaxonomyVersionCreate,
-    TaxonomyVersionResponse,
-    TaxonomyVersionUpdate,
-)
+try:
+    from app.modules.admin.taxonomy_schemas import (  # noqa: F401
+        AdminSkillSummaryResponse,
+        SkillLevelDescriptorCreate,
+        SkillLevelDescriptorResponse,
+        SkillLevelDescriptorUpdate,
+        SkillRelationCreate,
+        SkillRelationResponse,
+        SkillRelationsListResponse,
+        TaskTypeCreate,
+        TaskTypeResponse,
+        TaskTypeUpdate,
+        TaxonomyChildSkillCreate,
+        TaxonomyMetadataResponse,
+        TaxonomyMetricsSummary,
+        TaxonomyReparentRequest,
+        TaxonomySkillCreate,
+        TaxonomySkillDetailResponse,
+        TaxonomySkillListItemResponse,
+        TaxonomySkillListResponse,
+        TaxonomySkillUpdate,
+        TaxonomyTreeNodeResponse,
+        TaxonomyVersionCreate,
+        TaxonomyVersionResponse,
+        TaxonomyVersionUpdate,
+    )
+except ImportError:
+    pass
+

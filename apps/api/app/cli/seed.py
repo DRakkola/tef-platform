@@ -7,31 +7,29 @@ practice topics, and default user accounts idempotently.
 import asyncio
 import datetime
 import os
-import sys
 import uuid
+
 import structlog
 from sqlalchemy import select
 
 # Ensure all models are registered in metadata
-import app.modules.admin.ai_sandbox_models  # noqa: F401
-import app.modules.admin.beta_models  # noqa: F401
-import app.modules.admin.models  # noqa: F401
-import app.modules.admin.speaking_config_models  # noqa: F401
-import app.modules.admin.speaking_scenario_models  # noqa: F401
-import app.modules.analytics.models  # noqa: F401
-import app.modules.assessments.models  # noqa: F401
-import app.modules.billing.models  # noqa: F401
-import app.modules.learning.models  # noqa: F401
-import app.modules.practice_pool.models  # noqa: F401
-import app.modules.speaking.models  # noqa: F401
-import app.modules.teachers.models  # noqa: F401
-import app.modules.users.models  # noqa: F401
+import app.modules.admin.ai_sandbox_models
+import app.modules.admin.beta_models
+import app.modules.admin.models
+import app.modules.admin.speaking_config_models
+import app.modules.admin.speaking_scenario_models
+import app.modules.analytics.models
+import app.modules.assessments.models
+import app.modules.billing.models
+import app.modules.learning.models
+import app.modules.practice_pool.models
+import app.modules.speaking.models
+import app.modules.teachers.models
+import app.modules.users.models
 import app.modules.writing.models  # noqa: F401
-
-from app.core.config import settings
 from app.core.database import async_session_factory
-from app.core.security import hash_password
 from app.modules.admin.ai_sandbox_service import AISandboxService
+from app.modules.admin.reading_taxonomy_data import seed_reading_taxonomy
 from app.modules.assessments.seed import seed_demo_assessments
 from app.modules.learning.seed import seed_learning_data
 from app.modules.practice_pool.models import PracticeTopic
@@ -99,7 +97,6 @@ async def seed_practice_topics(db) -> None:
 async def seed_default_users(db) -> None:
     """Seed initial administrator and demonstration accounts if none exist."""
     admin_email = os.getenv("ADMIN_EMAIL", "admin@tefprep.com")
-    admin_password = os.getenv("ADMIN_PASSWORD", "AdminPassword123!")
 
     existing_admin = await db.scalar(select(User).where(User.email == admin_email))
     if not existing_admin:
@@ -206,7 +203,8 @@ async def seed_default_users(db) -> None:
                 target_level=st["target_level"],
                 target_cefr_level=st["target_cefr"],
                 target_nclc_level=st["target_nclc"],
-                target_date=datetime.date.today() + datetime.timedelta(days=90),
+                target_date=datetime.datetime.now(datetime.UTC).date()
+                + datetime.timedelta(days=90),
                 timezone="UTC",
                 native_language=st["native_language"],
                 daily_minutes_available=st["daily_minutes"],
@@ -225,22 +223,25 @@ async def run_seed() -> None:
     print("==================================================")
 
     async with async_session_factory() as session:
-        print("[1/6] Seeding core assessments and skills...")
+        print("[1/7] Seeding canonical TEF Reading taxonomy...")
+        await seed_reading_taxonomy(session)
+
+        print("[2/7] Seeding core assessments and skills...")
         await seed_demo_assessments(session)
 
-        print("[2/6] Seeding learning intelligence hierarchy & exercises...")
+        print("[3/7] Seeding learning intelligence hierarchy & exercises...")
         await seed_learning_data(session)
 
-        print("[3/6] Seeding writing examination tasks...")
+        print("[4/7] Seeding writing examination tasks...")
         await seed_writing_tasks(session)
 
-        print("[4/6] Seeding AI oral examiner configurations...")
+        print("[5/7] Seeding AI oral examiner configurations...")
         await AISandboxService.seed_system_templates(session)
 
-        print("[5/6] Seeding authentic speaking exam scenarios...")
+        print("[6/7] Seeding authentic speaking exam scenarios...")
         await AISandboxService.seed_default_scenarios(session, None)
 
-        print("[6/6] Seeding practice pool topics & initial accounts...")
+        print("[7/7] Seeding practice pool topics & initial accounts...")
         await seed_practice_topics(session)
         await seed_default_users(session)
 

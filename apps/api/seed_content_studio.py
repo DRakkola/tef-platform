@@ -11,19 +11,17 @@ Populates:
 
 import asyncio
 import datetime
-import os
 import uuid
 
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select
 
-from app.core.config import settings
 from app.core.security import hash_password
 from app.modules.admin.enums import (
     ContentStatus,
     MediaType,
     ReviewStatus,
     SkillDimension,
+    SkillTagRole,
     TaxonomyLifecycleStatus,
 )
 from app.modules.admin.models import (
@@ -32,8 +30,6 @@ from app.modules.admin.models import (
     ContentReview,
     ExerciseVersion,
     MediaAsset,
-    QuestionVersion,
-    SubSkill,
     TaxonomyVersion,
     WritingTaskVersion,
 )
@@ -41,17 +37,18 @@ from app.modules.assessments.enums import AssessmentType, QuestionType
 from app.modules.assessments.models import (
     Assessment,
     AssessmentSection,
-    Attempt,
-    AttemptScore,
     Question,
     QuestionOption,
     QuestionSkillTag,
     Skill,
+    TaskType,
 )
 from app.modules.learning.enums import SkillCategory
-from app.modules.learning.models import Exercise, Recommendation, SkillAssessment, StudentSkill
-from app.modules.teachers.models import TeacherBooking
-from app.modules.users.models import StudentProfile, TeacherProfile, User, UserRole
+from app.modules.learning.models import (
+    Exercise,
+    ExerciseSkill,
+)
+from app.modules.users.models import User, UserRole
 from app.modules.writing.models import WritingTask
 
 ADMIN_EMAIL = "admin@example.com"
@@ -63,6 +60,10 @@ async def run_seed():
 
     async with async_session_factory() as session:
         print("🌱 Seeding Content Studio...")
+
+        # -1. Canonical Reading Taxonomy
+        from app.modules.admin.reading_taxonomy_data import seed_reading_taxonomy
+        await seed_reading_taxonomy(session)
 
         # 0. Admin User
         admin_res = await session.execute(select(User).where(User.email == ADMIN_EMAIL))
@@ -224,21 +225,7 @@ async def run_seed():
                     )
                     session.add(canonical_sub)
                     await session.flush()
-
-                # Legacy SubSkill table
-                sub_res = await session.execute(select(SubSkill).where(SubSkill.code == sub_code))
-                sub = sub_res.scalar_one_or_none()
-                if not sub:
-                    sub = SubSkill(
-                        id=canonical_sub.id,
-                        skill_id=sk.id,
-                        code=sub_code,
-                        name=sub_name,
-                        description=sub_desc,
-                    )
-                    session.add(sub)
-                    await session.flush()
-        print("  [✓] 7 skills and 28 subskills synchronized with Taxonomy V2.")
+        print("  [✓] 7 skills and 28 subskills synchronized with canonical Taxonomy V2.")
 
         # 2. Media Assets
         media_items = [
@@ -287,6 +274,16 @@ async def run_seed():
             session.add(read_asmt)
             await session.flush()
 
+            # Resolve canonical reading task types and competencies
+            daily_doc_tt = await session.scalar(select(TaskType).where(TaskType.code == "daily_document"))
+            press_art_tt = await session.scalar(select(TaskType).where(TaskType.code == "press_article"))
+
+            canon_detail = await session.scalar(select(Skill).where(Skill.code == "reasoning_identify_specific_detail"))
+            canon_main_idea = await session.scalar(select(Skill).where(Skill.code == "reasoning_identify_main_idea"))
+            canon_inference = await session.scalar(select(Skill).where(Skill.code == "reasoning_infer_implicit_meaning"))
+            canon_vocab = await session.scalar(select(Skill).where(Skill.code == "lang_vocab_in_context"))
+            canon_paraphrase = await session.scalar(select(Skill).where(Skill.code == "lang_paraphrase_and_synonyms"))
+
             # Section 1
             sec1 = AssessmentSection(
                 assessment_id=read_asmt.id,
@@ -317,6 +314,7 @@ async def run_seed():
                 level="A2",
                 points=1,
                 penalty_points=0,
+                task_type_id=daily_doc_tt.id if daily_doc_tt else None,
                 explanation="L'avis signale une modification de trajet due à des travaux routiers.",
                 status=ContentStatus.PUBLISHED.value,
                 version=1,
@@ -332,6 +330,24 @@ async def run_seed():
                 QuestionOption(question_id=q1.id, content="L'inauguration d'une nouvelle ligne express", order_index=2, is_correct=False),
                 QuestionOption(question_id=q1.id, content="La fermeture totale du réseau d'autobus", order_index=3, is_correct=False),
             ])
+            session.add_all([
+                QuestionSkillTag(
+                    question_id=q1.id,
+                    skill_id=canon_main_idea.id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=1.0,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                QuestionSkillTag(
+                    question_id=q1.id,
+                    skill_id=canon_vocab.id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=1.0,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ])
 
             # Q2
             q2 = Question(
@@ -343,6 +359,7 @@ async def run_seed():
                 level="B1",
                 points=1,
                 penalty_points=0,
+                task_type_id=daily_doc_tt.id if daily_doc_tt else None,
                 explanation="Des arrêts provisoires sont mis en place rue Montcalm.",
                 status=ContentStatus.PUBLISHED.value,
                 version=1,
@@ -357,6 +374,24 @@ async def run_seed():
                 QuestionOption(question_id=q2.id, content="Acheter un titre de transport spécifique", order_index=1, is_correct=False),
                 QuestionOption(question_id=q2.id, content="Téléphoner au service client avant chaque départ", order_index=2, is_correct=False),
                 QuestionOption(question_id=q2.id, content="Attendre le rétablissement de la circulation normale", order_index=3, is_correct=False),
+            ])
+            session.add_all([
+                QuestionSkillTag(
+                    question_id=q2.id,
+                    skill_id=canon_detail.id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=1.0,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                QuestionSkillTag(
+                    question_id=q2.id,
+                    skill_id=canon_paraphrase.id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=1.0,
+                    created_at=now,
+                    updated_at=now,
+                ),
             ])
 
             # Section 2
@@ -389,6 +424,7 @@ async def run_seed():
                 level="B2",
                 points=2,
                 penalty_points=0,
+                task_type_id=press_art_tt.id if press_art_tt else None,
                 explanation="Le texte mentionne l'effacement de la frontière vie privée/vie pro et la perte de cohésion sociale.",
                 status=ContentStatus.PUBLISHED.value,
                 version=1,
@@ -403,6 +439,32 @@ async def run_seed():
                 QuestionOption(question_id=q3.id, content="Une fragilisation des relations humaines et de l'équilibre personnel", order_index=1, is_correct=True),
                 QuestionOption(question_id=q3.id, content="Une augmentation spectaculaire des dépenses en matériel", order_index=2, is_correct=False),
                 QuestionOption(question_id=q3.id, content="Le refus des employeurs de fournir un équipement adéquat", order_index=3, is_correct=False),
+            ])
+            session.add_all([
+                QuestionSkillTag(
+                    question_id=q3.id,
+                    skill_id=canon_detail.id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=0.70,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                QuestionSkillTag(
+                    question_id=q3.id,
+                    skill_id=canon_inference.id,
+                    role=SkillTagRole.SECONDARY,
+                    weight=0.30,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                QuestionSkillTag(
+                    question_id=q3.id,
+                    skill_id=canon_paraphrase.id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=1.0,
+                    created_at=now,
+                    updated_at=now,
+                ),
             ])
 
             # Freeze AssessmentVersion snapshot
@@ -525,6 +587,28 @@ async def run_seed():
                 )
                 session.add(ex)
                 await session.flush()
+
+                if ex_cat == SkillCategory.READING:
+                    prof_doc_tt = await session.scalar(select(TaskType).where(TaskType.code == "professional_document"))
+                    canon_context = await session.scalar(select(Skill).where(Skill.code == "reasoning_understand_context"))
+                    canon_register = await session.scalar(select(Skill).where(Skill.code == "lang_register_and_style"))
+                    if prof_doc_tt:
+                        ex.task_type_id = prof_doc_tt.id
+                    if canon_context and canon_register:
+                        session.add_all([
+                            ExerciseSkill(
+                                exercise_id=ex.id,
+                                skill_id=canon_context.id,
+                                role=SkillTagRole.PRIMARY,
+                                weight=1.0,
+                            ),
+                            ExerciseSkill(
+                                exercise_id=ex.id,
+                                skill_id=canon_register.id,
+                                role=SkillTagRole.PRIMARY,
+                                weight=1.0,
+                            ),
+                        ])
 
                 session.add(
                     ExerciseVersion(

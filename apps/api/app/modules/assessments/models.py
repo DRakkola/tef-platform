@@ -8,9 +8,12 @@ if TYPE_CHECKING:
     from app.modules.admin.models import (
         AssessmentVersion,
         QuestionVersion,
+        SkillAlias,
         SkillLevelDescriptor,
+        SkillModality,
         SkillRelation,
         SubSkill,
+        TaskTypeSkill,
         TaxonomyVersion,
     )
 
@@ -20,6 +23,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -75,11 +79,20 @@ class TaskType(TimeStampedUUIDModel):
         index=True,
     )
 
+    supported_skills: Mapped[list[TaskTypeSkill]] = relationship(
+        "TaskTypeSkill",
+        back_populates="task_type",
+        cascade="all, delete-orphan",
+    )
+
 
 class Skill(TimeStampedUUIDModel):
     """Authoritative competency or subskill unit in the platform."""
 
     __tablename__ = "skills"
+    __table_args__ = (
+        UniqueConstraint("taxonomy_version_id", "code", name="uq_skills_taxonomy_version_code"),
+    )
 
     taxonomy_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -89,7 +102,6 @@ class Skill(TimeStampedUUIDModel):
     )
     code: Mapped[str] = mapped_column(
         String(100),
-        unique=True,
         index=True,
         nullable=False,
     )
@@ -144,6 +156,10 @@ class Skill(TimeStampedUUIDModel):
         "Skill",
         back_populates="parent",
     )
+
+    @property
+    def children(self) -> list[Skill]:
+        return self.subskills
     outgoing_relations: Mapped[list[SkillRelation]] = relationship(
         "SkillRelation",
         foreign_keys="SkillRelation.from_skill_id",
@@ -168,6 +184,21 @@ class Skill(TimeStampedUUIDModel):
     )
     subskills_table: Mapped[list[SubSkill]] = relationship(
         "SubSkill",
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
+    modalities: Mapped[list[SkillModality]] = relationship(
+        "SkillModality",
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
+    supported_task_types: Mapped[list[TaskTypeSkill]] = relationship(
+        "TaskTypeSkill",
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
+    aliases: Mapped[list[SkillAlias]] = relationship(
+        "SkillAlias",
         back_populates="skill",
         cascade="all, delete-orphan",
     )
@@ -451,6 +482,9 @@ class QuestionSkillTag(TimeStampedUUIDModel):
     """Associates a question with a primary or secondary competency with weight and subskill FK."""
 
     __tablename__ = "question_skill_tags"
+    __table_args__ = (
+        Index("ix_question_skill_tags_skill_role", "skill_id", "role"),
+    )
 
     question_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

@@ -9,21 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
 from app.modules.admin.enums import SkillTagRole
+from app.modules.admin.models import SkillModality, TaskTypeSkill
 from app.modules.assessments.models import Skill, TaskType
 
 logger = structlog.get_logger("tef-api.admin.tagging")
-
-# Domain/modality incompatibility pairs
-_INCOMPATIBLE_PAIRS: frozenset[tuple[str, str]] = frozenset({
-    ("speaking", "reading"),
-    ("speaking", "listening"),
-    ("writing", "reading"),
-    ("writing", "listening"),
-    ("reading", "speaking"),
-    ("reading", "writing"),
-    ("listening", "speaking"),
-    ("listening", "writing"),
-})
 
 _WEIGHT_TOLERANCE: float = 0.01
 
@@ -121,23 +110,63 @@ class TaggingValidationEngine:
                         status_code=400,
                     )
 
-        # 6. Task type compatibility check
+        # 6. Task type compatibility check against canonical taxonomy metadata
         if task_type_id is not None:
             task_type = await db.scalar(select(TaskType).where(TaskType.id == task_type_id))
-            if task_type is not None and task_type.modality:
-                modality = task_type.modality.lower()
-                for skill in resolved:
-                    if skill.domain:
-                        domain = skill.domain.lower()
-                        if (domain, modality) in _INCOMPATIBLE_PAIRS:
+            if task_type is not None:
+                modality = task_type.modality.lower() if task_type.modality else None
+
+                # 6a. Check explicit TaskTypeSkill associations if defined for this task type
+                tts_stmt = select(TaskTypeSkill.skill_id).where(TaskTypeSkill.task_type_id == task_type_id)
+                allowed_skill_ids = set((await db.execute(tts_stmt)).scalars().all())
+
+                if allowed_skill_ids:
+                    # All tagged skills must be in this supported set (or their parent container)
+                    for skill in resolved:
+                        if skill.id not in allowed_skill_ids and skill.parent_id not in allowed_skill_ids:
                             raise AppException(
                                 message=(
-                                    f"Skill domain '{domain}' is incompatible with "
-                                    f"task type modality '{modality}'."
+                                    f"Competency '{skill.code}' is not supported by "
+                                    f"task type '{task_type.name}' ({task_type.code})."
                                 ),
                                 code="INCOMPATIBLE_SKILL_TASK_TYPE",
                                 status_code=422,
                             )
+
+                # 6b. Check SkillModality associations from the taxonomy
+                if modality:
+                    sm_stmt = select(SkillModality.skill_id, SkillModality.modality).where(
+                        SkillModality.skill_id.in_(skill_ids)
+                    )
+                    sm_rows = (await db.execute(sm_stmt)).all()
+                    modalities_by_skill: dict[uuid.UUID, set[str]] = {}
+                    for s_id, mod in sm_rows:
+                        modalities_by_skill.setdefault(s_id, set()).add(mod.lower())
+
+                    for skill in resolved:
+                        skill_mods = modalities_by_skill.get(skill.id)
+                        if skill_mods:
+                            if modality not in skill_mods:
+                                raise AppException(
+                                    message=(
+                                        f"Skill '{skill.code}' applies to modalities {sorted(skill_mods)}, "
+                                        f"which does not include task type modality '{modality}'."
+                                    ),
+                                    code="INCOMPATIBLE_SKILL_TASK_TYPE",
+                                    status_code=422,
+                                )
+                        elif skill.domain:
+                            # Fallback check for unmigrated skills where skill_modalities hasn't been populated
+                            domain = skill.domain.lower()
+                            if domain in ("reading", "listening", "writing", "speaking") and domain != modality:
+                                raise AppException(
+                                    message=(
+                                        f"Skill domain '{domain}' is incompatible with "
+                                        f"task type modality '{modality}'."
+                                    ),
+                                    code="INCOMPATIBLE_SKILL_TASK_TYPE",
+                                    status_code=422,
+                                )
 
         logger.debug(
             "tagging.validated",

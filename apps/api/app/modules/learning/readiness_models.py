@@ -26,6 +26,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import TimeStampedUUIDModel, UUIDModel
 
 if TYPE_CHECKING:
+    from app.modules.admin.models import TaxonomyVersion
     from app.modules.assessments.models import Skill
     from app.modules.learning.models import Exercise
     from app.modules.users.models import User
@@ -221,10 +222,20 @@ class SkillEvidence(UUIDModel):
         default=dict,
         nullable=False,
     )
+    taxonomy_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("taxonomy_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Relationships
     student: Mapped["User"] = relationship("User", foreign_keys=[student_id])
     skill: Mapped["Skill"] = relationship("Skill", foreign_keys=[skill_id])
+    taxonomy_version: Mapped["TaxonomyVersion | None"] = relationship(
+        "TaxonomyVersion",
+        foreign_keys=[taxonomy_version_id],
+    )
 
 
 class ReadinessSnapshot(UUIDModel):

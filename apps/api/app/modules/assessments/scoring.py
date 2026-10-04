@@ -32,18 +32,10 @@ class ScoringEngine:
 
     @staticmethod
     def estimate_cefr_level(percentage: float) -> str:
-        """Map percentage score to CEFR level benchmark."""
-        if percentage >= 90.0:
-            return CEFRLevel.C2.value
-        if percentage >= 75.0:
-            return CEFRLevel.C1.value
-        if percentage >= 60.0:
-            return CEFRLevel.B2.value
-        if percentage >= 45.0:
-            return CEFRLevel.B1.value
-        if percentage >= 30.0:
-            return CEFRLevel.A2.value
-        return CEFRLevel.A1.value
+        """Map percentage score to CEFR level benchmark using canonical level estimation."""
+        from app.modules.learning.levels import LevelEstimationService
+
+        return LevelEstimationService.estimate_cefr(percentage)
 
     @classmethod
     def calculate_score(

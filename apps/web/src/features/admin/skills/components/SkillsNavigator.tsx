@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { FolderTree } from "lucide-react";
 import { SkillNavigatorItem } from "./SkillNavigatorItem";
 import type { TaxonomySkillItem } from "../types";
@@ -18,28 +18,54 @@ export const SkillsNavigator: React.FC<SkillsNavigatorProps> = ({
 }) => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-  // Group skills into roots and their children
-  const { roots, childrenByParent } = useMemo(() => {
-    const r: TaxonomySkillItem[] = [];
+  // Index skills and group into roots and their children
+  const { roots, childrenByParent, skillMap } = useMemo(() => {
+    const map = new Map<string, TaxonomySkillItem>();
     const childrenMap = new Map<string, TaxonomySkillItem[]>();
 
     for (const skill of skills) {
-      if (!skill.parent_id) {
-        r.push(skill);
-      } else {
+      map.set(skill.id, skill);
+      if (skill.parent_id) {
         const list = childrenMap.get(skill.parent_id) || [];
         list.push(skill);
         childrenMap.set(skill.parent_id, list);
       }
     }
 
-    // If no parent_ids at all (e.g. roots_only query), treat all as roots
-    if (r.length === 0 && skills.length > 0) {
-      return { roots: skills, childrenByParent: new Map<string, TaxonomySkillItem[]>() };
+    // Effective roots: skills with no parent_id OR whose parent is not present in the current filtered skills set
+    const effectiveRoots: TaxonomySkillItem[] = [];
+    for (const skill of skills) {
+      if (!skill.parent_id || !map.has(skill.parent_id)) {
+        effectiveRoots.push(skill);
+      }
     }
 
-    return { roots: r, childrenByParent: childrenMap };
+    return { roots: effectiveRoots, childrenByParent: childrenMap, skillMap: map };
   }, [skills]);
+
+  // Auto-expand ancestors when selectedSkillId is chosen or loaded from URL
+  useEffect(() => {
+    if (!selectedSkillId || !skillMap.has(selectedSkillId)) return;
+    const toExpand = new Set<string>();
+    let curr = skillMap.get(selectedSkillId);
+    while (curr && curr.parent_id) {
+      toExpand.add(curr.parent_id);
+      curr = skillMap.get(curr.parent_id);
+    }
+    if (toExpand.size > 0) {
+      setExpandedIds((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        toExpand.forEach((id) => {
+          if (!next.has(id)) {
+            next.add(id);
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }
+  }, [selectedSkillId, skillMap]);
 
   const toggleExpand = (skillId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -52,6 +78,33 @@ export const SkillsNavigator: React.FC<SkillsNavigatorProps> = ({
       }
       return next;
     });
+  };
+
+  const renderSkillNode = (skill: TaxonomySkillItem, level: number = 0): React.ReactNode => {
+    const children = childrenByParent.get(skill.id) || [];
+    const hasChildren = children.length > 0 || (skill.subskill_count ?? 0) > 0;
+    const isExpanded = expandedIds.has(skill.id);
+
+    return (
+      <div key={skill.id} className="space-y-1">
+        <SkillNavigatorItem
+          skill={skill}
+          isSelected={skill.id === selectedSkillId}
+          onSelect={() => onSelectSkill(skill.id)}
+          hasChildren={hasChildren}
+          isExpanded={isExpanded}
+          onToggleExpand={hasChildren ? (e) => toggleExpand(skill.id, e) : undefined}
+          level={level}
+        />
+
+        {/* Nested Children (Recursive for arbitrary depth) */}
+        {isExpanded && children.length > 0 && (
+          <div className="space-y-1 border-l border-border/60 ml-4 pl-1">
+            {children.map((child) => renderSkillNode(child, level + 1))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -78,41 +131,7 @@ export const SkillsNavigator: React.FC<SkillsNavigatorProps> = ({
 
   return (
     <div className="space-y-1.5 pr-1 max-h-[calc(100vh-280px)] overflow-y-auto" data-testid="skills-navigator-list">
-      {roots.map((skill) => {
-        const children = childrenByParent.get(skill.id) || [];
-        const hasChildren = children.length > 0 || skill.subskill_count > 0;
-        const isExpanded = expandedIds.has(skill.id);
-
-        return (
-          <div key={skill.id} className="space-y-1">
-            <SkillNavigatorItem
-              skill={skill}
-              isSelected={skill.id === selectedSkillId}
-              onSelect={() => onSelectSkill(skill.id)}
-              hasChildren={hasChildren}
-              isExpanded={isExpanded}
-              onToggleExpand={hasChildren ? (e) => toggleExpand(skill.id, e) : undefined}
-              level={0}
-            />
-
-            {/* Nested Children */}
-            {isExpanded && children.length > 0 && (
-              <div className="space-y-1 border-l border-border/60 ml-4 pl-1">
-                {children.map((child: TaxonomySkillItem) => (
-                  <SkillNavigatorItem
-                    key={child.id}
-                    skill={child}
-                    isSelected={child.id === selectedSkillId}
-                    onSelect={() => onSelectSkill(child.id)}
-                    hasChildren={false}
-                    level={1}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {roots.map((skill) => renderSkillNode(skill, 0))}
     </div>
   );
 };

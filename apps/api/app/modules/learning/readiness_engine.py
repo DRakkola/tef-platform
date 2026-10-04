@@ -11,7 +11,7 @@ import time
 import uuid
 from typing import Any, ClassVar
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.metrics import metrics
@@ -266,6 +266,8 @@ class ReadinessEngine:
         target_level: str = "B2",
         days_remaining: int | None = None,
         mistake_count: int = 0,
+        dimension: str | None = None,
+        is_core: bool | None = None,
     ) -> dict[str, Any]:
         """Compute target gap, urgency, and prioritized ranking."""
         target_threshold = default_mapping_provider.get_target_threshold(target_level)
@@ -296,9 +298,14 @@ class ReadinessEngine:
             else:
                 urgency = "normal"
 
-        # Core skills have higher weight in prioritization
-        is_core = category in cls.CORE_CATEGORIES
-        core_multiplier = 1.4 if is_core else 1.0
+        # Core skills have higher weight in prioritization (orthogonal dimension with legacy fallback)
+        if is_core is not None:
+            resolved_core = is_core
+        elif dimension:
+            resolved_core = (dimension.lower() == "reasoning")
+        else:
+            resolved_core = category in cls.CORE_CATEGORIES
+        core_multiplier = 1.4 if resolved_core else 1.0
 
         # Prioritization formula: (gap * 0.5) * core_mult * urgency_mult + (mistakes * 2)
         base_priority = (gap * 0.6) * core_multiplier * urgency_multiplier + min(15.0, mistake_count * 3.0)
@@ -312,6 +319,8 @@ class ReadinessEngine:
             "skill_id": str(skill_id),
             "skill_name": skill_name,
             "category": category,
+            "dimension": dimension,
+            "is_core": resolved_core,
             "current_estimate": current_estimate,
             "target_estimate": target_threshold,
             "gap": gap,
@@ -381,12 +390,18 @@ class ReadinessEngine:
         """
         target_threshold = default_mapping_provider.get_target_threshold(target_level)
 
-        # Separate core competencies and supporting skills
+        # Separate core competencies and supporting skills via orthogonal dimension with legacy fallback
+        def _is_core(s: dict[str, Any]) -> bool:
+            dim = s.get("dimension")
+            if dim:
+                return (dim.lower() == "reasoning")
+            return s.get("category") in cls.CORE_CATEGORIES
+
         core_skills = [
-            s for s in skills_summary if s["category"] in cls.CORE_CATEGORIES and not s["insufficient_data"]
+            s for s in skills_summary if _is_core(s) and not s["insufficient_data"]
         ]
         supporting_skills = [
-            s for s in skills_summary if s["category"] not in cls.CORE_CATEGORIES and not s["insufficient_data"]
+            s for s in skills_summary if not _is_core(s) and not s["insufficient_data"]
         ]
 
         # Rule: Must have at least 2 core skills with sufficient evidence
@@ -530,8 +545,13 @@ class ReadinessEngine:
         weight: float = 1.0,
         observed_at: datetime.datetime | None = None,
         metadata_payload: dict[str, Any] | None = None,
+        taxonomy_version_id: uuid.UUID | None = None,
     ) -> SkillEvidence | None:
-        """Idempotently append an observation to the historical evidence stream."""
+        """Idempotently append an observation to the historical evidence stream.
+
+        Preserves immutable historical provenance and taxonomy snapshot to prevent
+        reinterpretation across taxonomy evolution.
+        """
         observed_at = observed_at or datetime.datetime.now(datetime.UTC)
 
         # Idempotency check: unique (student_id, skill_id, source_type, source_id)
@@ -546,9 +566,27 @@ class ReadinessEngine:
         if existing:
             return existing
 
+        # Resolve skill and taxonomy version provenance snapshot
+        skill = await db.scalar(select(Skill).where(Skill.id == skill_id))
+        if taxonomy_version_id is None and skill is not None:
+            taxonomy_version_id = skill.taxonomy_version_id
+
+        meta = dict(metadata_payload or {})
+        if skill is not None:
+            meta.setdefault("skill_code", skill.code)
+            meta.setdefault("skill_name", skill.name)
+            meta.setdefault(
+                "skill_dimension",
+                skill.dimension.value if hasattr(skill.dimension, "value") else str(skill.dimension) if skill.dimension else None,
+            )
+            meta.setdefault("skill_domain", skill.domain)
+        if taxonomy_version_id is not None:
+            meta.setdefault("taxonomy_version_id", str(taxonomy_version_id))
+
         evidence = SkillEvidence(
             student_id=student_id,
             skill_id=skill_id,
+            taxonomy_version_id=taxonomy_version_id,
             source_type=source_type,
             source_id=source_id,
             raw_score=round(float(raw_score), 2),
@@ -557,7 +595,7 @@ class ReadinessEngine:
             weight=round(max(0.1, float(weight)), 2),
             observed_at=observed_at,
             calculation_version=cls.CALCULATION_VERSION,
-            metadata_payload=metadata_payload or {},
+            metadata_payload=meta,
         )
         db.add(evidence)
         await db.flush()
@@ -589,8 +627,19 @@ class ReadinessEngine:
             if target_date:
                 days_remaining = (target_date - now.date()).days
 
-            # 2. Fetch all skills
-            all_skills = (await db.execute(select(Skill))).scalars().all()
+            # 2. Fetch active skills for the active taxonomy version (F-04)
+            from app.modules.admin.taxonomy_service import TaxonomyService
+
+            active_version = await TaxonomyService.get_active_version(db)
+            skill_stmt = select(Skill).where(Skill.is_active.is_(True))
+            if active_version:
+                skill_stmt = skill_stmt.where(
+                    or_(
+                        Skill.taxonomy_version_id == active_version.id,
+                        Skill.taxonomy_version_id.is_(None),
+                    )
+                )
+            all_skills = (await db.execute(skill_stmt)).scalars().all()
 
             # 3. Fetch student evidence grouped by skill
             evidences = (
@@ -618,9 +667,12 @@ class ReadinessEngine:
             mistake_rows = (await db.execute(mistakes_stmt)).all()
             mistakes_by_skill = {row[0]: int(row[1]) for row in mistake_rows}
 
-            # 4b. Batch load skill level descriptors for explainability (Requirement 8)
+            # 4b. Batch load skill level descriptors for active skills (Requirement 8)
+            active_skill_ids = [s.id for s in all_skills]
             desc_stmt = select(SkillLevelDescriptor)
-            desc_rows = (await db.execute(desc_stmt)).scalars().all()
+            if active_skill_ids:
+                desc_stmt = desc_stmt.where(SkillLevelDescriptor.skill_id.in_(active_skill_ids))
+            desc_rows = (await db.execute(desc_stmt)).scalars().all() if active_skill_ids else []
             descriptors_by_skill_level: dict[tuple[uuid.UUID, str], SkillLevelDescriptor] = {
                 (d.skill_id, (d.level.value if hasattr(d.level, "value") else str(d.level)).upper()): d
                 for d in desc_rows
@@ -708,6 +760,7 @@ class ReadinessEngine:
                     target_level=target_level,
                     days_remaining=days_remaining,
                     mistake_count=mistakes_by_skill.get(s.id, 0),
+                    dimension=dim,
                 )
                 gaps.append(gap_data)
 
@@ -827,7 +880,7 @@ class ReadinessEngine:
                 generated_at=now,
             )
             db.add(snapshot)
-            await db.commit()
+            await db.flush()
             await db.refresh(readiness_profile)
 
             # Record success metrics

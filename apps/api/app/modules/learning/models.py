@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -337,6 +338,9 @@ class ExerciseSkill(UUIDModel):
     """Association table linking exercises with primary/secondary skills and subskills."""
 
     __tablename__ = "exercise_skills"
+    __table_args__ = (
+        Index("ix_exercise_skills_skill_role", "skill_id", "role"),
+    )
 
     exercise_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

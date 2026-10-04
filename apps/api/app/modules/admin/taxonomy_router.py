@@ -8,16 +8,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.admin.enums import CEFRBand, SkillDimension
+from app.modules.admin.taxonomy_integrity import TaxonomyIntegrityChecker
 from app.modules.admin.taxonomy_schemas import (
+    ReconcileLegacyNodesResponse,
     SkillLevelDescriptorCreate,
     SkillLevelDescriptorResponse,
     SkillRelationCreate,
     SkillRelationResponse,
     SkillRelationsListResponse,
+    SkillReplacementRequest,
+    SkillSplitRequest,
     TaskTypeCreate,
     TaskTypeResponse,
     TaskTypeUpdate,
     TaxonomyChildSkillCreate,
+    TaxonomyIntegrityReport,
     TaxonomyMetadataResponse,
     TaxonomyReparentRequest,
     TaxonomySkillCreate,
@@ -497,3 +502,82 @@ async def delete_skill_relation(
     current_admin: User = Depends(require_role(UserRole.ADMIN)),
 ) -> None:
     await TaxonomyService.delete_relation(db, relation_id=relation_id, actor_id=current_admin.id)
+
+
+# ---------------------------------------------------------------------------
+# Integrity Auditing & Evolution Endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/integrity-check",
+    response_model=TaxonomyIntegrityReport,
+    summary="Run comprehensive taxonomy integrity check and orphan audit",
+)
+async def run_taxonomy_integrity_check(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> TaxonomyIntegrityReport:
+    """Audit taxonomy integrity, orphan references, version consistency, and cycles."""
+    return await TaxonomyIntegrityChecker.run_integrity_check(db)
+
+
+@router.post(
+    "/reconcile-legacy-nodes",
+    response_model=ReconcileLegacyNodesResponse,
+    summary="Reconcile and account for all legacy skills and subskills",
+)
+async def reconcile_legacy_taxonomy_nodes(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> ReconcileLegacyNodesResponse:
+    """Ensure every legacy node is tracked in taxonomy_migration_records."""
+    stats = await TaxonomyService.reconcile_legacy_nodes(db)
+    return ReconcileLegacyNodesResponse(
+        migrated=stats["migrated"],
+        deprecated=stats["deprecated"],
+        unresolved=stats["unresolved"],
+    )
+
+
+@router.post(
+    "/skills/{skill_id}/replace",
+    response_model=SkillRelationResponse,
+    summary="Replace a deprecated skill with a new canonical skill",
+)
+async def replace_skill(
+    skill_id: uuid.UUID,
+    payload: SkillReplacementRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> SkillRelationResponse:
+    """Record an explicit skill replacement migration relationship."""
+    rel = await TaxonomyService.record_skill_replacement(
+        db=db,
+        old_skill_id=skill_id,
+        new_skill_id=payload.new_skill_id,
+        notes=payload.notes,
+    )
+    return SkillRelationResponse.model_validate(rel)
+
+
+@router.post(
+    "/skills/{skill_id}/split",
+    response_model=list[SkillRelationResponse],
+    summary="Split a coarse skill into multiple granular skills",
+)
+async def split_skill(
+    skill_id: uuid.UUID,
+    payload: SkillSplitRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> list[SkillRelationResponse]:
+    """Record an explicit skill split migration relationship."""
+    rels = await TaxonomyService.record_skill_split(
+        db=db,
+        old_skill_id=skill_id,
+        target_skill_ids=payload.target_skill_ids,
+        notes=payload.notes,
+    )
+    return [SkillRelationResponse.model_validate(r) for r in rels]
+

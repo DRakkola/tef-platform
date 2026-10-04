@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
 )
 from sqlalchemy import (
     Enum as SQLEnum,
@@ -27,10 +28,11 @@ from app.modules.admin.enums import (
     MediaType,
     SkillRelationType,
     TaxonomyLifecycleStatus,
+    TaxonomyMigrationStatus,
 )
 
 if TYPE_CHECKING:
-    from app.modules.assessments.models import Assessment, Question, Skill
+    from app.modules.assessments.models import Assessment, Question, Skill, TaskType
     from app.modules.learning.models import Exercise
     from app.modules.users.models import User
     from app.modules.writing.models import WritingTask
@@ -153,8 +155,170 @@ class SkillLevelDescriptor(TimeStampedUUIDModel):
     )
 
 
+class SkillModality(UUIDModel):
+    """Explicit mapping between a competency and the exam modalities it applies to."""
+
+    __tablename__ = "skill_modalities"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "modality", name="uq_skill_modality"),
+    )
+
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    modality: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        index=True,
+    )
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+    )
+
+    skill: Mapped[Skill] = relationship(
+        "Skill",
+        back_populates="modalities",
+    )
+
+
+class TaskTypeSkill(UUIDModel):
+    """Explicit relational mapping defining which skills/competencies are supported by a task type."""
+
+    __tablename__ = "task_type_skills"
+    __table_args__ = (
+        UniqueConstraint("task_type_id", "skill_id", name="uq_task_type_skill"),
+    )
+
+    task_type_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("task_types.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+    )
+
+    task_type: Mapped[TaskType] = relationship(
+        "TaskType",
+        back_populates="supported_skills",
+    )
+    skill: Mapped[Skill] = relationship(
+        "Skill",
+        back_populates="supported_task_types",
+    )
+
+
+class SkillAlias(UUIDModel):
+    """Canonical alias resolution mapping legacy machine identifiers to canonical skills."""
+
+    __tablename__ = "skill_aliases"
+
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    alias_code: Mapped[str] = mapped_column(
+        String(100),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+    )
+
+    skill: Mapped[Skill] = relationship(
+        "Skill",
+        back_populates="aliases",
+    )
+
+
+class TaxonomyMigrationRecord(TimeStampedUUIDModel):
+    """Immutable audit tracking legacy skill reconciliation and migration paths."""
+
+    __tablename__ = "taxonomy_migration_records"
+    __table_args__ = (
+        UniqueConstraint("source_table", "source_id", name="uq_tax_mig_source"),
+    )
+
+    source_table: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+    )
+    source_code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+    source_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    target_skill_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    status: Mapped[TaxonomyMigrationStatus] = mapped_column(
+        SQLEnumValues(TaxonomyMigrationStatus, name="taxonomy_migration_status", native_enum=False),
+        default=TaxonomyMigrationStatus.UNRESOLVED,
+        nullable=False,
+        index=True,
+    )
+    migration_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    target_skill: Mapped[Skill | None] = relationship(
+        "Skill",
+        foreign_keys=[target_skill_id],
+    )
+
+
 class SubSkill(TimeStampedUUIDModel):
-    """Specific subskill unit categorized under a parent skill."""
+    """Specific subskill unit categorized under a parent skill.
+
+    DEPRECATED (Taxonomy V2): Replaced by self-referencing hierarchy in Skill model (parent_id).
+    Table is read-only during transitional deprecation period.
+    """
 
     __tablename__ = "sub_skills"
 
@@ -180,6 +344,14 @@ class SubSkill(TimeStampedUUIDModel):
     )
 
     skill: Mapped[Skill] = relationship("Skill", back_populates="subskills_table")
+
+
+@event.listens_for(SubSkill, "before_insert")
+def _prevent_subskill_insert(mapper: Any, connection: Any, target: SubSkill) -> None:
+    raise RuntimeError(
+        "Direct insertion into sub_skills is deprecated and forbidden by Taxonomy V2 architecture. "
+        "Create or update canonical skills (Skill with parent_id) instead."
+    )
 
 
 class AuditEvent(UUIDModel):

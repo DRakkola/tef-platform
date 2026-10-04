@@ -5,26 +5,22 @@ import datetime
 import uuid
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import app.modules.admin.ai_sandbox_models  # noqa: F401
-import app.modules.admin.beta_models  # noqa: F401
-import app.modules.admin.models  # noqa: F401
-import app.modules.admin.speaking_config_models  # noqa: F401
-import app.modules.admin.speaking_scenario_models  # noqa: F401
-import app.modules.analytics.models  # noqa: F401
-import app.modules.assessments.models  # noqa: F401
-import app.modules.billing.models  # noqa: F401
-import app.modules.learning.models  # noqa: F401
-import app.modules.practice_pool.models  # noqa: F401
-import app.modules.speaking.models  # noqa: F401
-import app.modules.teachers.models  # noqa: F401
-import app.modules.users.models  # noqa: F401
+import app.modules.admin.ai_sandbox_models
+import app.modules.admin.beta_models
+import app.modules.admin.models
+import app.modules.admin.speaking_config_models
+import app.modules.admin.speaking_scenario_models
+import app.modules.analytics.models
+import app.modules.assessments.models
+import app.modules.billing.models
+import app.modules.learning.models
+import app.modules.practice_pool.models
+import app.modules.speaking.models
+import app.modules.teachers.models
+import app.modules.users.models
 import app.modules.writing.models  # noqa: F401
-
-from app.core.config import settings
-from app.core.security import hash_password
-from app.modules.admin.enums import SkillDimension, TaxonomyLifecycleStatus
+from app.modules.admin.enums import SkillDimension, SkillTagRole, TaxonomyLifecycleStatus
 from app.modules.admin.models import TaxonomyVersion
 from app.modules.assessments.enums import AssessmentType, AttemptStatus, QuestionType
 from app.modules.assessments.models import (
@@ -36,12 +32,25 @@ from app.modules.assessments.models import (
     QuestionOption,
     QuestionSkillTag,
     Skill,
+    TaskType,
 )
 from app.modules.learning.enums import RecommendationStatus, RecommendationType, SkillCategory
-from app.modules.learning.models import Exercise, Recommendation, SkillAssessment, StudentSkill
+from app.modules.learning.models import (
+    Exercise,
+    ExerciseSkill,
+    Recommendation,
+    SkillAssessment,
+    StudentSkill,
+)
 from app.modules.teachers.enums import BookingStatus
 from app.modules.teachers.models import TeacherBooking
-from app.modules.users.models import StudentProfile, TeacherProfile, TeacherVerificationStatus, User, UserRole
+from app.modules.users.models import (
+    StudentProfile,
+    TeacherProfile,
+    TeacherVerificationStatus,
+    User,
+    UserRole,
+)
 
 DEMO_EMAIL = "student.demo@example.com"
 DEMO_PASSWORD = "DemoStudent2026!"
@@ -54,6 +63,10 @@ async def seed():
     from app.core.database import async_session_factory, engine
 
     async with async_session_factory() as session:
+        # -1. Canonical Reading Taxonomy
+        from app.modules.admin.reading_taxonomy_data import seed_reading_taxonomy
+        await seed_reading_taxonomy(session)
+
         # 0. Admin User
         admin_res = await session.execute(select(User).where(User.email == ADMIN_EMAIL))
         admin_user = admin_res.scalar_one_or_none()
@@ -325,6 +338,14 @@ async def seed():
             session.add(sec)
             await session.flush()
 
+            # Resolve canonical reading task types and competencies
+            press_art_tt = await session.scalar(select(TaskType).where(TaskType.code == "press_article"))
+            canon_cause_effect = await session.scalar(select(Skill).where(Skill.code == "reasoning_identify_cause_effect"))
+            canon_detail = await session.scalar(select(Skill).where(Skill.code == "reasoning_identify_specific_detail"))
+            canon_inference = await session.scalar(select(Skill).where(Skill.code == "reasoning_infer_implicit_meaning"))
+            canon_paraphrase = await session.scalar(select(Skill).where(Skill.code == "lang_paraphrase_and_synonyms"))
+            canon_nuance = await session.scalar(select(Skill).where(Skill.code == "lang_semantic_nuance"))
+
             # Question 1
             q1 = Question(
                 section_id=sec.id,
@@ -333,6 +354,7 @@ async def seed():
                 difficulty=3,
                 order_index=1,
                 points=10,
+                task_type_id=press_art_tt.id if press_art_tt else None,
                 explanation="Le texte précise expressément le souhait d'éviter les trajets quotidiens et la conciliation des temps de vie.",
             )
             session.add(q1)
@@ -343,7 +365,20 @@ async def seed():
                 QuestionOption(question_id=q1.id, content="La recherche d'une meilleure conciliation vie professionnelle-personnelle et la réduction des trajets.", is_correct=True, order_index=2),
                 QuestionOption(question_id=q1.id, content="La fermeture définitive de l'ensemble des locaux d'entreprise.", is_correct=False, order_index=3),
                 QuestionOption(question_id=q1.id, content="Une obligation légale et sanitaire permanente.", is_correct=False, order_index=4),
-                QuestionSkillTag(question_id=q1.id, skill_id=created_skills[2].id, weight=1.0),
+            ])
+            session.add_all([
+                QuestionSkillTag(
+                    question_id=q1.id,
+                    skill_id=canon_cause_effect.id if canon_cause_effect else created_skills[2].id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=1.0,
+                ),
+                QuestionSkillTag(
+                    question_id=q1.id,
+                    skill_id=canon_paraphrase.id if canon_paraphrase else created_skills[2].id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=1.0,
+                ),
             ])
 
             # Question 2
@@ -354,6 +389,7 @@ async def seed():
                 difficulty=3,
                 order_index=2,
                 points=10,
+                task_type_id=press_art_tt.id if press_art_tt else None,
                 explanation="L'auteur met en garde contre l'isolement social des collaborateurs.",
             )
             session.add(q2)
@@ -364,7 +400,26 @@ async def seed():
                 QuestionOption(question_id=q2.id, content="L'effritement du lien social et le risque d'isolement des collaborateurs.", is_correct=True, order_index=2),
                 QuestionOption(question_id=q2.id, content="L'augmentation injustifiée des salaires dans le secteur numérique.", is_correct=False, order_index=3),
                 QuestionOption(question_id=q2.id, content="Une incompatibilité totale avec les objectifs écologiques.", is_correct=False, order_index=4),
-                QuestionSkillTag(question_id=q2.id, skill_id=created_skills[2].id, weight=1.0),
+            ])
+            session.add_all([
+                QuestionSkillTag(
+                    question_id=q2.id,
+                    skill_id=canon_detail.id if canon_detail else created_skills[2].id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=0.70,
+                ),
+                QuestionSkillTag(
+                    question_id=q2.id,
+                    skill_id=canon_inference.id if canon_inference else created_skills[2].id,
+                    role=SkillTagRole.SECONDARY,
+                    weight=0.30,
+                ),
+                QuestionSkillTag(
+                    question_id=q2.id,
+                    skill_id=canon_nuance.id if canon_nuance else created_skills[2].id,
+                    role=SkillTagRole.PRIMARY,
+                    weight=1.0,
+                ),
             ])
             await session.flush()
 

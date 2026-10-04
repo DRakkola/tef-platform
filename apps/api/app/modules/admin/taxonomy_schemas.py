@@ -2,6 +2,7 @@
 
 import datetime
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -160,6 +161,50 @@ class TaxonomySkillListResponse(BaseModel):
     total_pages: int
 
 
+# --- Skill Modality & Task Type Skill Schemas ---
+class SkillModalityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    skill_id: uuid.UUID
+    modality: str
+    is_primary: bool = True
+    created_at: datetime.datetime
+
+
+class SkillModalityCreate(BaseModel):
+    modality: str = Field(..., min_length=2, max_length=30)
+    is_primary: bool = True
+
+
+class TaskTypeSkillResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    task_type_id: uuid.UUID
+    skill_id: uuid.UUID
+    created_at: datetime.datetime
+
+
+class TaskTypeSkillCreate(BaseModel):
+    skill_id: uuid.UUID
+
+
+class SkillAliasResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    skill_id: uuid.UUID
+    alias_code: str
+    notes: str | None = None
+    created_at: datetime.datetime
+
+
+class SkillAliasCreate(BaseModel):
+    alias_code: str = Field(..., min_length=1, max_length=100)
+    notes: str | None = None
+
+
 class TaxonomySkillDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -181,6 +226,8 @@ class TaxonomySkillDetailResponse(BaseModel):
     level_descriptors: list[SkillLevelDescriptorResponse] = Field(default_factory=list)
     outgoing_relations: list[SkillRelationResponse] = Field(default_factory=list)
     incoming_relations: list[SkillRelationResponse] = Field(default_factory=list)
+    modalities: list[SkillModalityResponse] = Field(default_factory=list)
+    aliases: list[SkillAliasResponse] = Field(default_factory=list)
     usage_counts: SkillUsageCounts = Field(default_factory=SkillUsageCounts)
 
 
@@ -206,7 +253,13 @@ TaxonomyTreeNodeResponse.model_rebuild()
 
 # --- Skill Mutation Schemas ---
 class TaxonomySkillCreate(BaseModel):
-    code: str = Field(..., min_length=2, max_length=100)
+    code: str = Field(
+        ...,
+        min_length=2,
+        max_length=100,
+        pattern=r"^[a-z0-9]+(?:_[a-z0-9]+)*$",
+        description="Canonical skill identifier: lowercase snake_case (e.g. 'reasoning_locate_information')",
+    )
     name: str = Field(..., min_length=2, max_length=255)
     dimension: SkillDimension
     domain: str = Field(..., min_length=2, max_length=50)
@@ -218,7 +271,13 @@ class TaxonomySkillCreate(BaseModel):
 
 
 class TaxonomySkillUpdate(BaseModel):
-    code: str | None = Field(None, min_length=2, max_length=100)
+    code: str | None = Field(
+        None,
+        min_length=2,
+        max_length=100,
+        pattern=r"^[a-z0-9]+(?:_[a-z0-9]+)*$",
+        description="Canonical skill identifier: lowercase snake_case",
+    )
     name: str | None = Field(None, min_length=2, max_length=255)
     dimension: SkillDimension | None = None
     domain: str | None = Field(None, min_length=2, max_length=50)
@@ -229,7 +288,13 @@ class TaxonomySkillUpdate(BaseModel):
 
 
 class TaxonomyChildSkillCreate(BaseModel):
-    code: str = Field(..., min_length=2, max_length=100)
+    code: str = Field(
+        ...,
+        min_length=2,
+        max_length=100,
+        pattern=r"^[a-z0-9]+(?:_[a-z0-9]+)*$",
+        description="Canonical skill identifier: lowercase snake_case",
+    )
     name: str = Field(..., min_length=2, max_length=255)
     description: str | None = None
     category: str | None = None
@@ -262,3 +327,43 @@ class TaxonomyMetadataResponse(BaseModel):
     cefr_bands: list[str]
     active_version: TaxonomyVersionResponse | None = None
     metrics: TaxonomyMetricsSummary
+
+
+# --- Integrity & Migration Audit Schemas ---
+class TaxonomyIntegrityIssue(BaseModel):
+    category: str
+    severity: str
+    message: str
+    entity_type: str
+    entity_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaxonomyIntegrityReport(BaseModel):
+    is_clean: bool
+    total_issues: int
+    error_count: int
+    warning_count: int
+    summary_by_category: dict[str, int] = Field(default_factory=dict)
+    issues: list[TaxonomyIntegrityIssue] = Field(default_factory=list)
+
+
+TaxonomyIntegrityIssue.model_rebuild()
+TaxonomyIntegrityReport.model_rebuild()
+
+
+class SkillReplacementRequest(BaseModel):
+    new_skill_id: uuid.UUID
+    notes: str | None = None
+
+
+class SkillSplitRequest(BaseModel):
+    target_skill_ids: list[uuid.UUID] = Field(..., min_length=2)
+    notes: str | None = None
+
+
+class ReconcileLegacyNodesResponse(BaseModel):
+    migrated: int
+    deprecated: int
+    unresolved: int
+

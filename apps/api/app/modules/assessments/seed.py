@@ -1,4 +1,5 @@
 import uuid
+
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from app.modules.assessments.models import (
     QuestionOption,
     QuestionSkillTag,
     Skill,
+    TaskType,
 )
 from app.modules.learning.enums import SkillCategory
 
@@ -26,9 +28,14 @@ logger = structlog.get_logger("tef-api.assessments.seed")
 
 async def seed_demo_assessments(db: AsyncSession) -> None:
     """Idempotently seed skills and sample Reading and Listening demo assessments."""
-    # 1. Skills
-    existing_skill = await db.scalar(select(Skill).where(Skill.code == "reading_comprehension"))
-    if existing_skill:
+    from app.modules.admin.reading_taxonomy_data import seed_reading_taxonomy
+    await seed_reading_taxonomy(db)
+
+    # Check if demo assessment already seeded
+    existing_asmt = await db.scalar(
+        select(Assessment).where(Assessment.title == "TEF Compréhension Écrite — Test Démo")
+    )
+    if existing_asmt:
         logger.info("demo_assessments_already_seeded")
         return
 
@@ -47,85 +54,47 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
         await db.flush()
     tax_ver_id = active_tax.id
 
-    # Create root skills
-    reading_skill = Skill(
-        taxonomy_version_id=tax_ver_id,
-        code="reading_comprehension",
-        name="Compréhension écrite",
-        dimension=SkillDimension.REASONING,
-        domain="reading",
-        category=SkillCategory.READING,
-        description="Capacité à lire et comprendre des documents de la vie quotidienne et professionnelle.",
-    )
-    listening_skill = Skill(
-        taxonomy_version_id=tax_ver_id,
-        code="listening_comprehension",
-        name="Compréhension orale",
-        dimension=SkillDimension.REASONING,
-        domain="listening",
-        category=SkillCategory.LISTENING,
-        description="Capacité à écouter et comprendre des annonces, conversations et émissions en français.",
-    )
-    db.add_all([reading_skill, listening_skill])
-    await db.flush()
+    # Create listening competency container for demo listening assessment
+    listening_skill = await db.scalar(select(Skill).where(Skill.code == "listening_comprehension"))
+    if not listening_skill:
+        listening_skill = Skill(
+            taxonomy_version_id=tax_ver_id,
+            code="listening_comprehension",
+            name="Compréhension orale",
+            dimension=SkillDimension.REASONING,
+            domain="listening",
+            category=SkillCategory.LISTENING,
+            description="Capacité à écouter et comprendre des annonces, conversations et émissions en français.",
+        )
+        db.add(listening_skill)
+        await db.flush()
 
-    # Create subskills
-    reading_gist = Skill(
-        taxonomy_version_id=tax_ver_id,
-        code="reading_gist",
-        name="Identification du sens global",
-        dimension=SkillDimension.REASONING,
-        domain="reading",
-        category=SkillCategory.READING,
-        parent_id=reading_skill.id,
-    )
-    reading_detail = Skill(
-        taxonomy_version_id=tax_ver_id,
-        code="reading_detail",
-        name="Repérage d'informations factuelles",
-        dimension=SkillDimension.REASONING,
-        domain="reading",
-        category=SkillCategory.READING,
-        parent_id=reading_skill.id,
-    )
-    reading_inference = Skill(
-        taxonomy_version_id=tax_ver_id,
-        code="reading_inference",
-        name="Compréhension de l'implicite",
-        dimension=SkillDimension.REASONING,
-        domain="reading",
-        category=SkillCategory.READING,
-        parent_id=reading_skill.id,
-    )
+    listening_announcement = await db.scalar(select(Skill).where(Skill.code == "listening_announcement"))
+    if not listening_announcement:
+        listening_announcement = Skill(
+            taxonomy_version_id=tax_ver_id,
+            code="listening_announcement",
+            name="Compréhension d'annonces publiques",
+            dimension=SkillDimension.REASONING,
+            domain="listening",
+            category=SkillCategory.LISTENING,
+            parent_id=listening_skill.id,
+        )
+        db.add(listening_announcement)
 
-    listening_announcement = Skill(
-        taxonomy_version_id=tax_ver_id,
-        code="listening_announcement",
-        name="Compréhension d'annonces publiques",
-        dimension=SkillDimension.REASONING,
-        domain="listening",
-        category=SkillCategory.LISTENING,
-        parent_id=listening_skill.id,
-    )
-    listening_interview = Skill(
-        taxonomy_version_id=tax_ver_id,
-        code="listening_interview",
-        name="Suivi d'un entretien thématique",
-        dimension=SkillDimension.REASONING,
-        domain="listening",
-        category=SkillCategory.LISTENING,
-        parent_id=listening_skill.id,
-    )
+    listening_interview = await db.scalar(select(Skill).where(Skill.code == "listening_interview"))
+    if not listening_interview:
+        listening_interview = Skill(
+            taxonomy_version_id=tax_ver_id,
+            code="listening_interview",
+            name="Suivi d'un entretien thématique",
+            dimension=SkillDimension.REASONING,
+            domain="listening",
+            category=SkillCategory.LISTENING,
+            parent_id=listening_skill.id,
+        )
+        db.add(listening_interview)
 
-    db.add_all(
-        [
-            reading_gist,
-            reading_detail,
-            reading_inference,
-            listening_announcement,
-            listening_interview,
-        ]
-    )
     await db.flush()
 
     # 2. Reading Assessment
@@ -153,6 +122,15 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
     db.add(sec_read_a)
     await db.flush()
 
+    # Resolve canonical reading task types and competencies
+    daily_doc_tt = await db.scalar(select(TaskType).where(TaskType.code == "daily_document"))
+    press_art_tt = await db.scalar(select(TaskType).where(TaskType.code == "press_article"))
+
+    canon_detail = await db.scalar(select(Skill).where(Skill.code == "reasoning_identify_specific_detail"))
+    canon_vocab = await db.scalar(select(Skill).where(Skill.code == "lang_vocab_in_context"))
+    canon_main_idea = await db.scalar(select(Skill).where(Skill.code == "reasoning_identify_main_idea"))
+    canon_paraphrase = await db.scalar(select(Skill).where(Skill.code == "lang_paraphrase_and_synonyms"))
+
     # Question 1 (Reading Sec A)
     q1_r = Question(
         section_id=sec_read_a.id,
@@ -162,6 +140,7 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
         level="A2",
         difficulty=2,
         points=1,
+        task_type_id=daily_doc_tt.id if daily_doc_tt else None,
         explanation="Le texte précise que le service d'emprunt reste accessible au rez-de-chaussée, alors que les salles d'étude sont fermées.",
     )
     db.add(q1_r)
@@ -200,15 +179,23 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
         ]
     )
 
-    db.add(
-        QuestionSkillTag(
-            question_id=q1_r.id,
-            skill_id=reading_skill.id,
-            subskill_id=reading_detail.id,
-            subskill="reading_detail",
-            role=SkillTagRole.PRIMARY,
-            weight=1.0,
-        )
+    assert all([canon_detail, canon_vocab, canon_main_idea, canon_paraphrase]), "Canonical reading skills not found"
+
+    db.add_all(
+        [
+            QuestionSkillTag(
+                question_id=q1_r.id,
+                skill_id=canon_detail.id,
+                role=SkillTagRole.PRIMARY,
+                weight=1.0,
+            ),
+            QuestionSkillTag(
+                question_id=q1_r.id,
+                skill_id=canon_vocab.id,
+                role=SkillTagRole.PRIMARY,
+                weight=1.0,
+            ),
+        ]
     )
 
     # Section B: Article de société
@@ -231,6 +218,7 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
         level="B1",
         difficulty=3,
         points=2,
+        task_type_id=press_art_tt.id if press_art_tt else None,
         explanation="L'article mentionne explicitement : 'L'objectif avoué est de réduire le recours à l'automobile individuelle de 25% d'ici cinq ans'.",
     )
     db.add(q2_r)
@@ -265,15 +253,21 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
         ]
     )
 
-    db.add(
-        QuestionSkillTag(
-            question_id=q2_r.id,
-            skill_id=reading_skill.id,
-            subskill_id=reading_gist.id,
-            subskill="reading_gist",
-            role=SkillTagRole.PRIMARY,
-            weight=1.0,
-        )
+    db.add_all(
+        [
+            QuestionSkillTag(
+                question_id=q2_r.id,
+                skill_id=canon_main_idea.id,
+                role=SkillTagRole.PRIMARY,
+                weight=1.0,
+            ),
+            QuestionSkillTag(
+                question_id=q2_r.id,
+                skill_id=canon_paraphrase.id,
+                role=SkillTagRole.PRIMARY,
+                weight=1.0,
+            ),
+        ]
     )
 
     # 3. Listening Assessment
@@ -355,5 +349,5 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
         )
     )
 
-    await db.commit()
+    await db.flush()
     logger.info("demo_assessments_seeded_successfully")

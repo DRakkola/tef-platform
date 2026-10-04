@@ -93,12 +93,16 @@ class SkillTagRole(str, enum.Enum):
 
 
 class SkillRelationType(str, enum.Enum):
-    """Pedagogical dependency relationship between two skills in the graph."""
+    """Pedagogical dependency relationship or evolution mapping between two skills in the graph."""
 
     PREREQUISITE = "prerequisite"
     DEPENDS_ON = "depends_on"
     SUPPORTS = "supports"
     RELATED = "related"
+    REPLACED_BY = "replaced_by"
+    SPLIT_INTO = "split_into"
+    MERGED_INTO = "merged_into"
+    DEPRECATED_BY = "deprecated_by"
 
     @classmethod
     def _missing_(cls, value: object):
@@ -146,4 +150,22 @@ class CEFRBand(str, enum.Enum):
                 if member.value == val_upper or member.name == val_upper:
                     return member
         return None
+
+
+class TaxonomyMigrationStatus(str, enum.Enum):
+    """Reconciliation state of legacy skill nodes during taxonomy evolution."""
+
+    MIGRATED = "migrated"
+    DEPRECATED = "deprecated"
+    UNRESOLVED = "unresolved"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
+
 

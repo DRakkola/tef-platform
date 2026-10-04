@@ -124,6 +124,9 @@ class RecommendationResponse(BaseModel):
     skill_id: uuid.UUID
     skill_code: str
     skill_name: str
+    dimension: str | None = None
+    domain: str | None = None
+    applicable_modalities: list[str] = Field(default_factory=list)
     recommendation_type: RecommendationType
     entity_type: str
     entity_id: uuid.UUID
@@ -131,6 +134,8 @@ class RecommendationResponse(BaseModel):
     category: str | None = None
     level: str | None = None
     difficulty: int | None = None
+    descriptor: str | None = None
+    evidence_guidance: str | None = None
     reason: str
     priority: int
     priority_label: str | None = None

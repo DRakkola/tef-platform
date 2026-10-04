@@ -5,7 +5,8 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from sqlalchemy import DateTime, Enum as SQLEnum, text
+from sqlalchemy import DateTime, text
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import (
     AsyncAttrs,
@@ -13,7 +14,15 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+@compiles(UUID, "sqlite")
+def _compile_uuid_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    """Compile PostgreSQL UUID to CHAR(36) in SQLite to guarantee TEXT affinity."""
+    return "CHAR(36)"
+
 
 import structlog
 
@@ -42,6 +51,7 @@ class SQLEnumValues(SQLEnum):
             if elem.upper() in self._object_lookup:
                 return self._object_lookup[elem.upper()]
         return super()._object_value_for_elem(elem)
+
 
 connect_args: dict[str, Any] = {}
 if "pooler.supabase.com" in settings.DATABASE_URL or ":6543" in settings.DATABASE_URL:

@@ -10,9 +10,6 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.security import decode_access_token, is_token_revoked
-from app.modules.assessments.models import Skill, SkillCategory
-from app.modules.learning.readiness_engine import ReadinessEngine
-from app.modules.learning.readiness_models import SkillEvidenceSourceType
 from app.modules.speaking.enums import (
     SpeakingEvaluatorType,
     SpeakingParticipantRole,
@@ -21,7 +18,6 @@ from app.modules.speaking.enums import (
 )
 from app.modules.speaking.models import (
     SpeakingEvaluation,
-    SpeakingEvaluationSkill,
     SpeakingParticipant,
     SpeakingSession,
 )
@@ -295,45 +291,13 @@ class SpeakingService:
             session.evaluation = evaluation
             await db.flush()
 
-            # Attach speaking skills if available in database
-            skills_stmt = select(Skill).where(Skill.category == SkillCategory.SPEAKING).limit(3)
-            skills = (await db.execute(skills_stmt)).scalars().all()
-            for s in skills:
-                eval_skill = SpeakingEvaluationSkill(
-                    evaluation_id=evaluation.id,
-                    skill_id=s.id,
-                    score=eval_result.overall_score,
-                    notes=f"Compétence évaluée pour {s.name}",
-                )
-                db.add(eval_skill)
-
-            # Ingest AI speaking evaluation into ReadinessEngine
-            now_ev = datetime.datetime.now(datetime.UTC)
-            for s in skills:
-                try:
-                    async with db.begin_nested():
-                        await ReadinessEngine.ingest_evidence(
-                            db=db,
-                            student_id=student_id,
-                            skill_id=s.id,
-                            source_type=SkillEvidenceSourceType.AI_EVALUATION.value,
-                            source_id=evaluation.id,
-                            raw_score=eval_result.overall_score,
-                            normalized_score=eval_result.overall_score,
-                            confidence=0.80,
-                            weight=1.0,
-                            observed_at=now_ev,
-                            metadata_payload={"session_id": str(session.id), "evaluator": "mock_speaking"},
-                        )
-                except Exception:  # noqa: BLE001, S110
-                    pass
-
-            if skills:
-                try:
-                    async with db.begin_nested():
-                        await ReadinessEngine.recalculate_student_readiness(db, student_id)
-                except Exception:  # noqa: BLE001, S110
-                    pass
+            # Attach canonical competencies and ingest SkillEvidence via EvaluationSkillMapper
+            from app.modules.learning.evaluation_mapper import EvaluationSkillMapper
+            await EvaluationSkillMapper.apply_speaking_evaluation_evidence(
+                db=db,
+                evaluation=evaluation,
+                student_id=student_id,
+            )
 
         await db.commit()
         return await SpeakingService.get_session_by_id(db, session_id, user)
@@ -424,46 +388,19 @@ class SpeakingService:
             is_official_tef=False,
         )
         db.add(evaluation)
+        await db.flush()
+
+        # Ingest teacher speaking evidence and attach canonical skills via EvaluationSkillMapper
+        from app.modules.learning.evaluation_mapper import EvaluationSkillMapper
+        if student_participant.user_id:
+            await EvaluationSkillMapper.apply_speaking_evaluation_evidence(
+                db=db,
+                evaluation=evaluation,
+                student_id=student_participant.user_id,
+            )
+
         await db.commit()
         await db.refresh(evaluation)
-
-        # Ingest teacher speaking evidence into ReadinessEngine
-        speaking_skill = (
-            await db.execute(
-                select(Skill).where(Skill.code.in_(["speaking", "expression_orale", "EO", "speaking_b2"]))
-            )
-        ).scalar_one_or_none()
-        if not speaking_skill:
-            speaking_skill = (
-                await db.execute(
-                    select(Skill).where(Skill.name.ilike("%speaking%") | Skill.name.ilike("%orale%"))
-                )
-            ).scalars().first()
-
-        now_te = datetime.datetime.now(datetime.UTC)
-        if speaking_skill and student_participant.user_id:
-            try:
-                await ReadinessEngine.ingest_evidence(
-                    db=db,
-                    student_id=student_participant.user_id,
-                    skill_id=speaking_skill.id,
-                    source_type=SkillEvidenceSourceType.TEACHER_EVALUATION.value,
-                    source_id=evaluation.id,
-                    raw_score=payload.overall_score,
-                    normalized_score=payload.overall_score,
-                    confidence=0.95,
-                    weight=1.0,
-                    observed_at=now_te,
-                    metadata_payload={
-                        "session_id": str(session.id),
-                        "evaluator": "teacher",
-                        "level": payload.estimated_level,
-                    },
-                )
-                await ReadinessEngine.recalculate_student_readiness(db, student_participant.user_id)
-            except Exception:  # noqa: BLE001, S110
-                pass
-
         return evaluation
 
     @staticmethod

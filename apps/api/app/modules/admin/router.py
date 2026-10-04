@@ -647,7 +647,7 @@ async def list_skills(
             is_active=sk.is_active,
             created_at=sk.created_at,
             updated_at=sk.updated_at,
-            subskills=[SubSkillResponse.model_validate(sub) for sub in (sk.subskills_table or [])],
+            subskills=[SubSkillResponse.model_validate(sub) for sub in (sk.subskills or [])],
             usage_counts=usage,
         )
         result.append(resp)
@@ -675,7 +675,7 @@ async def get_skill(
         is_active=skill.is_active,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
-        subskills=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills_table or [])],
+        subskills=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills or [])],
         usage_counts=usage,
     )
 
@@ -707,7 +707,7 @@ async def update_skill(
         is_active=skill.is_active,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
-        subskills=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills_table or [])],
+        subskills=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills or [])],
         usage_counts=usage,
     )
 
@@ -799,6 +799,24 @@ async def delete_subskill(
         subskill_id=subskill_id,
         actor_id=current_admin.id,
     )
+
+
+@router.post(
+    "/content/subskills/{subskill_id}/archive",
+    response_model=SubSkillResponse,
+    summary="Archive subskill safely without deleting educational history",
+)
+async def archive_subskill(
+    subskill_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> SubSkillResponse:
+    sub = await SubSkillService.archive_subskill(
+        db=db,
+        subskill_id=subskill_id,
+        actor_id=current_admin.id,
+    )
+    return SubSkillResponse.model_validate(sub)
 
 
 # ---------------------------------------------------------------------------
