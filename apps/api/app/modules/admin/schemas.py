@@ -74,26 +74,16 @@ class MediaPresignedUrlResponse(BaseModel):
 
 
 # --- SubSkill & Skill Schemas ---
-class SubSkillCreate(BaseModel):
-    code: str
-    name: str
-    description: str | None = None
-
-
-class SubSkillUpdate(BaseModel):
-    code: str | None = None
-    name: str | None = None
-    description: str | None = None
-
-
-class SubSkillResponse(BaseModel):
+class AdminSkillChildResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: uuid.UUID
-    skill_id: uuid.UUID = Field(validation_alias=AliasChoices("skill_id", "parent_id"))
     code: str
     name: str
+    parent_id: uuid.UUID | None = None
+    category: str | None = None
     description: str | None = None
+    is_active: bool = True
     created_at: datetime.datetime
     updated_at: datetime.datetime
 
@@ -137,7 +127,7 @@ class AdminSkillResponse(BaseModel):
     is_active: bool = True
     created_at: datetime.datetime
     updated_at: datetime.datetime
-    subskills: list[SubSkillResponse] = Field(default_factory=list)
+    subskills: list[AdminSkillChildResponse] = Field(default_factory=list)
     usage_counts: SkillUsageCounts = Field(default_factory=SkillUsageCounts)
 
 
@@ -290,8 +280,6 @@ class AdminQuestionProvenanceResponse(BaseModel):
 class AdminQuestionSkillTagCreate(BaseModel):
     skill_id: uuid.UUID
     role: str = "primary"  # SkillTagRole.PRIMARY
-    subskill_id: uuid.UUID | None = None
-    subskill: str | None = None  # Deprecated: use subskill_id
     weight: float = 1.0
     context: dict | None = None
 
@@ -299,8 +287,6 @@ class AdminQuestionSkillTagCreate(BaseModel):
 class AdminExerciseSkillTagCreate(BaseModel):
     skill_id: uuid.UUID
     role: str = "primary"  # SkillTagRole.PRIMARY
-    subskill_id: uuid.UUID | None = None
-    subskill: str | None = None  # Deprecated: use subskill_id
     weight: float = 1.0
     context: dict | None = None
 
@@ -417,8 +403,6 @@ class AdminQuestionSkillTagResponse(BaseModel):
 
     id: uuid.UUID
     skill_id: uuid.UUID
-    subskill_id: uuid.UUID | None = None
-    subskill: str | None = None
     role: str = "primary"
     weight: float = 1.0
     context: dict | None = None

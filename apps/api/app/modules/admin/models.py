@@ -313,47 +313,6 @@ class TaxonomyMigrationRecord(TimeStampedUUIDModel):
     )
 
 
-class SubSkill(TimeStampedUUIDModel):
-    """Specific subskill unit categorized under a parent skill.
-
-    DEPRECATED (Taxonomy V2): Replaced by self-referencing hierarchy in Skill model (parent_id).
-    Table is read-only during transitional deprecation period.
-    """
-
-    __tablename__ = "sub_skills"
-
-    skill_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    code: Mapped[str] = mapped_column(
-        String(100),
-        unique=True,
-        index=True,
-        nullable=False,
-    )
-    name: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-    )
-    description: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-    )
-
-    skill: Mapped[Skill] = relationship("Skill", back_populates="subskills_table")
-
-
-@event.listens_for(SubSkill, "before_insert")
-def _prevent_subskill_insert(mapper: Any, connection: Any, target: SubSkill) -> None:
-    raise RuntimeError(
-        "Direct insertion into sub_skills is deprecated and forbidden by Taxonomy V2 architecture. "
-        "Create or update canonical skills (Skill with parent_id) instead."
-    )
-
-
 class AuditEvent(UUIDModel):
     """Immutable audit record of administrative and security-sensitive operations."""
 

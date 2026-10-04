@@ -40,14 +40,13 @@ from app.modules.admin.schemas import (
     AdminWritingTaskUpdate,
     ContentReviewDecision,
     SkillUsageCounts,
-    SubSkillCreate,
-    SubSkillUpdate,
     ValidationIssue,
 )
 from app.modules.assessments.enums import QuestionType
 from app.modules.assessments.models import (
     Assessment,
     AssessmentSection,
+    AssessmentSectionQuestion,
     Attempt,
     Question,
     QuestionOption,
@@ -304,179 +303,6 @@ class MediaAssetService:
             entity_type="media_asset",
             entity_id=asset_id,
             payload={"filename": asset.filename},
-        )
-
-
-class SubSkillService:
-    """Compatibility service for subskills, delegating directly to canonical Skill hierarchy."""
-
-    @staticmethod
-    async def create_subskill(
-        db: AsyncSession,
-        skill_id: uuid.UUID,
-        payload: SubSkillCreate,
-        actor_id: uuid.UUID | None = None,
-    ) -> Skill:
-        """Create a child competency under a parent skill directly in canonical skills table."""
-        skill = await db.get(Skill, skill_id)
-        if not skill:
-            raise AppException(message="Parent skill not found", code="SKILL_NOT_FOUND", status_code=404)
-
-        # Check unique code across canonical skills
-        existing = await db.scalar(select(Skill).where(Skill.code == payload.code.strip()))
-        if existing:
-            raise AppException(message=f"Subskill with code '{payload.code}' already exists", code="DUPLICATE_CODE", status_code=409)
-
-        now = datetime.datetime.now(datetime.UTC)
-        sub_skill = Skill(
-            id=uuid.uuid4(),
-            code=payload.code.strip(),
-            name=payload.name.strip(),
-            dimension=skill.dimension,
-            domain=skill.domain,
-            taxonomy_version_id=skill.taxonomy_version_id,
-            category=skill.category,
-            description=payload.description.strip() if payload.description else None,
-            parent_id=skill.id,
-            is_active=True,
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(sub_skill)
-        await db.flush()
-
-        await AuditService.log_event(
-            db=db,
-            actor_user_id=actor_id,
-            action=AuditAction.CREATE,
-            entity_type="subskill",
-            entity_id=sub_skill.id,
-            payload={"skill_id": str(skill_id), "code": sub_skill.code, "name": sub_skill.name},
-        )
-        return sub_skill
-
-    @staticmethod
-    async def list_subskills(db: AsyncSession, skill_id: uuid.UUID) -> list[Skill]:
-        """List active child competencies for a skill from canonical hierarchy."""
-        stmt = (
-            select(Skill)
-            .where(Skill.parent_id == skill_id, Skill.is_active.is_(True))
-            .order_by(Skill.name.asc())
-        )
-        return list((await db.execute(stmt)).scalars().all())
-
-    @staticmethod
-    async def update_subskill(
-        db: AsyncSession,
-        subskill_id: uuid.UUID,
-        payload: SubSkillUpdate,
-        actor_id: uuid.UUID | None = None,
-    ) -> Skill:
-        """Update child competency in canonical hierarchy."""
-        sub_skill = await db.get(Skill, subskill_id)
-        if not sub_skill:
-            raise AppException(message="Subskill not found", code="NOT_FOUND", status_code=404)
-
-        if payload.code is not None and payload.code.strip() != sub_skill.code:
-            new_code = payload.code.strip()
-            existing = await db.scalar(select(Skill).where(Skill.code == new_code))
-            if existing and existing.id != subskill_id:
-                raise AppException(message=f"Subskill code '{payload.code}' in use", code="DUPLICATE_CODE", status_code=409)
-            sub_skill.code = new_code
-
-        if payload.name is not None:
-            sub_skill.name = payload.name.strip()
-        if payload.description is not None:
-            sub_skill.description = payload.description.strip() if payload.description else None
-
-        sub_skill.updated_at = datetime.datetime.now(datetime.UTC)
-        await db.flush()
-
-        await AuditService.log_event(
-            db=db,
-            actor_user_id=actor_id,
-            action=AuditAction.UPDATE,
-            entity_type="subskill",
-            entity_id=sub_skill.id,
-            payload={"code": sub_skill.code, "name": sub_skill.name},
-        )
-        return sub_skill
-
-    @staticmethod
-    async def archive_subskill(
-        db: AsyncSession,
-        subskill_id: uuid.UUID,
-        actor_id: uuid.UUID | None = None,
-    ) -> Skill:
-        """Safely soft-archive a child competency in canonical hierarchy."""
-        sub_skill = await db.get(Skill, subskill_id)
-        if not sub_skill:
-            raise AppException(message="Subskill not found", code="NOT_FOUND", status_code=404)
-
-        sub_skill.is_active = False
-        sub_skill.updated_at = datetime.datetime.now(datetime.UTC)
-        await db.flush()
-
-        await AuditService.log_event(
-            db=db,
-            actor_user_id=actor_id,
-            action=AuditAction.ARCHIVE,
-            entity_type="subskill",
-            entity_id=subskill_id,
-            payload={"code": sub_skill.code, "is_active": False},
-        )
-        return sub_skill
-
-    @staticmethod
-    async def delete_subskill(
-        db: AsyncSession,
-        subskill_id: uuid.UUID,
-        actor_id: uuid.UUID | None = None,
-    ) -> None:
-        """Safely delete or soft-archive subskill checking relational dependencies."""
-        sub_skill = await db.get(Skill, subskill_id)
-        if not sub_skill:
-            raise AppException(message="Subskill not found", code="NOT_FOUND", status_code=404)
-
-        target_name = sub_skill.name
-        target_code = sub_skill.code
-
-        from app.modules.admin.taxonomy_service import TaxonomyService
-
-        usage_map = await TaxonomyService.batch_get_skill_usage(db, [subskill_id])
-        total_deps = sum(u.total_dependencies for u in usage_map.values())
-        u = usage_map.get(subskill_id, SkillUsageCounts())
-
-        # Also check legacy string occurrences
-        q_str_count = (await db.scalar(select(func.count(QuestionSkillTag.id)).where(QuestionSkillTag.subskill == target_code))) or 0
-        ex_str_count = (await db.scalar(select(func.count(ExerciseSkill.id)).where(ExerciseSkill.subskill == target_code))) or 0
-        extra_str_deps = max(0, q_str_count - u.questions) + max(0, ex_str_count - u.exercises)
-        total_deps += extra_str_deps
-
-        if total_deps > 0:
-            raise AppException(
-                message=(
-                    f"Impossible de supprimer la sous-compétence '{target_name}' car elle possède des dépendances actives "
-                    f"({u.questions + max(0, q_str_count - u.questions)} questions, {u.exercises + max(0, ex_str_count - u.exercises)} exercices, "
-                    f"{u.student_mastery} profils étudiants, {u.skill_evidence} preuves, {u.skill_assessments} évaluations). "
-                    "Veuillez archiver cette compétence pour préserver l'historique pédagogique."
-                ),
-                code="SUBSKILL_IN_USE",
-                status_code=409,
-            )
-
-        # Soft-archive canonical skill
-        sub_skill.is_active = False
-        sub_skill.updated_at = datetime.datetime.now(datetime.UTC)
-        await db.flush()
-
-        await AuditService.log_event(
-            db=db,
-            actor_user_id=actor_id,
-            action=AuditAction.DELETE,
-            entity_type="subskill",
-            entity_id=subskill_id,
-            payload={"code": target_code, "is_active": False},
         )
 
 
@@ -949,7 +775,6 @@ class AdminContentService:
         """Add question with options and skill tags to a section."""
         now = datetime.datetime.now(datetime.UTC)
         q = Question(
-            section_id=section_id,
             stimulus_id=getattr(payload, "stimulus_id", None),
             question_type=payload.question_type,
             response_type=getattr(payload, "response_type", "single_choice"),
@@ -979,6 +804,14 @@ class AdminContentService:
         db.add(q)
         await db.flush()
 
+        if section_id:
+            asq = AssessmentSectionQuestion(
+                assessment_section_id=section_id,
+                question_id=q.id,
+                order_index=payload.order_index,
+            )
+            db.add(asq)
+
         for opt in payload.options:
             q_opt = QuestionOption(
                 question_id=q.id,
@@ -1006,8 +839,6 @@ class AdminContentService:
             q_tag = QuestionSkillTag(
                 question_id=q.id,
                 skill_id=tag.skill_id,
-                subskill_id=getattr(tag, "subskill_id", None),
-                subskill=tag.subskill,
                 role=SkillTagRole(role_val) if isinstance(role_val, str) else role_val,
                 weight=tag.weight,
                 context=getattr(tag, "context", None),
@@ -1095,8 +926,14 @@ class AdminContentService:
         count_stmt = select(func.count(Question.id))
 
         if section_id:
-            stmt = stmt.where(Question.section_id == section_id)
-            count_stmt = count_stmt.where(Question.section_id == section_id)
+            stmt = stmt.join(
+                AssessmentSectionQuestion,
+                AssessmentSectionQuestion.question_id == Question.id,
+            ).where(AssessmentSectionQuestion.assessment_section_id == section_id)
+            count_stmt = count_stmt.join(
+                AssessmentSectionQuestion,
+                AssessmentSectionQuestion.question_id == Question.id,
+            ).where(AssessmentSectionQuestion.assessment_section_id == section_id)
         if level:
             stmt = stmt.where(Question.level == level)
             count_stmt = count_stmt.where(Question.level == level)
@@ -1265,8 +1102,6 @@ class AdminContentService:
             q.response_type = payload.response_type
         if getattr(payload, "stimulus_id", None) is not None:
             q.stimulus_id = payload.stimulus_id
-        if getattr(payload, "section_id", None) is not None:
-            q.section_id = payload.section_id
         if payload.difficulty is not None:
             q.difficulty = payload.difficulty
         if getattr(payload, "difficulty_rating", None) is not None:
@@ -1335,8 +1170,6 @@ class AdminContentService:
                 q_tag = QuestionSkillTag(
                     question_id=q.id,
                     skill_id=tag.skill_id,
-                    subskill_id=getattr(tag, "subskill_id", None),
-                    subskill=tag.subskill,
                     role=SkillTagRole(role_val) if isinstance(role_val, str) else role_val,
                     weight=tag.weight,
                     context=getattr(tag, "context", None),
@@ -1792,8 +1625,6 @@ class AdminContentService:
                 es = ExerciseSkill(
                     exercise_id=ex.id,
                     skill_id=tag.skill_id,
-                    subskill_id=getattr(tag, "subskill_id", None),
-                    subskill=tag.subskill,
                     role=SkillTagRole(role_val) if isinstance(role_val, str) else role_val,
                     weight=tag.weight,
                     context=getattr(tag, "context", None),
@@ -1879,8 +1710,6 @@ class AdminContentService:
                 db.add(ExerciseSkill(
                     exercise_id=ex.id,
                     skill_id=tag.skill_id,
-                    subskill_id=getattr(tag, "subskill_id", None),
-                    subskill=tag.subskill,
                     role=SkillTagRole(role_val) if isinstance(role_val, str) else role_val,
                     weight=tag.weight,
                     context=getattr(tag, "context", None),

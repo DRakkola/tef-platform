@@ -62,15 +62,13 @@ from app.modules.admin.schemas import (
     PublishValidationResponse,
     QuestionCreateDraftVersionRequest,
     QuestionForkRequest,
+    AdminSkillChildResponse,
     QuestionPublishRequest,
     QuestionRevertDraftRequest,
     QuestionReviewDecisionRequest,
     QuestionSubmitReviewRequest,
     QuestionValidationResultResponse,
     QuestionVersionResponse,
-    SubSkillCreate,
-    SubSkillResponse,
-    SubSkillUpdate,
     WritingTaskVersionResponse,
 )
 from app.modules.admin.ai_question_schemas import (
@@ -89,7 +87,6 @@ from app.modules.admin.service import (
     AuditService,
     MediaAssetService,
     PublishingValidationEngine,
-    SubSkillService,
 )
 from app.modules.assessments.enums import QuestionType
 from app.modules.auth.dependencies import require_role
@@ -1072,7 +1069,7 @@ async def list_skills(
             is_active=sk.is_active,
             created_at=sk.created_at,
             updated_at=sk.updated_at,
-            subskills=[SubSkillResponse.model_validate(sub) for sub in (sk.subskills or [])],
+            subskills=[AdminSkillChildResponse.model_validate(sub) for sub in (sk.subskills or [])],
             usage_counts=usage,
         )
         result.append(resp)
@@ -1100,7 +1097,7 @@ async def get_skill(
         is_active=skill.is_active,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
-        subskills=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills or [])],
+        subskills=[AdminSkillChildResponse.model_validate(sub) for sub in (skill.subskills or [])],
         usage_counts=usage,
     )
 
@@ -1132,7 +1129,7 @@ async def update_skill(
         is_active=skill.is_active,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
-        subskills=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills or [])],
+        subskills=[AdminSkillChildResponse.model_validate(sub) for sub in (skill.subskills or [])],
         usage_counts=usage,
     )
 
@@ -1152,96 +1149,6 @@ async def delete_skill(
         skill_id=skill_id,
         actor_id=current_admin.id,
     )
-
-
-@router.post(
-    "/content/skills/{skill_id}/subskills",
-    response_model=SubSkillResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create subskill under parent skill",
-)
-async def create_subskill(
-    skill_id: uuid.UUID,
-    payload: SubSkillCreate,
-    db: AsyncSession = Depends(get_db),
-    current_admin: User = Depends(require_role(UserRole.ADMIN)),
-) -> SubSkillResponse:
-    sub = await SubSkillService.create_subskill(
-        db=db,
-        skill_id=skill_id,
-        payload=payload,
-        actor_id=current_admin.id,
-    )
-    return SubSkillResponse.model_validate(sub)
-
-
-@router.get(
-    "/content/skills/{skill_id}/subskills",
-    response_model=list[SubSkillResponse],
-    summary="List subskills for a skill",
-)
-async def list_subskills_for_skill(
-    skill_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(UserRole.ADMIN)),
-) -> list[SubSkillResponse]:
-    subs = await SubSkillService.list_subskills(db, skill_id)
-    return [SubSkillResponse.model_validate(s) for s in subs]
-
-
-@router.put(
-    "/content/subskills/{subskill_id}",
-    response_model=SubSkillResponse,
-    summary="Update subskill",
-)
-async def update_subskill(
-    subskill_id: uuid.UUID,
-    payload: SubSkillUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_admin: User = Depends(require_role(UserRole.ADMIN)),
-) -> SubSkillResponse:
-    sub = await SubSkillService.update_subskill(
-        db=db,
-        subskill_id=subskill_id,
-        payload=payload,
-        actor_id=current_admin.id,
-    )
-    return SubSkillResponse.model_validate(sub)
-
-
-@router.delete(
-    "/content/subskills/{subskill_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete subskill",
-)
-async def delete_subskill(
-    subskill_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_admin: User = Depends(require_role(UserRole.ADMIN)),
-) -> None:
-    await SubSkillService.delete_subskill(
-        db=db,
-        subskill_id=subskill_id,
-        actor_id=current_admin.id,
-    )
-
-
-@router.post(
-    "/content/subskills/{subskill_id}/archive",
-    response_model=SubSkillResponse,
-    summary="Archive subskill safely without deleting educational history",
-)
-async def archive_subskill(
-    subskill_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_admin: User = Depends(require_role(UserRole.ADMIN)),
-) -> SubSkillResponse:
-    sub = await SubSkillService.archive_subskill(
-        db=db,
-        subskill_id=subskill_id,
-        actor_id=current_admin.id,
-    )
-    return SubSkillResponse.model_validate(sub)
 
 
 # ---------------------------------------------------------------------------

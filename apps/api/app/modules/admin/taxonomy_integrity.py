@@ -25,7 +25,6 @@ from app.modules.admin.models import (
     SkillLevelDescriptor,
     SkillModality,
     SkillRelation,
-    SubSkill,
     TaxonomyMigrationRecord,
     TaxonomyVersion,
 )
@@ -142,8 +141,8 @@ class TaxonomyIntegrityChecker:
         skill_ids = set((await db.execute(select(Skill.id))).scalars().all())
 
         # QuestionSkillTag
-        q_tags = (await db.execute(select(QuestionSkillTag.id, QuestionSkillTag.skill_id, QuestionSkillTag.subskill_id))).all()
-        for tag_id, sk_id, sub_id in q_tags:
+        q_tags = (await db.execute(select(QuestionSkillTag.id, QuestionSkillTag.skill_id))).all()
+        for tag_id, sk_id in q_tags:
             if sk_id not in skill_ids:
                 issues.append(
                     TaxonomyIntegrityIssue(
@@ -155,21 +154,10 @@ class TaxonomyIntegrityChecker:
                         details={"skill_id": str(sk_id)},
                     )
                 )
-            if sub_id and sub_id not in skill_ids:
-                issues.append(
-                    TaxonomyIntegrityIssue(
-                        category="orphan_references",
-                        severity="error",
-                        message=f"QuestionSkillTag {tag_id} references missing subskill_id {sub_id}.",
-                        entity_type="question_skill_tag",
-                        entity_id=str(tag_id),
-                        details={"subskill_id": str(sub_id)},
-                    )
-                )
 
         # ExerciseSkill
-        ex_tags = (await db.execute(select(ExerciseSkill.id, ExerciseSkill.skill_id, ExerciseSkill.subskill_id))).all()
-        for tag_id, sk_id, sub_id in ex_tags:
+        ex_tags = (await db.execute(select(ExerciseSkill.id, ExerciseSkill.skill_id))).all()
+        for tag_id, sk_id in ex_tags:
             if sk_id not in skill_ids:
                 issues.append(
                     TaxonomyIntegrityIssue(
@@ -179,17 +167,6 @@ class TaxonomyIntegrityChecker:
                         entity_type="exercise_skill",
                         entity_id=str(tag_id),
                         details={"skill_id": str(sk_id)},
-                    )
-                )
-            if sub_id and sub_id not in skill_ids:
-                issues.append(
-                    TaxonomyIntegrityIssue(
-                        category="orphan_references",
-                        severity="error",
-                        message=f"ExerciseSkill {tag_id} references missing subskill_id {sub_id}.",
-                        entity_type="exercise_skill",
-                        entity_id=str(tag_id),
-                        details={"subskill_id": str(sub_id)},
                     )
                 )
 
@@ -581,32 +558,3 @@ class TaxonomyIntegrityChecker:
                     },
                 )
             )
-
-        # Check for legacy SubSkill records that haven't been reconciled into TaxonomyMigrationRecord
-        all_subskills = (await db.execute(select(SubSkill.id, SubSkill.code))).all()
-        reconciled_sub_ids = set(
-            (
-                await db.execute(
-                    select(TaxonomyMigrationRecord.source_id).where(
-                        TaxonomyMigrationRecord.source_table == "sub_skills"
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for sub_id, sub_code in all_subskills:
-            if sub_id not in reconciled_sub_ids:
-                issues.append(
-                    TaxonomyIntegrityIssue(
-                        category="unresolved_migrations",
-                        severity="error",
-                        message=(
-                            f"Legacy sub_skill '{sub_code}' ({sub_id}) is unaccounted for in "
-                            f"taxonomy_migration_records."
-                        ),
-                        entity_type="sub_skill",
-                        entity_id=str(sub_id),
-                        details={"subskill_code": sub_code},
-                    )
-                )

@@ -175,16 +175,6 @@ class Mistake(UUIDModel):
         nullable=False,
         index=True,
     )
-    subskill_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    subskill: Mapped[str | None] = mapped_column(
-        String(100),
-        nullable=True,
-    )
     source_type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
@@ -339,6 +329,7 @@ class ExerciseSkill(UUIDModel):
 
     __tablename__ = "exercise_skills"
     __table_args__ = (
+        UniqueConstraint("exercise_id", "skill_id", name="uq_exercise_skill_tag"),
         Index("ix_exercise_skills_skill_role", "skill_id", "role"),
     )
 
@@ -353,16 +344,6 @@ class ExerciseSkill(UUIDModel):
         ForeignKey("skills.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
-    )
-    subskill_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="RESTRICT"),
-        nullable=True,
-        index=True,
-    )
-    subskill: Mapped[str | None] = mapped_column(
-        String(100),
-        nullable=True,
     )
     role: Mapped[SkillTagRole] = mapped_column(
         SQLEnumValues(SkillTagRole, name="skill_tag_role", native_enum=False),
@@ -385,7 +366,6 @@ class ExerciseSkill(UUIDModel):
         back_populates="skills",
     )
     skill: Mapped[Skill] = relationship("Skill", foreign_keys=[skill_id])
-    subskill_ref: Mapped[Skill | None] = relationship("Skill", foreign_keys=[subskill_id])
 
 
 class ExerciseAttempt(UUIDModel):

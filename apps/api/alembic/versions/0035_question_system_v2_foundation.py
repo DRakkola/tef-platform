@@ -127,7 +127,6 @@ def upgrade() -> None:
             sa.UUID(as_uuid=True),
             sa.ForeignKey("questions.id", ondelete="CASCADE"),
             nullable=False,
-            index=True,
         ),
         sa.Column("validation_status", sa.String(length=30), nullable=False),
         sa.Column("blocking_error_count", sa.Integer(), nullable=False, server_default="0"),

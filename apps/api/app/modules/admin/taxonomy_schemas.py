@@ -12,7 +12,7 @@ from app.modules.admin.enums import (
     SkillRelationType,
     TaxonomyLifecycleStatus,
 )
-from app.modules.admin.schemas import SkillUsageCounts, SubSkillResponse
+from app.modules.admin.schemas import AdminSkillChildResponse, SkillUsageCounts
 
 
 # --- Taxonomy Version Schemas ---
@@ -222,7 +222,7 @@ class TaxonomySkillDetailResponse(BaseModel):
     updated_at: datetime.datetime
     parent: AdminSkillSummaryResponse | None = None
     children: list[AdminSkillSummaryResponse] = Field(default_factory=list)
-    subskills_legacy: list[SubSkillResponse] = Field(default_factory=list)
+    subskills_legacy: list[AdminSkillChildResponse] = Field(default_factory=list)
     level_descriptors: list[SkillLevelDescriptorResponse] = Field(default_factory=list)
     outgoing_relations: list[SkillRelationResponse] = Field(default_factory=list)
     incoming_relations: list[SkillRelationResponse] = Field(default_factory=list)

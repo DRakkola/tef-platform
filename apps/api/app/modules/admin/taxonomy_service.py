@@ -36,14 +36,13 @@ from app.modules.admin.models import (
     SkillLevelDescriptor,
     SkillModality,
     SkillRelation,
-    SubSkill,
     TaskTypeSkill,
     TaxonomyMigrationRecord,
     TaxonomyVersion,
 )
 from app.modules.admin.schemas import (
+    AdminSkillChildResponse,
     SkillUsageCounts,
-    SubSkillResponse,
 )
 from app.modules.admin.service import AuditService
 from app.modules.admin.taxonomy_schemas import (
@@ -73,6 +72,7 @@ from app.modules.admin.taxonomy_schemas import (
 )
 from app.modules.assessments.models import (
     AssessmentSection,
+    AssessmentSectionQuestion,
     Question,
     QuestionSkillTag,
     Skill,
@@ -118,87 +118,46 @@ class TaxonomyService:
             }
         )
 
-        # 1. Questions tagged with skills (either as primary skill_id or subskill_id)
-        q_primary = select(
-            QuestionSkillTag.skill_id.label("matched_skill_id"),
-            QuestionSkillTag.question_id.label("question_id"),
-        ).where(QuestionSkillTag.skill_id.in_(unique_ids))
-
-        q_sub = select(
-            QuestionSkillTag.subskill_id.label("matched_skill_id"),
-            QuestionSkillTag.question_id.label("question_id"),
-        ).where(
-            QuestionSkillTag.subskill_id.is_not(None),
-            QuestionSkillTag.subskill_id.in_(unique_ids),
-        )
-
-        q_union = union(q_primary, q_sub).subquery()
+        # 1. Questions tagged with skills
         q_stmt = (
             select(
-                q_union.c.matched_skill_id,
-                func.count(func.distinct(q_union.c.question_id)),
+                QuestionSkillTag.skill_id.label("matched_skill_id"),
+                func.count(func.distinct(QuestionSkillTag.question_id)),
             )
-            .group_by(q_union.c.matched_skill_id)
+            .where(QuestionSkillTag.skill_id.in_(unique_ids))
+            .group_by(QuestionSkillTag.skill_id)
         )
         for sk_id, count in (await db.execute(q_stmt)).all():
             results[sk_id]["questions"] = count
 
-        # 2. Exercises tagged with skills (either as primary skill_id or subskill_id)
-        ex_primary = select(
-            ExerciseSkill.skill_id.label("matched_skill_id"),
-            ExerciseSkill.exercise_id.label("exercise_id"),
-        ).where(ExerciseSkill.skill_id.in_(unique_ids))
-
-        ex_sub = select(
-            ExerciseSkill.subskill_id.label("matched_skill_id"),
-            ExerciseSkill.exercise_id.label("exercise_id"),
-        ).where(
-            ExerciseSkill.subskill_id.is_not(None),
-            ExerciseSkill.subskill_id.in_(unique_ids),
-        )
-
-        ex_union = union(ex_primary, ex_sub).subquery()
+        # 2. Exercises tagged with skills
         ex_stmt = (
             select(
-                ex_union.c.matched_skill_id,
-                func.count(func.distinct(ex_union.c.exercise_id)),
+                ExerciseSkill.skill_id.label("matched_skill_id"),
+                func.count(func.distinct(ExerciseSkill.exercise_id)),
             )
-            .group_by(ex_union.c.matched_skill_id)
+            .where(ExerciseSkill.skill_id.in_(unique_ids))
+            .group_by(ExerciseSkill.skill_id)
         )
         for sk_id, count in (await db.execute(ex_stmt)).all():
             results[sk_id]["exercises"] = count
 
-        # 3. Assessments containing questions tagged with skills (either as primary skill_id or subskill_id)
-        asmt_primary = (
-            select(
-                QuestionSkillTag.skill_id.label("matched_skill_id"),
-                AssessmentSection.assessment_id.label("assessment_id"),
-            )
-            .join(Question, Question.id == QuestionSkillTag.question_id)
-            .join(AssessmentSection, AssessmentSection.id == Question.section_id)
-            .where(QuestionSkillTag.skill_id.in_(unique_ids))
-        )
-
-        asmt_sub = (
-            select(
-                QuestionSkillTag.subskill_id.label("matched_skill_id"),
-                AssessmentSection.assessment_id.label("assessment_id"),
-            )
-            .join(Question, Question.id == QuestionSkillTag.question_id)
-            .join(AssessmentSection, AssessmentSection.id == Question.section_id)
-            .where(
-                QuestionSkillTag.subskill_id.is_not(None),
-                QuestionSkillTag.subskill_id.in_(unique_ids),
-            )
-        )
-
-        asmt_union = union(asmt_primary, asmt_sub).subquery()
+        # 3. Assessments containing questions tagged with skills
         asmt_stmt = (
             select(
-                asmt_union.c.matched_skill_id,
-                func.count(func.distinct(asmt_union.c.assessment_id)),
+                QuestionSkillTag.skill_id.label("matched_skill_id"),
+                func.count(func.distinct(AssessmentSection.assessment_id)),
             )
-            .group_by(asmt_union.c.matched_skill_id)
+            .join(
+                AssessmentSectionQuestion,
+                AssessmentSectionQuestion.question_id == QuestionSkillTag.question_id,
+            )
+            .join(
+                AssessmentSection,
+                AssessmentSection.id == AssessmentSectionQuestion.assessment_section_id,
+            )
+            .where(QuestionSkillTag.skill_id.in_(unique_ids))
+            .group_by(QuestionSkillTag.skill_id)
         )
         for sk_id, count in (await db.execute(asmt_stmt)).all():
             results[sk_id]["assessments"] = count
@@ -939,7 +898,7 @@ class TaxonomyService:
             updated_at=skill.updated_at,
             parent=parent_summary,
             children=children_summaries,
-            subskills_legacy=[SubSkillResponse.model_validate(sub) for sub in (skill.subskills or [])],
+            subskills_legacy=[AdminSkillChildResponse.model_validate(sub) for sub in (skill.subskills or [])],
             level_descriptors=descriptors,
             outgoing_relations=outgoing,
             incoming_relations=incoming,
@@ -1545,36 +1504,22 @@ class TaxonomyService:
         )
         orphan_children = list((await db.execute(orphan_children_stmt)).all())
 
-        # Check legacy sub_skills parity: any row in sub_skills that does not exist in skills
-        unmapped_subskills_stmt = (
-            select(SubSkill.id, SubSkill.code)
-            .where(~SubSkill.id.in_(select(Skill.id)))
-        )
-        unmapped_subskills = list((await db.execute(unmapped_subskills_stmt)).all())
-
         # Check tagging foreign keys: question tags without valid skill
         broken_q_tags_stmt = (
             select(QuestionSkillTag.id)
-            .where(
-                ~QuestionSkillTag.skill_id.in_(select(Skill.id))
-                | (QuestionSkillTag.subskill_id.is_not(None) & ~QuestionSkillTag.subskill_id.in_(select(Skill.id)))
-            )
+            .where(~QuestionSkillTag.skill_id.in_(select(Skill.id)))
         )
         broken_q_tags = list((await db.execute(broken_q_tags_stmt)).all())
 
         # Check exercise tagging foreign keys
         broken_ex_tags_stmt = (
             select(ExerciseSkill.id)
-            .where(
-                ~ExerciseSkill.skill_id.in_(select(Skill.id))
-                | (ExerciseSkill.subskill_id.is_not(None) & ~ExerciseSkill.subskill_id.in_(select(Skill.id)))
-            )
+            .where(~ExerciseSkill.skill_id.in_(select(Skill.id)))
         )
         broken_ex_tags = list((await db.execute(broken_ex_tags_stmt)).all())
 
         is_valid = (
             len(orphan_children) == 0
-            and len(unmapped_subskills) == 0
             and len(broken_q_tags) == 0
             and len(broken_ex_tags) == 0
         )
@@ -1938,45 +1883,6 @@ class TaxonomyService:
                     status=TaxonomyMigrationStatus.UNRESOLVED,
                     migration_type=None,
                     notes="Legacy skill active without active taxonomy counterpart. Requires mapping.",
-                )
-                stats["unresolved"] += 1
-            db.add(rec)
-
-        # 2. Inspect sub_skills table
-        subskills = (await db.execute(select(SubSkill))).scalars().all()
-        for sub in subskills:
-            existing_rec = await db.scalar(
-                select(TaxonomyMigrationRecord).where(
-                    TaxonomyMigrationRecord.source_table == "sub_skills",
-                    TaxonomyMigrationRecord.source_id == sub.id,
-                )
-            )
-            if existing_rec:
-                continue
-
-            matching_skill = await db.scalar(select(Skill).where(Skill.id == sub.id))
-            if matching_skill:
-                rec = TaxonomyMigrationRecord(
-                    source_table="sub_skills",
-                    source_id=sub.id,
-                    source_code=sub.code,
-                    source_name=sub.name,
-                    target_skill_id=matching_skill.id,
-                    status=TaxonomyMigrationStatus.MIGRATED,
-                    migration_type="direct_shadow",
-                    notes="Migrated from legacy sub_skills to canonical skills table.",
-                )
-                stats["migrated"] += 1
-            else:
-                rec = TaxonomyMigrationRecord(
-                    source_table="sub_skills",
-                    source_id=sub.id,
-                    source_code=sub.code,
-                    source_name=sub.name,
-                    target_skill_id=None,
-                    status=TaxonomyMigrationStatus.UNRESOLVED,
-                    migration_type=None,
-                    notes="SubSkill not found in canonical skills table.",
                 )
                 stats["unresolved"] += 1
             db.add(rec)

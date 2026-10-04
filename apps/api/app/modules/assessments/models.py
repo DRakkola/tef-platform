@@ -12,7 +12,6 @@ if TYPE_CHECKING:
         SkillLevelDescriptor,
         SkillModality,
         SkillRelation,
-        SubSkill,
         TaskTypeSkill,
         TaxonomyVersion,
     )
@@ -182,11 +181,6 @@ class Skill(TimeStampedUUIDModel):
         foreign_keys="QuestionSkillTag.skill_id",
         back_populates="skill",
     )
-    subskills_table: Mapped[list[SubSkill]] = relationship(
-        "SubSkill",
-        back_populates="skill",
-        cascade="all, delete-orphan",
-    )
     modalities: Mapped[list[SkillModality]] = relationship(
         "SkillModality",
         back_populates="skill",
@@ -333,9 +327,9 @@ class AssessmentSection(TimeStampedUUIDModel):
     )
     questions: Mapped[list[Question]] = relationship(
         "Question",
-        back_populates="section",
-        cascade="all, delete-orphan",
-        order_by="Question.order_index",
+        secondary="assessment_section_questions",
+        order_by="AssessmentSectionQuestion.order_index",
+        viewonly=True,
     )
     question_associations: Mapped[list[AssessmentSectionQuestion]] = relationship(
         "AssessmentSectionQuestion",
@@ -407,12 +401,6 @@ class Question(TimeStampedUUIDModel):
 
     __tablename__ = "questions"
 
-    section_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("assessment_sections.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
     stimulus_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("stimuli.id", ondelete="SET NULL"),
@@ -527,10 +515,6 @@ class Question(TimeStampedUUIDModel):
         index=True,
     )
 
-    section: Mapped[AssessmentSection | None] = relationship(
-        "AssessmentSection",
-        back_populates="questions",
-    )
     stimulus: Mapped[Stimulus | None] = relationship(
         "Stimulus",
         back_populates="questions",
@@ -796,6 +780,7 @@ class QuestionSkillTag(TimeStampedUUIDModel):
 
     __tablename__ = "question_skill_tags"
     __table_args__ = (
+        UniqueConstraint("question_id", "skill_id", name="uq_question_skill_tag"),
         Index("ix_question_skill_tags_skill_role", "skill_id", "role"),
     )
 
@@ -810,16 +795,6 @@ class QuestionSkillTag(TimeStampedUUIDModel):
         ForeignKey("skills.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
-    )
-    subskill_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("skills.id", ondelete="RESTRICT"),
-        nullable=True,
-        index=True,
-    )
-    subskill: Mapped[str | None] = mapped_column(
-        String(100),
-        nullable=True,
     )
     role: Mapped[SkillTagRole] = mapped_column(
         SQLEnumValues(SkillTagRole, name="skill_tag_role", native_enum=False),
@@ -845,10 +820,6 @@ class QuestionSkillTag(TimeStampedUUIDModel):
         "Skill",
         foreign_keys=[skill_id],
         back_populates="question_tags",
-    )
-    subskill_ref: Mapped[Skill | None] = relationship(
-        "Skill",
-        foreign_keys=[subskill_id],
     )
 
 
