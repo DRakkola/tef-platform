@@ -306,10 +306,11 @@ class TaxonomyService:
         if not fallback:
             # Create standard default version if missing
             fallback = TaxonomyVersion(
-                version="2.0.0",
-                name="TEF Official Framework 2026",
+                id=uuid.UUID("00000000-0000-4000-a000-000000000001"),
+                version="v1",
+                name="TEF Canonical Taxonomy V1",
                 status=TaxonomyLifecycleStatus.ACTIVE,
-                description="Canonical TEF Canada / TEF IRN competency framework",
+                description="Canonical TEF competency framework separating modalities, task types, reasoning, and transversal language dimensions.",
                 activated_at=datetime.datetime.now(datetime.UTC),
             )
             db.add(fallback)

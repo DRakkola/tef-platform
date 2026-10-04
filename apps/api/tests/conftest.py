@@ -25,7 +25,6 @@ from app.modules.admin.models import (  # noqa: F401
     AuditEvent,
     SkillLevelDescriptor,
     SkillRelation,
-    SubSkill,
     TaxonomyVersion,
 )
 from app.modules.analytics.models import (  # noqa: F401

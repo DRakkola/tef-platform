@@ -29,7 +29,7 @@ import app.modules.users.models
 import app.modules.writing.models  # noqa: F401
 from app.core.database import async_session_factory
 from app.modules.admin.ai_sandbox_service import AISandboxService
-from app.modules.admin.reading_taxonomy_data import seed_reading_taxonomy
+from app.modules.admin.taxonomy_seeder import TaxonomySeeder
 from app.modules.assessments.seed import seed_demo_assessments
 from app.modules.learning.seed import seed_learning_data
 from app.modules.practice_pool.models import PracticeTopic
@@ -216,15 +216,22 @@ async def seed_default_users(db) -> None:
             logger.info("demo_student_seeded", email=st["email"])
 
 
-async def run_seed() -> None:
+async def run_seed(taxonomy_only: bool = False) -> None:
     """Execute all seeders in safe dependency order."""
     print("==================================================")
     print(" TEF Platform — Database Seeding Pipeline         ")
     print("==================================================")
 
     async with async_session_factory() as session:
-        print("[1/7] Seeding canonical TEF Reading taxonomy...")
-        await seed_reading_taxonomy(session)
+        print("[1/7] Seeding canonical TEF Taxonomy V1...")
+        stats = await TaxonomySeeder.seed(session)
+        print(f"      Taxonomy V1 seeded: {stats['skills']} skills ({stats['assessable_skills']} assessable), {stats['task_types']} task types, {stats['cefr_descriptors']} CEFR descriptors.")
+
+        if taxonomy_only:
+            print("==================================================")
+            print(" Canonical Taxonomy V1 seeding complete!          ")
+            print("==================================================")
+            return
 
         print("[2/7] Seeding core assessments and skills...")
         await seed_demo_assessments(session)
@@ -252,7 +259,16 @@ async def run_seed() -> None:
 
 def main() -> None:
     """CLI entrypoint."""
-    asyncio.run(run_seed())
+    import argparse
+
+    parser = argparse.ArgumentParser(description="TEF Platform Database Seeder.")
+    parser.add_argument(
+        "--taxonomy-only",
+        action="store_true",
+        help="Seed only the canonical TEF Taxonomy V1 dataset.",
+    )
+    args = parser.parse_args()
+    asyncio.run(run_seed(taxonomy_only=args.taxonomy_only))
 
 
 if __name__ == "__main__":

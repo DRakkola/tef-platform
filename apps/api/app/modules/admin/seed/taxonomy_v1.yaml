@@ -1,0 +1,1195 @@
+version: "v1"
+taxonomy_version:
+  id: "00000000-0000-4000-a000-000000000001"
+  version: "v1"
+  name: "TEF Canonical Taxonomy V1"
+  description: "Référentiel canonique diagnostique pour la préparation au TEF Canada / TEF IRN. Découplage strict des modalités d'examen, types de tâches, raisonnement cognitif et compétences linguistiques transversales."
+  status: "active"
+
+modalities:
+  - code: "reading"
+    name: "Compréhension écrite"
+    description: "Épreuve de compréhension écrite du TEF (40 questions, 60 minutes). Évalue la capacité à lire et comprendre des documents de la vie quotidienne, administratifs, professionnels et des articles de presse."
+  - code: "listening"
+    name: "Compréhension orale"
+    description: "Épreuve de compréhension orale du TEF (40 questions, 40 minutes). Évalue la compréhension de messages courts, chroniques radio, sondages d'opinion et la discrimination phonétique."
+  - code: "writing"
+    name: "Expression écrite"
+    description: "Épreuve d'expression écrite du TEF (2 sections, 60 minutes). Section A : rédaction d'un fait divers (min. 80 mots). Section B : lettre d'argumentation et d'opinion (min. 200 mots)."
+  - code: "speaking"
+    name: "Expression orale"
+    description: "Épreuve d'expression orale du TEF (2 sections, 15 minutes). Section A : collecte d'informations (10 questions, 5 min). Section B : argumentation persuasive pour convaincre un proche (10 min)."
+
+task_types:
+  # Reading tasks
+  - code: "daily_document"
+    name: "Documents de la vie quotidienne"
+    modality: "reading"
+    default_response_type: "single_choice"
+    description: "Documents utilitaires courts : annonces, affiches, horaires, menus, courriels de service. Repérage rapide d'informations factuelles et compréhension directe."
+    stimulus_requirement: "short_document"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "sentence_gap"
+    name: "Phrases à compléter"
+    modality: "reading"
+    default_response_type: "single_choice"
+    description: "Complétion de phrases isolées testant le lexique en contexte, les accords, les régimes prépositionnels ou le système verbal."
+    stimulus_requirement: "none"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["language"]
+
+  - code: "text_gap"
+    name: "Textes à trous"
+    modality: "reading"
+    default_response_type: "single_choice"
+    description: "Textes suivis avec mots ou expressions supprimés évaluant la cohésion textuelle, les connecteurs logiques et la cohérence sémantique."
+    stimulus_requirement: "passage"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["language", "reasoning"]
+
+  - code: "document_matching"
+    name: "Appariement de documents"
+    modality: "reading"
+    default_response_type: "matching"
+    description: "Mise en relation de profils de personnes ou de critères spécifiques avec une série de textes courts (offres, annonces, services)."
+    stimulus_requirement: "multi_document"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "graph_matching"
+    name: "Appariement graphiques et énoncés"
+    modality: "reading"
+    default_response_type: "matching"
+    description: "Corrélation entre des assertions déclaratives et des représentations graphiques ou tableaux statistiques."
+    stimulus_requirement: "infographic_or_table"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "administrative_document"
+    name: "Documents administratifs et réglementaires"
+    modality: "reading"
+    default_response_type: "single_choice"
+    description: "Notices administratives, formulaires officiels, consignes réglementaires et protocoles exigeant une lecture rigoureuse des conditions."
+    stimulus_requirement: "passage"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "professional_document"
+    name: "Communications professionnelles"
+    modality: "reading"
+    default_response_type: "single_choice"
+    description: "Notes de service, comptes rendus, courriels formels et synthèses professionnelles en contexte d'entreprise."
+    stimulus_requirement: "passage"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "press_article"
+    name: "Articles de presse et analyses"
+    modality: "reading"
+    default_response_type: "single_choice"
+    description: "Articles journalistiques de fond, éditoriaux et tribunes d'opinion présentant des argumentations élaborées et des points de vue nuancés."
+    stimulus_requirement: "passage"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  # Listening tasks
+  - code: "short_announcement"
+    name: "Annonces et messages courts"
+    modality: "listening"
+    default_response_type: "single_choice"
+    description: "Messages répondeur, annonces publiques dans les gares/aéroports/commerces et consignes brèves de la vie quotidienne."
+    stimulus_requirement: "audio_clip"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "radio_broadcast"
+    name: "Émissions et chroniques radiophoniques"
+    modality: "listening"
+    default_response_type: "single_choice"
+    description: "Extraits de reportages, chroniques culturelles ou vulgarisation scientifique diffusés à la radio."
+    stimulus_requirement: "audio_clip"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "public_survey"
+    name: "Micro-trottoirs et sondages d'opinion"
+    modality: "listening"
+    default_response_type: "matching"
+    description: "Interventions orales de plusieurs locuteurs s'exprimant sur une même question d'actualité pour identifier accords et désaccords."
+    stimulus_requirement: "audio_clip"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "phonological_recognition"
+    name: "Discrimination phonétique et intonation"
+    modality: "listening"
+    default_response_type: "single_choice"
+    description: "Énoncés oraux courts visant la discrimination auditive fine, la reconnaissance d'intonations et de liaisons."
+    stimulus_requirement: "audio_clip"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["language"]
+
+  # Writing tasks
+  - code: "fait_divers"
+    name: "Rédaction d'un fait divers"
+    modality: "writing"
+    default_response_type: "long_text"
+    description: "Section A : rédaction de la suite d'un article rapportant un événement inhabituel (narration au passé, min. 80 mots)."
+    stimulus_requirement: "prompt_excerpt"
+    multi_turn: false
+    objective_scoring: false
+    applicable_dimensions: ["language", "reasoning"]
+
+  - code: "opinion_letter"
+    name: "Lettre d'argumentation et d'opinion"
+    modality: "writing"
+    default_response_type: "long_text"
+    description: "Section B : rédaction d'une lettre formelle ou d'un texte d'opinion pour convaincre un destinataire d'adopter une position, min. 200 mots."
+    stimulus_requirement: "prompt_statement"
+    multi_turn: false
+    objective_scoring: false
+    applicable_dimensions: ["reasoning", "language"]
+
+  # Speaking tasks
+  - code: "information_gathering"
+    name: "Recueil d'informations"
+    modality: "speaking"
+    default_response_type: "spoken_response"
+    description: "Section A : jeu de rôle oral de 5 minutes. Poser une dizaine de questions précises pour obtenir des renseignements détaillés sur une annonce."
+    stimulus_requirement: "advertisement_prompt"
+    multi_turn: true
+    objective_scoring: false
+    applicable_dimensions: ["language", "reasoning"]
+
+  - code: "persuasive_argumentation"
+    name: "Argumentation persuasive"
+    modality: "speaking"
+    default_response_type: "spoken_response"
+    description: "Section B : jeu de rôle oral de 10 minutes. Convaincre un proche d'accepter une proposition et réfuter ses réticences de manière argumentée."
+    stimulus_requirement: "prompt_topic"
+    multi_turn: true
+    objective_scoring: false
+    applicable_dimensions: ["reasoning", "language"]
+
+skills:
+  # =========================================================================
+  # REASONING DIMENSION
+  # =========================================================================
+  - code: "reasoning"
+    name: "Compétences cognitives et raisonnement"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Ensemble des opérations cognitives mobilisées pour extraire, interpréter, synthétiser et évaluer l'information dans les épreuves du TEF."
+    parent_code: null
+    assessable: false
+    order_index: 100
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 1. Information Retrieval
+  - code: "information_retrieval"
+    name: "Recherche et repérage d'informations"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Opérations de balayage et de repérage d'éléments factuels explicites dans un stimulus écrit ou oral."
+    parent_code: "reasoning"
+    assessable: false
+    order_index: 110
+    applicable_modalities: ["reading", "listening"]
+
+  - code: "locate_information"
+    name: "Repérage d'informations factuelles"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Localiser rapidement et avec précision des données factuelles explicites (noms, chiffres, dates, horaires, lieux, coordonnées)."
+    parent_code: "information_retrieval"
+    assessable: true
+    order_index: 111
+    applicable_modalities: ["reading", "listening"]
+
+  - code: "identify_specific_detail"
+    name: "Identification de détails précis"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Identifier une précision, une condition, une clause restrictive ou une modalité spécifique formulée textuellement ou oralement."
+    parent_code: "information_retrieval"
+    assessable: true
+    order_index: 112
+    applicable_modalities: ["reading", "listening"]
+
+  # 2. Comprehension
+  - code: "comprehension"
+    name: "Compréhension globale et contextuelle"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Compréhension du sens général, des relations causales, chronologiques et des paramètres de la situation de communication."
+    parent_code: "reasoning"
+    assessable: false
+    order_index: 120
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "identify_main_idea"
+    name: "Identification de l'idée principale"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Dégager le thème central, la thèse majeure ou la visée directrice d'un document écrit ou d'un enregistrement sonore."
+    parent_code: "comprehension"
+    assessable: true
+    order_index: 121
+    applicable_modalities: ["reading", "listening"]
+
+  - code: "understand_context"
+    name: "Compréhension de la situation de communication"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Identifier les interlocuteurs, leur statut relationnel, le cadre spatiotemporel et la fonction immédiate de l'échange."
+    parent_code: "comprehension"
+    assessable: true
+    order_index: 122
+    applicable_modalities: ["reading", "listening", "speaking"]
+
+  - code: "understand_sequence"
+    name: "Compréhension de la chronologie et des étapes"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Reconstituer l'enchaînement temporel des faits, la chronologie des événements ou les phases successives d'une procédure."
+    parent_code: "comprehension"
+    assessable: true
+    order_index: 123
+    applicable_modalities: ["reading", "listening", "writing"]
+
+  - code: "understand_cause_consequence"
+    name: "Compréhension des liens de cause et conséquence"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Établir les relations de cause à effet, identifier les facteurs explicatifs et déduire les retombées prévisibles ou avérées."
+    parent_code: "comprehension"
+    assessable: true
+    order_index: 124
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 3. Integration
+  - code: "integration"
+    name: "Intégration et synthèse d'informations"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Opérations de rapprochement, de comparaison et de fusion d'informations provenant de plusieurs sources ou paragraphes."
+    parent_code: "reasoning"
+    assessable: false
+    order_index: 130
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "compare_information"
+    name: "Comparaison et mise en relation d'informations"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Confronter des caractéristiques, options, tarifs ou points de vue différents pour en dégager similitudes et contrastes."
+    parent_code: "integration"
+    assessable: true
+    order_index: 131
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "synthesize_information"
+    name: "Synthèse d'informations multiples"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Rassembler des indices ou faits dispersés dans un document long ou entre plusieurs énoncés pour formuler un constat unifié."
+    parent_code: "integration"
+    assessable: true
+    order_index: 132
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 4. Inference
+  - code: "inference"
+    name: "Inférence et interprétation de l'implicite"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Déduction de sens non formulé explicitement, interprétation du non-dit et des intentions profondes."
+    parent_code: "reasoning"
+    assessable: false
+    order_index: 140
+    applicable_modalities: ["reading", "listening", "speaking"]
+
+  - code: "infer_implicit_information"
+    name: "Déduction d'informations implicites"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Dégager des conclusions logiques, des motivations ou des états d'esprit non affirmés directement mais suggérés par les faits."
+    parent_code: "inference"
+    assessable: true
+    order_index: 141
+    applicable_modalities: ["reading", "listening"]
+
+  - code: "infer_pragmatic_meaning"
+    name: "Interprétation pragmatique et sous-entendus"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Interpréter l'ironie, l'humour, le second degré, les métaphores et les nuances d'attitude dissimulées sous une formulation polie."
+    parent_code: "inference"
+    assessable: true
+    order_index: 142
+    applicable_modalities: ["reading", "listening", "speaking"]
+
+  # 5. Discourse Interpretation
+  - code: "discourse_interpretation"
+    name: "Interprétation discursive et intentions"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Analyse du point de vue énonciatif, de la posture de l'auteur ou du locuteur et de la visée communicative du message."
+    parent_code: "reasoning"
+    assessable: false
+    order_index: 150
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "identify_stance_and_perspective"
+    name: "Identification du point de vue et de la prise de position"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Discerner la position favorable, défavorable, réservée ou neutre d'un auteur ou d'un intervenant sur une question controversée."
+    parent_code: "discourse_interpretation"
+    assessable: true
+    order_index: 151
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "identify_tone"
+    name: "Identification de la tonalité"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Reconnaître le ton employé dans le texte ou la voix (critique, polémique, bienveillant, enthousiaste, alarmiste, objectif)."
+    parent_code: "discourse_interpretation"
+    assessable: true
+    order_index: 152
+    applicable_modalities: ["reading", "listening"]
+
+  - code: "identify_communicative_intention"
+    name: "Identification de l'intention communicative"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Déterminer le but premier de la communication : informer, avertir, convaincre, inciter à agir, réclamer ou conseiller."
+    parent_code: "discourse_interpretation"
+    assessable: true
+    order_index: 153
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 6. Argumentation
+  - code: "argumentation"
+    name: "Analyse et élaboration de l'argumentation"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Structure du raisonnement persuasif, articulation des thèses, arguments et traitement des contre-discours."
+    parent_code: "reasoning"
+    assessable: false
+    order_index: 160
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "identify_claim"
+    name: "Identification de la thèse et des arguments majeurs"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Isoler la proposition principale ou la revendication centrale défendue dans un texte d'opinion ou un plaidoyer oral."
+    parent_code: "argumentation"
+    assessable: true
+    order_index: 161
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "identify_supporting_reason"
+    name: "Identification des éléments de justification"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Repérer les preuves factuelles, données chiffrées, exemples concrets ou témoignages appuyant une argumentation."
+    parent_code: "argumentation"
+    assessable: true
+    order_index: 162
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "handle_counterargument"
+    name: "Traitement et évaluation des contre-arguments"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Identifier les objections anticipées ou les concessions dans un texte, et formuler des réponses étayées lors d'un échange oral ou écrit."
+    parent_code: "argumentation"
+    assessable: true
+    order_index: 163
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 7. Data Interpretation
+  - code: "data_interpretation"
+    name: "Interprétation de données chiffrées et graphiques"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Décodage de visualisations statistiques, mise en rapport avec des conclusions écrites."
+    parent_code: "reasoning"
+    assessable: false
+    order_index: 170
+    applicable_modalities: ["reading", "writing"]
+
+  - code: "interpret_data_trends"
+    name: "Interprétation des tendances et variations"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Analyser les fluctuations, augmentations, régressions et équilibres présentés sur un graphique ou tableau chiffré."
+    parent_code: "data_interpretation"
+    assessable: true
+    order_index: 171
+    applicable_modalities: ["reading", "writing"]
+
+  - code: "correlate_data_and_text"
+    name: "Mise en relation texte-données"
+    dimension: "reasoning"
+    domain: "reasoning"
+    description: "Confronter des assertions écrites avec les données statistiques d'une infographie pour valider ou infirmer leur exactitude."
+    parent_code: "data_interpretation"
+    assessable: true
+    order_index: 172
+    applicable_modalities: ["reading"]
+
+  # =========================================================================
+  # LANGUAGE DIMENSION
+  # =========================================================================
+  - code: "language"
+    name: "Compétences linguistiques et maîtrise de la langue"
+    dimension: "language"
+    domain: "language"
+    description: "Ensemble des outils et mécanismes linguistiques (lexique, grammaire, verbes, syntaxe, discours) mobilisés pour comprendre et produire le français."
+    parent_code: null
+    assessable: false
+    order_index: 200
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 1. Vocabulary
+  - code: "vocabulary"
+    name: "Lexique et vocabulaire"
+    dimension: "language"
+    domain: "vocabulary"
+    description: "Connaissance du vocabulaire, des relations sémantiques et de l'adéquation au registre de communication."
+    parent_code: "language"
+    assessable: false
+    order_index: 210
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "vocabulary_in_context"
+    name: "Sens des mots en contexte"
+    dimension: "language"
+    domain: "vocabulary"
+    description: "Déterminer la signification exacte d'un terme ou d'une locution en fonction du contexte phrastique et textuel dans lequel il s'insère."
+    parent_code: "vocabulary"
+    assessable: true
+    order_index: 211
+    applicable_modalities: ["reading", "listening"]
+
+  - code: "paraphrase_and_synonym_recognition"
+    name: "Reconnaissance des synonymes et reformulations"
+    dimension: "language"
+    domain: "vocabulary"
+    description: "Identifier les équivalences lexicales, paraphrases et synonymes reliant les questions et réponses aux termes du document."
+    parent_code: "vocabulary"
+    assessable: true
+    order_index: 212
+    applicable_modalities: ["reading", "listening"]
+
+  - code: "collocations"
+    name: "Collocations et expressions figées"
+    dimension: "language"
+    domain: "vocabulary"
+    description: "Maîtriser les associations lexicales privilégiées (verbe + nom, adjectif + nom) et locutions consacrées du français."
+    parent_code: "vocabulary"
+    assessable: true
+    order_index: 213
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "word_formation"
+    name: "Formation des mots et morphologie lexicale"
+    dimension: "language"
+    domain: "vocabulary"
+    description: "Identifier les procédés de dérivation préfixale et suffixale, reconnaître les familles de mots pour déduire le sens d'un dérivé."
+    parent_code: "vocabulary"
+    assessable: true
+    order_index: 214
+    applicable_modalities: ["reading", "writing"]
+
+  - code: "lexical_precision"
+    name: "Précision et richesse lexicale"
+    dimension: "language"
+    domain: "vocabulary"
+    description: "Employer le terme précis adapté à la nuance d'idée et diversifier le lexique en évitant les répétitions et mots passe-partout."
+    parent_code: "vocabulary"
+    assessable: true
+    order_index: 215
+    applicable_modalities: ["writing", "speaking"]
+
+  - code: "register_and_formality"
+    name: "Registres de langue et niveaux de formalité"
+    dimension: "language"
+    domain: "vocabulary"
+    description: "Distinguer et employer de manière appropriée les registres familier, courant et soutenu selon la situation de communication."
+    parent_code: "vocabulary"
+    assessable: true
+    order_index: 216
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 2. Grammar
+  - code: "grammar"
+    name: "Morphosyntaxe et grammaire"
+    dimension: "language"
+    domain: "grammar"
+    description: "Maîtrise des catégories grammaticales fondamentales, accords et systèmes fonctionnels."
+    parent_code: "language"
+    assessable: false
+    order_index: 220
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "grammatical_agreement"
+    name: "Accords grammaticaux"
+    dimension: "language"
+    domain: "grammar"
+    description: "Appliquer les règles d'accord en genre et nombre dans le groupe nominal, l'accord sujet-verbe et du participe passé (avec être, avoir et pronominaux)."
+    parent_code: "grammar"
+    assessable: true
+    order_index: 221
+    applicable_modalities: ["reading", "writing"]
+
+  - code: "articles_and_determiners"
+    name: "Articles et déterminants"
+    dimension: "language"
+    domain: "grammar"
+    description: "Sélectionner et employer adéquatement les articles (définis, indéfinis, partitifs) et déterminants possessifs, démonstratifs ou indéfinis."
+    parent_code: "grammar"
+    assessable: true
+    order_index: 222
+    applicable_modalities: ["reading", "writing", "speaking"]
+
+  - code: "pronoun_usage"
+    name: "Système pronominal"
+    dimension: "language"
+    domain: "grammar"
+    description: "Maîtriser le choix, l'ordre et la place des pronoms personnels (COD, COI, toniques, y, en) ainsi que des pronoms démonstratifs et possessifs."
+    parent_code: "grammar"
+    assessable: true
+    order_index: 223
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "preposition_usage"
+    name: "Régimes prépositionnels"
+    dimension: "language"
+    domain: "grammar"
+    description: "Choisir la préposition correcte exigée par la rection verbale, nominale, adjectivale ou l'expression précise du lieu, du temps et du moyen."
+    parent_code: "grammar"
+    assessable: true
+    order_index: 224
+    applicable_modalities: ["reading", "writing", "speaking"]
+
+  - code: "negation_structures"
+    name: "Structures de négation et restriction"
+    dimension: "language"
+    domain: "grammar"
+    description: "Construire et interpréter les formes négatives simples et complexes (ne... pas, plus, jamais, rien, personne, aucun, ne... que, sans que)."
+    parent_code: "grammar"
+    assessable: true
+    order_index: 225
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 3. Verb System
+  - code: "verb_system"
+    name: "Système verbal"
+    dimension: "language"
+    domain: "verb_system"
+    description: "Morphologie verbale, conjugaison, sélection des temps et modes du verbe français."
+    parent_code: "language"
+    assessable: false
+    order_index: 230
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "verb_conjugation"
+    name: "Conjugaison et morphologie verbale"
+    dimension: "language"
+    domain: "verb_system"
+    description: "Orthographier et prononcer correctement les formes verbales régulières et irrégulières aux différents temps, personnes et voix (active/passive)."
+    parent_code: "verb_system"
+    assessable: true
+    order_index: 231
+    applicable_modalities: ["reading", "writing", "speaking"]
+
+  - code: "tense_selection"
+    name: "Sélection et alternance des temps"
+    dimension: "language"
+    domain: "verb_system"
+    description: "Choisir le temps adéquat selon le cadre temporel et l'aspect (distinction essentielle passé composé vs imparfait, plus-que-parfait, futur antérieur)."
+    parent_code: "verb_system"
+    assessable: true
+    order_index: 232
+    applicable_modalities: ["reading", "writing", "speaking"]
+
+  - code: "mood_selection"
+    name: "Sélection des modes"
+    dimension: "language"
+    domain: "verb_system"
+    description: "Employer avec justesse le subjonctif (volonté, doute, nécessité, sentiment), le conditionnel (hypothèse, politesse) ou l'indicatif selon la structure syntaxique."
+    parent_code: "verb_system"
+    assessable: true
+    order_index: 233
+    applicable_modalities: ["reading", "writing", "speaking"]
+
+  # 4. Syntax
+  - code: "syntax"
+    name: "Syntaxe et structure phrastique"
+    dimension: "language"
+    domain: "syntax"
+    description: "Agencement des propositions, subordination, coordination et complexité syntaxique."
+    parent_code: "language"
+    assessable: false
+    order_index: 240
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "sentence_structure"
+    name: "Ordre des mots et structure de phrase"
+    dimension: "language"
+    domain: "syntax"
+    description: "Maîtriser l'ordre canonique des constituants de la phrase française, les inversions sujet-verbe (interrogation) et les mises en relief (c'est... qui/que)."
+    parent_code: "syntax"
+    assessable: true
+    order_index: 241
+    applicable_modalities: ["reading", "writing", "speaking"]
+
+  - code: "relative_clauses"
+    name: "Propositions relatives"
+    dimension: "language"
+    domain: "syntax"
+    description: "Comprendre et construire des relatives enchâssées avec pronoms relatifs simples (qui, que, dont, où) et composés (lequel, auquel, duquel)."
+    parent_code: "syntax"
+    assessable: true
+    order_index: 242
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "subordination_and_coordination"
+    name: "Subordination et coordination complexe"
+    dimension: "language"
+    domain: "syntax"
+    description: "Articuler des propositions complexes via des conjonctions de subordination (bien que, parce que, afin que, alors que) et de coordination."
+    parent_code: "syntax"
+    assessable: true
+    order_index: 243
+    applicable_modalities: ["reading", "writing", "speaking"]
+
+  - code: "conditional_structures"
+    name: "Structures hypothétiques et conditionnelles"
+    dimension: "language"
+    domain: "syntax"
+    description: "Maîtriser les systèmes de l'hypothèse avec « si » (si + présent -> futur, si + imparfait -> conditionnel, si + PQP -> conditionnel passé) et autres locutions d'hypothèse."
+    parent_code: "syntax"
+    assessable: true
+    order_index: 244
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  # 5. Discourse
+  - code: "discourse"
+    name: "Organisation discursive et cohérence"
+    dimension: "language"
+    domain: "discourse"
+    description: "Mécanismes assurant la continuité textuelle, l'articulation logique et la cohésion globale du discours."
+    parent_code: "language"
+    assessable: false
+    order_index: 250
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "discourse_connectors"
+    name: "Connecteurs logiques et articulateurs"
+    dimension: "language"
+    domain: "discourse"
+    description: "Employer et décoder les connecteurs assurant la progression du raisonnement (cependant, par conséquent, en effet, néanmoins, d'une part... d'autre part)."
+    parent_code: "discourse"
+    assessable: true
+    order_index: 251
+    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+
+  - code: "reference_resolution"
+    name: "Résolution des références et anaphores"
+    dimension: "language"
+    domain: "discourse"
+    description: "Identifier avec exactitude le référent d'un pronom ou d'une reprise anaphorique (nominale, pronominale) à travers le texte."
+    parent_code: "discourse"
+    assessable: true
+    order_index: 252
+    applicable_modalities: ["reading", "listening"]
+
+  - code: "textual_cohesion_and_coherence"
+    name: "Cohésion et cohérence globale du texte"
+    dimension: "language"
+    domain: "discourse"
+    description: "Assurer la progression logique, l'unité thématique, le découpage en paragraphes équilibrés et la fluidité d'un texte ou d'un discours."
+    parent_code: "discourse"
+    assessable: true
+    order_index: 253
+    applicable_modalities: ["writing", "speaking"]
+
+  # 6. Writing Mechanics
+  - code: "writing_mechanics"
+    name: "Mécanismes de l'expression écrite"
+    dimension: "language"
+    domain: "writing_mechanics"
+    description: "Normes graphiques, orthographe lexicale et règles de ponctuation propres à l'expression écrite."
+    parent_code: "language"
+    assessable: false
+    order_index: 260
+    applicable_modalities: ["writing"]
+
+  - code: "orthography"
+    name: "Orthographe d'usage et accentuation"
+    dimension: "language"
+    domain: "writing_mechanics"
+    description: "Respecter l'orthographe lexicale des mots et placer rigoureusement les accents et signes diacritiques (é, è, ê, ç, tréma)."
+    parent_code: "writing_mechanics"
+    assessable: true
+    order_index: 261
+    applicable_modalities: ["writing"]
+
+  - code: "punctuation"
+    name: "Ponctuation et segmentation"
+    dimension: "language"
+    domain: "writing_mechanics"
+    description: "Utiliser la ponctuation à bon escient pour délimiter les propositions, marquer les pauses logiques et clarifier le sens de l'écrit."
+    parent_code: "writing_mechanics"
+    assessable: true
+    order_index: 262
+    applicable_modalities: ["writing"]
+
+  # 7. Oral Mechanics
+  - code: "oral_mechanics"
+    name: "Mécanismes de l'expression orale"
+    dimension: "language"
+    domain: "oral_mechanics"
+    description: "Phonétique, prosodie, fluidité et gestion du débit vocal en expression orale."
+    parent_code: "language"
+    assessable: false
+    order_index: 270
+    applicable_modalities: ["speaking"]
+
+  - code: "phonological_control"
+    name: "Maîtrise phonologique et prononciation"
+    dimension: "language"
+    domain: "oral_mechanics"
+    description: "Articuler clairement les phonèmes spécifiques du français (voyelles nasales, [y] vs [u], [R]), respecter le schéma intonatif et réaliser les liaisons adéquates."
+    parent_code: "oral_mechanics"
+    assessable: true
+    order_index: 271
+    applicable_modalities: ["speaking"]
+
+  - code: "oral_fluency"
+    name: "Aisance et fluidité orale"
+    dimension: "language"
+    domain: "oral_mechanics"
+    description: "S'exprimer avec un débit régulier, maintenir une communication continue sans hésitations prolongées ni pauses discursives excessives."
+    parent_code: "oral_mechanics"
+    assessable: true
+    order_index: 272
+    applicable_modalities: ["speaking"]
+
+task_type_skills:
+  # Reading mappings
+  daily_document:
+    - locate_information
+    - identify_specific_detail
+    - understand_context
+    - vocabulary_in_context
+    - register_and_formality
+    - preposition_usage
+
+  sentence_gap:
+    - understand_cause_consequence
+    - vocabulary_in_context
+    - collocations
+    - grammatical_agreement
+    - articles_and_determiners
+    - pronoun_usage
+    - preposition_usage
+    - negation_structures
+    - verb_conjugation
+    - tense_selection
+    - mood_selection
+    - relative_clauses
+
+  text_gap:
+    - understand_sequence
+    - understand_cause_consequence
+    - vocabulary_in_context
+    - word_formation
+    - discourse_connectors
+    - reference_resolution
+    - subordination_and_coordination
+
+  document_matching:
+    - locate_information
+    - identify_specific_detail
+    - compare_information
+    - vocabulary_in_context
+    - paraphrase_and_synonym_recognition
+
+  graph_matching:
+    - locate_information
+    - interpret_data_trends
+    - correlate_data_and_text
+    - compare_information
+    - vocabulary_in_context
+
+  administrative_document:
+    - locate_information
+    - identify_specific_detail
+    - understand_context
+    - vocabulary_in_context
+    - register_and_formality
+    - conditional_structures
+    - negation_structures
+
+  professional_document:
+    - identify_main_idea
+    - identify_specific_detail
+    - understand_context
+    - identify_communicative_intention
+    - vocabulary_in_context
+    - register_and_formality
+    - discourse_connectors
+
+  press_article:
+    - identify_main_idea
+    - identify_stance_and_perspective
+    - identify_tone
+    - identify_communicative_intention
+    - infer_implicit_information
+    - infer_pragmatic_meaning
+    - identify_claim
+    - identify_supporting_reason
+    - handle_counterargument
+    - vocabulary_in_context
+    - paraphrase_and_synonym_recognition
+    - relative_clauses
+    - discourse_connectors
+    - reference_resolution
+
+  # Listening mappings
+  short_announcement:
+    - locate_information
+    - identify_specific_detail
+    - understand_context
+    - identify_communicative_intention
+    - vocabulary_in_context
+    - register_and_formality
+
+  radio_broadcast:
+    - identify_main_idea
+    - understand_sequence
+    - understand_cause_consequence
+    - synthesize_information
+    - infer_implicit_information
+    - identify_stance_and_perspective
+    - vocabulary_in_context
+    - paraphrase_and_synonym_recognition
+    - discourse_connectors
+
+  public_survey:
+    - compare_information
+    - identify_stance_and_perspective
+    - identify_tone
+    - infer_pragmatic_meaning
+    - vocabulary_in_context
+    - register_and_formality
+
+  phonological_recognition:
+    - vocabulary_in_context
+    - pronoun_usage
+    - negation_structures
+    - sentence_structure
+
+  # Writing mappings
+  fait_divers:
+    - understand_sequence
+    - understand_cause_consequence
+    - verb_conjugation
+    - tense_selection
+    - grammatical_agreement
+    - lexical_precision
+    - orthography
+    - punctuation
+    - textual_cohesion_and_coherence
+
+  opinion_letter:
+    - identify_claim
+    - identify_supporting_reason
+    - handle_counterargument
+    - synthesize_information
+    - discourse_connectors
+    - mood_selection
+    - conditional_structures
+    - subordination_and_coordination
+    - lexical_precision
+    - register_and_formality
+    - textual_cohesion_and_coherence
+    - orthography
+    - punctuation
+
+  # Speaking mappings
+  information_gathering:
+    - understand_context
+    - locate_information
+    - sentence_structure
+    - register_and_formality
+    - phonological_control
+    - oral_fluency
+    - articles_and_determiners
+    - preposition_usage
+
+  persuasive_argumentation:
+    - identify_claim
+    - identify_supporting_reason
+    - handle_counterargument
+    - infer_pragmatic_meaning
+    - discourse_connectors
+    - conditional_structures
+    - lexical_precision
+    - register_and_formality
+    - phonological_control
+    - oral_fluency
+    - textual_cohesion_and_coherence
+
+skill_relations:
+  # Reasoning dependencies
+  - from_skill: "infer_implicit_information"
+    to_skill: "reference_resolution"
+    relation_type: "depends_on"
+
+  - from_skill: "infer_pragmatic_meaning"
+    to_skill: "infer_implicit_information"
+    relation_type: "depends_on"
+
+  - from_skill: "synthesize_information"
+    to_skill: "compare_information"
+    relation_type: "depends_on"
+
+  - from_skill: "handle_counterargument"
+    to_skill: "identify_claim"
+    relation_type: "depends_on"
+
+  - from_skill: "handle_counterargument"
+    to_skill: "identify_supporting_reason"
+    relation_type: "depends_on"
+
+  - from_skill: "correlate_data_and_text"
+    to_skill: "interpret_data_trends"
+    relation_type: "depends_on"
+
+  - from_skill: "identify_stance_and_perspective"
+    to_skill: "identify_claim"
+    relation_type: "related"
+
+  - from_skill: "identify_tone"
+    to_skill: "infer_pragmatic_meaning"
+    relation_type: "related"
+
+  - from_skill: "identify_specific_detail"
+    to_skill: "locate_information"
+    relation_type: "related"
+
+  # Language dependencies
+  - from_skill: "relative_clauses"
+    to_skill: "sentence_structure"
+    relation_type: "prerequisite"
+
+  - from_skill: "subordination_and_coordination"
+    to_skill: "sentence_structure"
+    relation_type: "depends_on"
+
+  - from_skill: "conditional_structures"
+    to_skill: "mood_selection"
+    relation_type: "depends_on"
+
+  - from_skill: "tense_selection"
+    to_skill: "verb_conjugation"
+    relation_type: "depends_on"
+
+  - from_skill: "mood_selection"
+    to_skill: "verb_conjugation"
+    relation_type: "depends_on"
+
+  - from_skill: "textual_cohesion_and_coherence"
+    to_skill: "discourse_connectors"
+    relation_type: "depends_on"
+
+  - from_skill: "textual_cohesion_and_coherence"
+    to_skill: "reference_resolution"
+    relation_type: "depends_on"
+
+  - from_skill: "paraphrase_and_synonym_recognition"
+    to_skill: "vocabulary_in_context"
+    relation_type: "related"
+
+  - from_skill: "collocations"
+    to_skill: "vocabulary_in_context"
+    relation_type: "related"
+
+  - from_skill: "lexical_precision"
+    to_skill: "vocabulary_in_context"
+    relation_type: "related"
+
+  - from_skill: "oral_fluency"
+    to_skill: "phonological_control"
+    relation_type: "related"
+
+cefr_descriptors:
+  # locate_information
+  - skill_code: "locate_information"
+    level: "A1"
+    descriptor: "Peut repérer des mots familiers, des noms et des chiffres très simples (dates, heures, prix) dans une annonce ou un message basique."
+    evidence_guidance: "Sélection directe d'une coordonnée ou d'une heure sans reformulation complexe ni distracteurs lexicalement proches."
+
+  - skill_code: "locate_information"
+    level: "A2"
+    descriptor: "Peut localiser une information factuelle prévisible dans des documents quotidiens (horaires de bus, petites annonces, menus)."
+    evidence_guidance: "Recherche ciblée dans un document illustré avec présence de 2 à 3 distracteurs numériques ou temporels."
+
+  - skill_code: "locate_information"
+    level: "B1"
+    descriptor: "Peut parcourir rapidement un texte informatif ou administratif pour localiser des conditions ou consignes spécifiques dispersées."
+    evidence_guidance: "Balayage d'un avis officiel d'une page avec variation lexicale entre la question et le texte."
+
+  # identify_main_idea
+  - skill_code: "identify_main_idea"
+    level: "A2"
+    descriptor: "Peut identifier le sujet principal d'un message court ou d'une annonce simple."
+    evidence_guidance: "Choix du thème général parmi 4 options contrastées."
+
+  - skill_code: "identify_main_idea"
+    level: "B1"
+    descriptor: "Peut dégager l'idée directrice et les points essentiels d'un article informatif ou d'une communication professionnelle standard."
+    evidence_guidance: "Distinction de l'idée directrice par rapport aux exemples illustratifs d'un paragraphe."
+
+  - skill_code: "identify_main_idea"
+    level: "B2"
+    descriptor: "Peut saisir la problématique centrale et l'orientation globale d'un article d'analyse ou d'un éditorial complexe."
+    evidence_guidance: "Identification de la thèse de fond dans un texte journalistique contenant des digressions et nuances."
+
+  - skill_code: "identify_main_idea"
+    level: "C1"
+    descriptor: "Peut identifier avec précision l'angle d'analyse et les enjeux implicites d'un essai ou article de réflexion approfondie."
+    evidence_guidance: "Reconnaissance d'une thèse complexe formulée de manière allusive ou rhétorique."
+
+  # infer_implicit_information
+  - skill_code: "infer_implicit_information"
+    level: "B1"
+    descriptor: "Peut déduire des conclusions simples et des motifs sous-jacents évidents à partir d'indices factuels du texte ou de l'audio."
+    evidence_guidance: "Déduction d'une cause probable non explicite mais directement suggérée par l'enchaînement des faits."
+
+  - skill_code: "infer_implicit_information"
+    level: "B2"
+    descriptor: "Peut inférer des présupposés, des motivations inavouées ou des conséquences prévisibles dans des textes et discours élaborés."
+    evidence_guidance: "Sélection d'une conclusion implicite requérant le croisement de plusieurs indices contextuels."
+
+  - skill_code: "infer_implicit_information"
+    level: "C1"
+    descriptor: "Peut restituer avec finesse les non-dits, arrière-pensées et implications idéologiques ou institutionnelles d'un discours."
+    evidence_guidance: "Interprétation d'un sous-entendu critique au sein d'un texte polémique ou d'une intervention orale diplomatique."
+
+  # identify_stance_and_perspective
+  - skill_code: "identify_stance_and_perspective"
+    level: "B1"
+    descriptor: "Peut identifier l'accord ou le désaccord global d'un auteur ou locuteur face à une situation concrète."
+    evidence_guidance: "Reconnaissance d'un avis favorable ou défavorable exprimé à l'aide de marqueurs d'appréciation simples."
+
+  - skill_code: "identify_stance_and_perspective"
+    level: "B2"
+    descriptor: "Peut discerner la position argumentée, les réserves et les nuances d'opinion d'un auteur sur un sujet controversé."
+    evidence_guidance: "Détection d'une prise de position mesurée (oui avec réserves) face à des distracteurs binaires (pour/contre)."
+
+  - skill_code: "identify_stance_and_perspective"
+    level: "C1"
+    descriptor: "Peut déconstruire une posture argumentative sophistiquée, déceler l'ironie ou la distanciation critique."
+    evidence_guidance: "Identification de la position réelle d'un auteur utilisant l'antiphrase ou la concession feinte."
+
+  # vocabulary_in_context
+  - skill_code: "vocabulary_in_context"
+    level: "A1"
+    descriptor: "Comprend les mots courants et expressions de base relatives aux besoins immédiats et concrets."
+    evidence_guidance: "Identification du sens de termes du quotidien (alimentation, logement, famille)."
+
+  - skill_code: "vocabulary_in_context"
+    level: "A2"
+    descriptor: "Comprend le vocabulaire usuel relatif aux domaines d'intérêt courant et à l'environnement quotidien."
+    evidence_guidance: "Choix du mot approprié parmi des distracteurs de champs sémantiques distincts."
+
+  - skill_code: "vocabulary_in_context"
+    level: "B1"
+    descriptor: "Comprend le lexique professionnel et courant, et déduit le sens de mots inconnus simples par le contexte."
+    evidence_guidance: "Compréhension de termes spécifiques insérés dans des phrases d'explication ou des annonces."
+
+  - skill_code: "vocabulary_in_context"
+    level: "B2"
+    descriptor: "Possède une bonne maîtrise du vocabulaire abstrait, technique ou imagé, et saisit le sens contextuel précis de termes polysémiques."
+    evidence_guidance: "Identification de l'acception exacte d'un verbe ou adjectif polysémique dans un texte d'opinion."
+
+  - skill_code: "vocabulary_in_context"
+    level: "C1"
+    descriptor: "Maîtrise un répertoire lexical étendu incluant tournures idiomatiques, vocabulaire soutenu et nuances fines."
+    evidence_guidance: "Sélection ou compréhension de termes spécialisés, rares ou métaphoriques sans ambiguïté."
+
+  # discourse_connectors
+  - skill_code: "discourse_connectors"
+    level: "A2"
+    descriptor: "Utilise et comprend des connecteurs chronologiques et logiques très simples (et, mais, alors, parce que, puis)."
+    evidence_guidance: "Sélection du bon connecteur de base dans une phrase courte coordonnée."
+
+  - skill_code: "discourse_connectors"
+    level: "B1"
+    descriptor: "Comprend et utilise des connecteurs d'opposition, de cause et de conséquence courants (cependant, donc, car, pourtant, ainsi)."
+    evidence_guidance: "Complétion de lacunes dans un texte avec choix entre connecteurs de sens contrastés."
+
+  - skill_code: "discourse_connectors"
+    level: "B2"
+    descriptor: "Maîtrise un éventail varié d'articulateurs logiques complexes (néanmoins, en revanche, par conséquent, d'autant plus que, bien que)."
+    evidence_guidance: "Insertion adéquate d'un articulateur de concession ou de nuance dans un paragraphe argumenté."
+
+  - skill_code: "discourse_connectors"
+    level: "C1"
+    descriptor: "Mobilise avec souplesse et variété les connecteurs logiques et transitions discursives pour ordonner une pensée complexe."
+    evidence_guidance: "Emploi sans faille de transitions rhétoriques soutenues assurant un enchaînement textuel impeccable."
+
+  # tense_selection
+  - skill_code: "tense_selection"
+    level: "A2"
+    descriptor: "Distingue et utilise les formes simples du présent, du passé composé et du futur proche."
+    evidence_guidance: "Sélection du passé composé pour une action achevée dans le passé."
+
+  - skill_code: "tense_selection"
+    level: "B1"
+    descriptor: "Maîtrise l'alternance fondamentale passé composé / imparfait dans un récit au passé et emploie le futur simple."
+    evidence_guidance: "Choix correct entre imparfait (description, habitude) et passé composé (événement ponctuel)."
+
+  - skill_code: "tense_selection"
+    level: "B2"
+    descriptor: "Gère la concordance des temps complexe incluant plus-que-parfait, conditionnel présent/passé et futur antérieur."
+    evidence_guidance: "Respect rigoureux de l'antériorité dans le passé au sein d'une narration élaborée ou d'une phrase hypothétique."
+
+  # mood_selection
+  - skill_code: "mood_selection"
+    level: "B1"
+    descriptor: "Utilise le subjonctif présent après les structures d'obligation impersonnelle courantes (il faut que...)."
+    evidence_guidance: "Sélection de la forme subjonctive après 'il faut que' ou verbes de volonté simples."
+
+  - skill_code: "mood_selection"
+    level: "B2"
+    descriptor: "Maîtrise l'opposition indicatif / subjonctif après verbes d'opinion (négation/interrogation), sentiment, doute et conjonctions."
+    evidence_guidance: "Choix systématique du mode approprié après 'bien que', 'pour que', 'avant que' et 'je ne pense pas que'."
+
+  - skill_code: "mood_selection"
+    level: "C1"
+    descriptor: "Maîtrise les nuances subtiles entre indicatif, subjonctif et conditionnel dans des contextes stylistiques variés."
+    evidence_guidance: "Utilisation du conditionnel journalistique d'information non confirmée et subjonctif dans les relatives à nuance d'hypothèse."

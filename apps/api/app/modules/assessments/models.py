@@ -71,6 +71,12 @@ class TaskType(TimeStampedUUIDModel):
         Text,
         nullable=True,
     )
+    default_response_type: Mapped[str] = mapped_column(
+        String(50),
+        default="single_choice",
+        nullable=False,
+        index=True,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -133,6 +139,18 @@ class Skill(TimeStampedUUIDModel):
         UUID(as_uuid=True),
         ForeignKey("skills.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
+    )
+    is_assessable: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+    )
+    order_index: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
         index=True,
     )
     is_active: Mapped[bool] = mapped_column(
