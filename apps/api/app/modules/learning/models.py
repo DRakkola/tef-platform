@@ -219,7 +219,6 @@ class Mistake(UUIDModel):
 
     user: Mapped[User] = relationship("User")
     skill: Mapped[Skill] = relationship("Skill", foreign_keys=[skill_id])
-    subskill_ref: Mapped[Skill | None] = relationship("Skill", foreign_keys=[subskill_id])
 
 
 class Exercise(TimeStampedUUIDModel):
