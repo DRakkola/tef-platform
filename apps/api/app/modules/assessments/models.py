@@ -35,7 +35,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import SQLEnumValues, TimeStampedUUIDModel
+from app.core.database import SQLEnumValues, TimeStampedUUIDModel, UUIDModel
 from app.modules.admin.enums import SkillDimension, SkillTagRole
 from app.modules.assessments.enums import (
     AssessmentType,
@@ -337,6 +337,69 @@ class AssessmentSection(TimeStampedUUIDModel):
         cascade="all, delete-orphan",
         order_by="Question.order_index",
     )
+    question_associations: Mapped[list[AssessmentSectionQuestion]] = relationship(
+        "AssessmentSectionQuestion",
+        back_populates="section",
+        cascade="all, delete-orphan",
+        order_by="AssessmentSectionQuestion.order_index",
+    )
+
+
+class Stimulus(TimeStampedUUIDModel):
+    """Reusable reading passage, listening audio, or graphic stimulus decoupled from questions."""
+
+    __tablename__ = "stimuli"
+
+    title: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    modality: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        index=True,
+    )
+    content_text: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    text_format: Mapped[str] = mapped_column(
+        String(20),
+        default="plain",
+        nullable=False,
+    )
+    word_count: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    register: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    media_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("media_assets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    media_url: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    )
+    source_citation: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    content_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    questions: Mapped[list[Question]] = relationship(
+        "Question",
+        back_populates="stimulus",
+    )
 
 
 class Question(TimeStampedUUIDModel):
@@ -344,10 +407,16 @@ class Question(TimeStampedUUIDModel):
 
     __tablename__ = "questions"
 
-    section_id: Mapped[uuid.UUID] = mapped_column(
+    section_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("assessment_sections.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("assessment_sections.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    stimulus_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("stimuli.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     prompt: Mapped[str] = mapped_column(
@@ -359,6 +428,12 @@ class Question(TimeStampedUUIDModel):
         default=QuestionType.SINGLE_CHOICE,
         nullable=False,
     )
+    response_type: Mapped[str] = mapped_column(
+        String(50),
+        default="single_choice",
+        nullable=False,
+        index=True,
+    )
     order_index: Mapped[int] = mapped_column(
         Integer,
         default=0,
@@ -369,10 +444,27 @@ class Question(TimeStampedUUIDModel):
         default="B1",
         nullable=False,
     )
+    target_cefr: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+        index=True,
+    )
     difficulty: Mapped[int] = mapped_column(
         Integer,
         default=3,
         nullable=False,
+    )
+    difficulty_rating: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    cognitive_complexity: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    instructions: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
     explanation: Mapped[str | None] = mapped_column(
         Text,
@@ -403,6 +495,21 @@ class Question(TimeStampedUUIDModel):
         default=1,
         nullable=False,
     )
+    is_live_delivered: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+    )
+    item_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+    scoring_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -420,9 +527,18 @@ class Question(TimeStampedUUIDModel):
         index=True,
     )
 
-    section: Mapped[AssessmentSection] = relationship(
+    section: Mapped[AssessmentSection | None] = relationship(
         "AssessmentSection",
         back_populates="questions",
+    )
+    stimulus: Mapped[Stimulus | None] = relationship(
+        "Stimulus",
+        back_populates="questions",
+    )
+    section_associations: Mapped[list[AssessmentSectionQuestion]] = relationship(
+        "AssessmentSectionQuestion",
+        back_populates="question",
+        cascade="all, delete-orphan",
     )
     options: Mapped[list[QuestionOption]] = relationship(
         "QuestionOption",
@@ -438,6 +554,18 @@ class Question(TimeStampedUUIDModel):
     versions: Mapped[list[QuestionVersion]] = relationship(
         "QuestionVersion",
         back_populates="question",
+        cascade="all, delete-orphan",
+    )
+    validations: Mapped[list[QuestionValidation]] = relationship(
+        "QuestionValidation",
+        back_populates="question",
+        cascade="all, delete-orphan",
+        order_by="QuestionValidation.checked_at.desc()",
+    )
+    provenance: Mapped[QuestionProvenance | None] = relationship(
+        "QuestionProvenance",
+        back_populates="question",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 
@@ -471,10 +599,195 @@ class QuestionOption(TimeStampedUUIDModel):
         Text,
         nullable=True,
     )
+    misconception_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    distractor_rationale: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
 
     question: Mapped[Question] = relationship(
         "Question",
         back_populates="options",
+    )
+
+
+class AssessmentSectionQuestion(UUIDModel):
+    """Association linking questions to assessment sections, allowing item reuse."""
+
+    __tablename__ = "assessment_section_questions"
+    __table_args__ = (
+        UniqueConstraint("assessment_section_id", "question_id", name="uq_section_question"),
+        Index("ix_asq_section_order", "assessment_section_id", "order_index"),
+    )
+
+    assessment_section_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("assessment_sections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    order_index: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    points_override: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    question_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("question_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+    )
+
+    section: Mapped[AssessmentSection] = relationship(
+        "AssessmentSection",
+        back_populates="question_associations",
+    )
+    question: Mapped[Question] = relationship(
+        "Question",
+        back_populates="section_associations",
+    )
+    question_version: Mapped[QuestionVersion | None] = relationship(
+        "QuestionVersion",
+        foreign_keys=[question_version_id],
+    )
+
+
+class QuestionValidation(UUIDModel):
+    """Automated linting and quality audit log for a question."""
+
+    __tablename__ = "question_validations"
+
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    validation_status: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+    )
+    blocking_error_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    warning_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    issues_payload: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    checked_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+    )
+    validated_by_system_version: Mapped[str] = mapped_column(
+        String(50),
+        default="v2.0.0",
+        nullable=False,
+    )
+
+    question: Mapped[Question] = relationship(
+        "Question",
+        back_populates="validations",
+    )
+
+
+class QuestionProvenance(UUIDModel):
+    """Author, AI model generator, and review metadata for content provenance."""
+
+    __tablename__ = "question_provenance"
+    __table_args__ = (UniqueConstraint("question_id", name="uq_question_provenance_question"),)
+
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    author_type: Mapped[str] = mapped_column(
+        String(30),
+        default="human",
+        nullable=False,
+    )
+    source_type: Mapped[str] = mapped_column(
+        String(50),
+        default="original",
+        nullable=False,
+    )
+    source_reference: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    generator_model: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    generator_prompt_version: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    generator_parameters: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+    taxonomy_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("taxonomy_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reviewed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    review_notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False,
+    )
+
+    question: Mapped[Question] = relationship(
+        "Question",
+        back_populates="provenance",
     )
 
 
@@ -649,6 +962,10 @@ class AttemptAnswer(TimeStampedUUIDModel):
         Text,
         nullable=True,
     )
+    response_payload: Mapped[dict | list | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
     is_correct: Mapped[bool | None] = mapped_column(
         Boolean,
         nullable=True,
@@ -658,10 +975,20 @@ class AttemptAnswer(TimeStampedUUIDModel):
         default=0.0,
         nullable=False,
     )
+    scoring_status: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
+    )
     answered_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.datetime.now(datetime.UTC),
         nullable=False,
+    )
+    question_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("question_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     attempt: Mapped[Attempt] = relationship(
@@ -670,6 +997,10 @@ class AttemptAnswer(TimeStampedUUIDModel):
     )
     question: Mapped[Question] = relationship(
         "Question",
+    )
+    question_version: Mapped[QuestionVersion | None] = relationship(
+        "QuestionVersion",
+        foreign_keys=[question_version_id],
     )
     selected_option: Mapped[QuestionOption | None] = relationship(
         "QuestionOption",
@@ -706,6 +1037,11 @@ class AttemptScore(TimeStampedUUIDModel):
     estimated_level: Mapped[str | None] = mapped_column(
         String(10),
         nullable=True,
+    )
+    scoring_algorithm_version: Mapped[str] = mapped_column(
+        String(20),
+        default="v2",
+        nullable=False,
     )
     skill_scores: Mapped[dict[str, Any]] = mapped_column(
         JSON,

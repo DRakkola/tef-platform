@@ -52,3 +52,53 @@ class CEFRLevel(str, Enum):
     B2 = "B2"
     C1 = "C1"
     C2 = "C2"
+
+
+class QuestionResponseType(str, Enum):
+    """Question response format types supported in Question V2."""
+
+    SINGLE_CHOICE = "single_choice"
+    MULTIPLE_CHOICE = "multiple_choice"
+    MATCHING = "matching"
+    ORDERING = "ordering"
+    GAP_FILL = "gap_fill"
+    SHORT_TEXT = "short_text"
+    LONG_TEXT = "long_text"
+    SPOKEN_RESPONSE = "spoken_response"
+    INTERACTION = "interaction"
+
+
+class ScoringStatus(str, Enum):
+    """Evaluation status for a candidate response in Question V2."""
+
+    CORRECT = "correct"
+    INCORRECT = "incorrect"
+    PARTIAL = "partial"
+    MISSING = "missing"
+    PENDING_EVALUATION = "pending_evaluation"
+    INVALID_RESPONSE = "invalid_response"
+
+
+class CognitiveComplexityLevel(str, Enum):
+    """Depth of knowledge and cognitive processing complexity."""
+
+    RECALL_RECOGNITION = "recall_recognition"
+    INTERPRETATION = "interpretation"
+    INFERENCING_SYNTHESIS = "inferencing_synthesis"
+    CRITICAL_EVALUATION = "critical_evaluation"
+
+
+class QuestionAuthorType(str, Enum):
+    """Provenance author classification."""
+
+    HUMAN = "human"
+    AI = "ai"
+    IMPORTED = "imported"
+
+
+class QuestionValidationStatus(str, Enum):
+    """Outcome of automated quality and lint verification."""
+
+    VALID = "valid"
+    WARNING = "warning"
+    BLOCKING = "blocking"

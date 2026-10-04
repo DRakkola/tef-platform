@@ -4,7 +4,7 @@ import datetime
 import uuid
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.modules.admin.enums import ContentStatus, MediaType, ReviewStatus
 from app.modules.assessments.enums import (
@@ -156,6 +156,8 @@ class AdminOptionCreate(BaseModel):
     order_index: int = 0
     is_correct: bool = False
     explanation: str | None = None
+    misconception_type: str | None = None
+    distractor_rationale: str | None = None
 
 
 class AdminOptionResponse(BaseModel):
@@ -167,6 +169,122 @@ class AdminOptionResponse(BaseModel):
     order_index: int
     is_correct: bool
     explanation: str | None = None
+    misconception_type: str | None = None
+    distractor_rationale: str | None = None
+
+
+class AdminStimulusCreate(BaseModel):
+    title: str
+    modality: str
+    content_text: str | None = None
+    text_format: str = "plain_text"
+    media_url: str | None = None
+    media_type: str | None = None
+    source_citation: str | None = None
+    difficulty_rating: int | None = None
+    cefr_level: str | None = None
+    status: str = "draft"
+    word_count: int | None = None
+
+
+class AdminStimulusUpdate(BaseModel):
+    title: str | None = None
+    modality: str | None = None
+    content_text: str | None = None
+    text_format: str | None = None
+    media_url: str | None = None
+    media_type: str | None = None
+    source_citation: str | None = None
+    difficulty_rating: int | None = None
+    cefr_level: str | None = None
+    status: str | None = None
+    word_count: int | None = None
+
+
+class AdminStimulusResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    modality: str
+    content_text: str | None = None
+    text_format: str = "plain_text"
+    word_count: int | None = None
+    media_url: str | None = None
+    media_type: str | None = None
+    source_citation: str | None = None
+    difficulty_rating: int | None = None
+    cefr_level: str | None = None
+    status: str = "draft"
+    version: int = 1
+    content_hash: str | None = None
+    created_by_user_id: uuid.UUID | None = None
+    updated_by_user_id: uuid.UUID | None = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class AdminStimulusListResponse(BaseModel):
+    items: list[AdminStimulusResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AdminQuestionValidationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    question_id: uuid.UUID
+    validation_status: str
+    blocking_error_count: int = 0
+    warning_count: int = 0
+    issues_payload: list[dict[str, Any]] = Field(default_factory=list)
+    checked_at: datetime.datetime
+    validated_by_system_version: str = "v2.0.0"
+
+
+class QuestionValidationIssueResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    severity: str
+    field: str | None = None
+    message: str
+    rule: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class QuestionValidationResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    valid: bool
+    status: str
+    errors: list[QuestionValidationIssueResponse] = Field(default_factory=list)
+    warnings: list[QuestionValidationIssueResponse] = Field(default_factory=list)
+    informational: list[QuestionValidationIssueResponse] = Field(default_factory=list)
+    validator_version: str = "v2.0.0"
+    validated_at: datetime.datetime
+    question_id: uuid.UUID | None = None
+
+
+class AdminQuestionProvenanceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    question_id: uuid.UUID
+    author_type: str = "human"
+    source_type: str = "original"
+    source_reference: str | None = None
+    generator_model: str | None = None
+    generator_prompt_version: str | None = None
+    generator_parameters: dict[str, Any] | None = None
+    taxonomy_version_id: uuid.UUID | None = None
+    created_by_user_id: uuid.UUID | None = None
+    reviewed_by_user_id: uuid.UUID | None = None
+    reviewed_at: datetime.datetime | None = None
+    review_notes: str | None = None
+    created_at: datetime.datetime
 
 
 class AdminQuestionSkillTagCreate(BaseModel):
@@ -188,54 +306,110 @@ class AdminExerciseSkillTagCreate(BaseModel):
 
 
 class AdminQuestionCreate(BaseModel):
+    section_id: uuid.UUID | None = None
+    stimulus_id: uuid.UUID | None = None
     question_type: QuestionType = QuestionType.SINGLE_CHOICE
+    response_type: str = "single_choice"
     prompt: str
+    instructions: str | None = None
     stimulus_text: str | None = None
     audio_url: str | None = None
     media_url: str | None = None
     order_index: int = 0
     difficulty: int = 3
+    difficulty_rating: int | None = None
     level: str = "B1"
+    target_cefr: str | None = None
+    cognitive_complexity: str | None = None
     explanation: str | None = None
     points: int = 1
     penalty_points: int = 0
+    scoring_payload: dict[str, Any] | None = None
+    is_live_delivered: bool = False
+    item_hash: str | None = None
     task_type_id: uuid.UUID | None = None
     options: list[AdminOptionCreate] = Field(default_factory=list)
     skill_tags: list[AdminQuestionSkillTagCreate] = Field(default_factory=list)
 
 
 class AdminStandaloneQuestionCreate(BaseModel):
-    section_id: uuid.UUID
+    section_id: uuid.UUID | None = None
+    stimulus_id: uuid.UUID | None = None
     question_type: QuestionType = QuestionType.SINGLE_CHOICE
+    response_type: str = "single_choice"
     prompt: str
+    instructions: str | None = None
     stimulus_text: str | None = None
     audio_url: str | None = None
     media_url: str | None = None
     order_index: int = 0
     difficulty: int = 3
+    difficulty_rating: int | None = None
     level: str = "B1"
+    target_cefr: str | None = None
+    cognitive_complexity: str | None = None
     explanation: str | None = None
     points: int = 1
     penalty_points: int = 0
+    scoring_payload: dict[str, Any] | None = None
+    is_live_delivered: bool = False
+    item_hash: str | None = None
     task_type_id: uuid.UUID | None = None
     options: list[AdminOptionCreate] = Field(default_factory=list)
     skill_tags: list[AdminQuestionSkillTagCreate] = Field(default_factory=list)
 
 
 class AdminStandaloneQuestionUpdate(BaseModel):
+    expected_version: int | None = None
+    section_id: uuid.UUID | None = None
+    stimulus_id: uuid.UUID | None = None
     prompt: str | None = None
+    instructions: str | None = None
     question_type: QuestionType | None = None
+    response_type: str | None = None
     difficulty: int | None = None
+    difficulty_rating: int | None = None
     level: str | None = None
+    target_cefr: str | None = None
+    cognitive_complexity: str | None = None
     explanation: str | None = None
     points: int | None = None
     penalty_points: int | None = None
+    scoring_payload: dict[str, Any] | None = None
     media_url: str | None = None
     order_index: int | None = None
     status: ContentStatus | None = None
+    is_live_delivered: bool | None = None
+    item_hash: str | None = None
     task_type_id: uuid.UUID | None = None
     options: list[AdminOptionCreate] | None = None
     skill_tags: list[AdminQuestionSkillTagCreate] | None = None
+
+
+class QuestionSubmitReviewRequest(BaseModel):
+    comments: str | None = None
+
+
+class QuestionReviewDecisionRequest(BaseModel):
+    notes: str | None = None
+
+
+class QuestionRevertDraftRequest(BaseModel):
+    reason: str | None = None
+
+
+class QuestionPublishRequest(BaseModel):
+    changelog: str | None = None
+
+
+class QuestionCreateDraftVersionRequest(BaseModel):
+    changelog: str | None = None
+
+
+class QuestionForkRequest(BaseModel):
+    prompt_prefix: str | None = None
+    changelog: str | None = None
+
 
 
 class AdminQuestionSkillTagResponse(BaseModel):
@@ -254,20 +428,30 @@ class AdminQuestionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    section_id: uuid.UUID
+    section_id: uuid.UUID | None = None
+    stimulus_id: uuid.UUID | None = None
+    stimulus: AdminStimulusResponse | None = None
     question_type: QuestionType
+    response_type: str = "single_choice"
     prompt: str
+    instructions: str | None = None
     stimulus_text: str | None = None
     audio_url: str | None = None
     media_url: str | None = None
     order_index: int
     difficulty: int
+    difficulty_rating: int | None = None
     level: str = "B1"
+    target_cefr: str | None = None
+    cognitive_complexity: str | None = None
     explanation: str | None = None
     points: int
     penalty_points: int
+    scoring_payload: dict[str, Any] | None = None
     status: str = "published"
     version: int = 1
+    is_live_delivered: bool = False
+    item_hash: str | None = None
     task_type_id: uuid.UUID | None = None
     created_by_user_id: uuid.UUID | None = None
     updated_by_user_id: uuid.UUID | None = None
@@ -275,6 +459,22 @@ class AdminQuestionResponse(BaseModel):
     updated_at: datetime.datetime
     options: list[AdminOptionResponse] = Field(default_factory=list)
     skill_tags: list[AdminQuestionSkillTagResponse] = Field(default_factory=list)
+    validations: list[AdminQuestionValidationResponse] = Field(default_factory=list)
+    provenance: AdminQuestionProvenanceResponse | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_unloaded_relationships(cls, data: Any) -> Any:
+        if not isinstance(data, dict) and hasattr(data, "__table__"):
+            d = dict(data.__dict__)
+            for rel in ("stimulus", "provenance"):
+                if rel not in d:
+                    d[rel] = None
+            for rel_list in ("options", "skill_tags", "validations"):
+                if rel_list not in d:
+                    d[rel_list] = []
+            return d
+        return data
 
 
 class AdminQuestionListResponse(BaseModel):
@@ -394,6 +594,8 @@ class QuestionVersionResponse(BaseModel):
     level: str
     points: int
     options_snapshot: list[dict[str, Any]] = Field(default_factory=list)
+    snapshot_payload: dict[str, Any] | None = None
+    changelog: str | None = None
     media_asset_id: uuid.UUID | None = None
     created_by_user_id: uuid.UUID | None = None
     created_at: datetime.datetime

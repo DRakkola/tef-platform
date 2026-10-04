@@ -17,6 +17,7 @@ from app.modules.assessments.enums import (
 from app.modules.assessments.models import (
     Assessment,
     AssessmentSection,
+    AssessmentSectionQuestion,
     Attempt,
     AttemptAnswer,
     AttemptScore,
@@ -341,7 +342,9 @@ class AssessmentService:
 
         answers_map: dict[str, Any] = {}
         for a in attempt.answers:
-            if a.selected_option_id:
+            if a.response_payload is not None:
+                answers_map[str(a.question_id)] = a.response_payload
+            elif a.selected_option_id:
                 answers_map[str(a.question_id)] = str(a.selected_option_id)
             elif a.selected_option_ids:
                 answers_map[str(a.question_id)] = a.selected_option_ids
@@ -380,6 +383,7 @@ class AssessmentService:
         selected_option_id: uuid.UUID | None = None,
         selected_option_ids: list[uuid.UUID] | None = None,
         text_response: str | None = None,
+        response_payload: dict[str, Any] | list[Any] | None = None,
         client_timestamp: datetime.datetime | None = None,
     ) -> AttemptAnswer:
         """Record or update an answer idempotently within an active attempt with stale write protection."""
@@ -389,12 +393,14 @@ class AssessmentService:
             target_selected_option_id = req.selected_option_id
             target_selected_option_ids = req.selected_option_ids
             target_text_response = req.text_response
+            target_response_payload = req.response_payload
             target_client_timestamp = req.client_timestamp
         else:
             target_question_id = question_id
             target_selected_option_id = selected_option_id
             target_selected_option_ids = selected_option_ids or []
             target_text_response = text_response
+            target_response_payload = response_payload
             target_client_timestamp = client_timestamp
 
         stmt = (
@@ -500,11 +506,38 @@ class AssessmentService:
                 )
                 return existing_answer
 
+        # Resolve delivered question version for immutable attempt tracking
+        delivered_version_id = None
+        sec_ids = [sec.id for sec in attempt.assessment.sections]
+        if sec_ids:
+            asq_version_id = await db.scalar(
+                select(AssessmentSectionQuestion.question_version_id).where(
+                    AssessmentSectionQuestion.assessment_section_id.in_(sec_ids),
+                    AssessmentSectionQuestion.question_id == target_question_id,
+                )
+            )
+            if asq_version_id:
+                delivered_version_id = asq_version_id
+
+        if not delivered_version_id:
+            from app.modules.admin.models import QuestionVersion
+            qv_id = await db.scalar(
+                select(QuestionVersion.id).where(
+                    QuestionVersion.question_id == target_question_id,
+                    QuestionVersion.version == target_question.version,
+                )
+            )
+            delivered_version_id = qv_id
+
         if existing_answer:
             existing_answer.selected_option_id = target_selected_option_id
             existing_answer.selected_option_ids = option_ids_str
             existing_answer.text_response = target_text_response
+            if target_response_payload is not None:
+                existing_answer.response_payload = target_response_payload
             existing_answer.answered_at = now
+            if delivered_version_id and not existing_answer.question_version_id:
+                existing_answer.question_version_id = delivered_version_id
             answer = existing_answer
         else:
             answer = AttemptAnswer(
@@ -513,9 +546,15 @@ class AssessmentService:
                 selected_option_id=target_selected_option_id,
                 selected_option_ids=option_ids_str,
                 text_response=target_text_response,
+                response_payload=target_response_payload,
                 answered_at=now,
+                question_version_id=delivered_version_id,
             )
             db.add(answer)
+
+        # Mark question as live delivered to permanently freeze this version
+        if not target_question.is_live_delivered:
+            target_question.is_live_delivered = True
 
         await db.flush()
         return answer
@@ -581,8 +620,12 @@ class AssessmentService:
             assessment_result = await db.execute(assessment_stmt)
             assessment = assessment_result.scalar_one()
 
-            # Load all answers submitted for this attempt
-            answers_stmt = select(AttemptAnswer).where(AttemptAnswer.attempt_id == attempt_id)
+            # Load all answers submitted for this attempt with question_version snapshot
+            answers_stmt = (
+                select(AttemptAnswer)
+                .where(AttemptAnswer.attempt_id == attempt_id)
+                .options(selectinload(AttemptAnswer.question_version))
+            )
             answers_result = await db.execute(answers_stmt)
             answers = list(answers_result.scalars().all())
 
@@ -603,6 +646,7 @@ class AssessmentService:
                     percentage=score_result.percentage,
                     is_passed=score_result.is_passed,
                     estimated_level=score_result.estimated_level,
+                    scoring_algorithm_version=getattr(score_result, "scoring_algorithm_version", "v2"),
                     skill_scores=score_result.skill_scores,
                     scored_at=now,
                 )
@@ -696,8 +740,10 @@ class AssessmentService:
                 status_code=404,
             )
 
-        # Index user answers by question_id
-        answer_map = {ans.question_id: ans for ans in attempt.answers}
+        # Index user answers by question_id (explicit query guarantees freshness)
+        answers_stmt = select(AttemptAnswer).where(AttemptAnswer.attempt_id == attempt_id)
+        answers_res = await db.execute(answers_stmt)
+        answer_map = {ans.question_id: ans for ans in answers_res.scalars().all()}
 
         sections_data: list[dict[str, Any]] = []
         mistakes_data: list[dict[str, Any]] = []
@@ -730,6 +776,7 @@ class AssessmentService:
                         "is_correct": user_ans.is_correct,
                         "points_awarded": user_ans.points_awarded,
                         "answered_at": user_ans.answered_at,
+                        "question_version_id": getattr(user_ans, "question_version_id", None),
                     }
 
                 # Record educational mistake detail if incorrect or unanswered
@@ -826,18 +873,22 @@ class AssessmentService:
 
         recommended_exercises_data = []
         for r in recs:
-            ex = await db.get(Exercise, r.entity_id) if r.entity_type == "exercise" else None
-            ex_title = ex.title if ex else "Exercice de perfectionnement"
-            ex_level = ex.level if ex else "B1"
-            ex_diff = ex.difficulty if ex else 3
+            if r.entity_type != "exercise":
+                continue
+            ex = await db.get(Exercise, r.entity_id)
+            if not ex:
+                continue
+            ex_title = ex.title
+            ex_level = ex.level
+            ex_diff = ex.difficulty
             skill_name = r.skill.name if r.skill else "Compétence ciblée"
-            cat = ex.category.value if ex and hasattr(ex.category, "value") else "reading"
+            cat = ex.category.value if hasattr(ex.category, "value") else "reading"
             priority_val = (
                 "critical" if r.priority >= 80 else "high" if r.priority >= 60 else "medium"
             )
             recommended_exercises_data.append(
                 {
-                    "id": ex.id if ex else r.entity_id,
+                    "id": ex.id,
                     "title": ex_title,
                     "category": cat,
                     "difficulty": ex_diff,
@@ -991,7 +1042,7 @@ class AssessmentService:
         user_id: uuid.UUID,
     ) -> dict[str, Any] | None:
         """Provide personalized assessment recommendation based on readiness and gaps."""
-        assessments, total = await AssessmentService.list_assessments(db, page=1, page_size=10)
+        assessments, _total = await AssessmentService.list_assessments(db, page=1, page_size=10)
         if not assessments:
             return None
 

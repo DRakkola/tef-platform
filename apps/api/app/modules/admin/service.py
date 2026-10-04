@@ -21,7 +21,6 @@ from app.modules.admin.models import (
     ExerciseVersion,
     MediaAsset,
     QuestionVersion,
-    SubSkill,
     WritingTaskVersion,
 )
 from app.modules.admin.schemas import (
@@ -859,6 +858,9 @@ class AdminContentService:
             .options(
                 selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.options),
                 selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.skill_tags),
+                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.stimulus),
+                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.validations),
+                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.provenance),
             )
         )
         asmt = (await db.execute(stmt)).scalar_one_or_none()
@@ -879,6 +881,9 @@ class AdminContentService:
             .options(
                 selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.options),
                 selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.skill_tags),
+                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.stimulus),
+                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.validations),
+                selectinload(Assessment.sections).selectinload(AssessmentSection.questions).selectinload(Question.provenance),
             )
             .order_by(Assessment.created_at.desc())
         )
@@ -941,15 +946,24 @@ class AdminContentService:
         now = datetime.datetime.now(datetime.UTC)
         q = Question(
             section_id=section_id,
+            stimulus_id=getattr(payload, "stimulus_id", None),
             question_type=payload.question_type,
+            response_type=getattr(payload, "response_type", "single_choice"),
             prompt=payload.prompt,
+            instructions=getattr(payload, "instructions", None),
             media_url=payload.media_url or payload.audio_url,
             order_index=payload.order_index,
             difficulty=payload.difficulty,
+            difficulty_rating=getattr(payload, "difficulty_rating", None),
             level=payload.level,
+            target_cefr=getattr(payload, "target_cefr", None),
+            cognitive_complexity=getattr(payload, "cognitive_complexity", None),
             explanation=payload.explanation,
             points=payload.points,
             penalty_points=payload.penalty_points,
+            scoring_payload=getattr(payload, "scoring_payload", None),
+            is_live_delivered=getattr(payload, "is_live_delivered", False),
+            item_hash=getattr(payload, "item_hash", None),
             task_type_id=getattr(payload, "task_type_id", None),
             status=ContentStatus.DRAFT.value,
             version=1,
@@ -968,6 +982,8 @@ class AdminContentService:
                 order_index=opt.order_index,
                 is_correct=opt.is_correct,
                 explanation=opt.explanation,
+                misconception_type=getattr(opt, "misconception_type", None),
+                distractor_rationale=getattr(opt, "distractor_rationale", None),
                 created_at=now,
                 updated_at=now,
             )
@@ -1004,7 +1020,7 @@ class AdminContentService:
             action=AuditAction.CREATE,
             entity_type="question",
             entity_id=q.id,
-            payload={"section_id": str(section_id), "prompt": q.prompt[:50]},
+            payload={"section_id": str(section_id) if section_id else None, "prompt": q.prompt[:50]},
         )
         return await AdminContentService.get_question(db, q.id)
 
@@ -1015,12 +1031,34 @@ class AdminContentService:
         stmt = (
             select(Question)
             .where(Question.id == question_id)
-            .options(selectinload(Question.options), selectinload(Question.skill_tags))
+            .options(
+                selectinload(Question.options),
+                selectinload(Question.skill_tags),
+                selectinload(Question.stimulus),
+                selectinload(Question.provenance),
+                selectinload(Question.validations),
+            )
         )
         q = (await db.execute(stmt)).scalar_one_or_none()
         if not q:
             raise AppException(message="Question not found", code="NOT_FOUND", status_code=404)
         return q
+
+    @staticmethod
+    async def validate_question(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+    ) -> Any:
+        """Validate question and persist audit trail in question_validations."""
+        q = await AdminContentService.get_question(db, question_id)
+        from app.modules.assessments.question_validation import QuestionValidationEngine
+        return await QuestionValidationEngine.validate_and_persist(
+            db=db,
+            question=q,
+            actor_id=actor_id,
+            check_duplication=True,
+        )
 
     @staticmethod
     async def list_questions(
@@ -1034,7 +1072,13 @@ class AdminContentService:
     ) -> tuple[list[Question], int]:
         stmt = (
             select(Question)
-            .options(selectinload(Question.options), selectinload(Question.skill_tags))
+            .options(
+                selectinload(Question.options),
+                selectinload(Question.skill_tags),
+                selectinload(Question.stimulus),
+                selectinload(Question.provenance),
+                selectinload(Question.validations),
+            )
             .order_by(Question.created_at.desc())
         )
         if section_id:
@@ -1070,20 +1114,67 @@ class AdminContentService:
     ) -> Question:
         q = await AdminContentService.get_question(db, question_id)
 
+        # Immutability guard: Only draft or rejected questions can be modified in-place
+        if q.status not in (ContentStatus.DRAFT.value, ContentStatus.REJECTED.value):
+            raise AppException(
+                message=(
+                    f"Cannot edit question in '{q.status}' status. Only draft or rejected questions can be edited. "
+                    "Create a new draft version or fork to propose changes."
+                ),
+                code="CANNOT_EDIT_NON_DRAFT_QUESTION",
+                status_code=400,
+            )
+
+        if q.is_live_delivered:
+            raise AppException(
+                message="Cannot edit a delivered question in-place. Create a new draft version or fork to propose changes.",
+                code="DELIVERED_QUESTION_IMMUTABLE",
+                status_code=400,
+            )
+
+        # Optimistic concurrency check
+        expected_ver = getattr(payload, "expected_version", None)
+        if expected_ver is not None and q.version != expected_ver:
+            raise AppException(
+                message=f"Question version conflict: current version is {q.version}, but request expected {expected_ver}.",
+                code="CONCURRENT_MODIFICATION_CONFLICT",
+                status_code=409,
+            )
+
         if payload.prompt is not None:
             q.prompt = payload.prompt
+        if payload.instructions is not None:
+            q.instructions = payload.instructions
         if payload.question_type is not None:
             q.question_type = payload.question_type
+        if getattr(payload, "response_type", None) is not None:
+            q.response_type = payload.response_type
+        if getattr(payload, "stimulus_id", None) is not None:
+            q.stimulus_id = payload.stimulus_id
+        if getattr(payload, "section_id", None) is not None:
+            q.section_id = payload.section_id
         if payload.difficulty is not None:
             q.difficulty = payload.difficulty
+        if getattr(payload, "difficulty_rating", None) is not None:
+            q.difficulty_rating = payload.difficulty_rating
         if payload.level is not None:
             q.level = payload.level
+        if getattr(payload, "target_cefr", None) is not None:
+            q.target_cefr = payload.target_cefr
+        if getattr(payload, "cognitive_complexity", None) is not None:
+            q.cognitive_complexity = payload.cognitive_complexity
         if payload.explanation is not None:
             q.explanation = payload.explanation
         if payload.points is not None:
             q.points = payload.points
         if payload.penalty_points is not None:
             q.penalty_points = payload.penalty_points
+        if getattr(payload, "scoring_payload", None) is not None:
+            q.scoring_payload = payload.scoring_payload
+        if getattr(payload, "is_live_delivered", None) is not None:
+            q.is_live_delivered = payload.is_live_delivered
+        if getattr(payload, "item_hash", None) is not None:
+            q.item_hash = payload.item_hash
         if payload.media_url is not None:
             q.media_url = payload.media_url
         if payload.order_index is not None:
@@ -1102,6 +1193,8 @@ class AdminContentService:
                     order_index=opt.order_index,
                     is_correct=opt.is_correct,
                     explanation=opt.explanation,
+                    misconception_type=getattr(opt, "misconception_type", None),
+                    distractor_rationale=getattr(opt, "distractor_rationale", None),
                     created_at=now,
                     updated_at=now,
                 )
@@ -1153,57 +1246,124 @@ class AdminContentService:
         return await AdminContentService.get_question(db, question_id)
 
     @staticmethod
+    async def submit_question_for_review(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        comments: str | None = None,
+    ) -> Question:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.submit_for_review(db, question_id, actor_id, comments)
+
+    @staticmethod
+    async def approve_question(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        notes: str | None = None,
+    ) -> Question:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.approve_question(db, question_id, actor_id, notes)
+
+    @staticmethod
+    async def reject_question(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        notes: str | None = None,
+    ) -> Question:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.reject_question(db, question_id, actor_id, notes)
+
+    @staticmethod
+    async def revert_question_to_draft(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        reason: str | None = None,
+    ) -> Question:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.revert_to_draft(db, question_id, actor_id, reason)
+
+    @staticmethod
+    async def publish_question(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        changelog: str | None = None,
+    ) -> Question:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.publish_question(db, question_id, actor_id, changelog)
+
+    @staticmethod
+    async def archive_question(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        reason: str | None = None,
+    ) -> Question:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.archive_question(db, question_id, actor_id, reason)
+
+    @staticmethod
+    async def create_draft_version(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        changelog: str | None = None,
+    ) -> Question:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.create_draft_version(db, question_id, actor_id, changelog)
+
+    @staticmethod
+    async def fork_question(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+        prompt_prefix: str | None = None,
+        changelog: str | None = None,
+    ) -> Question:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.fork_question(db, question_id, actor_id, prompt_prefix, changelog)
+
+    @staticmethod
     async def fork_new_question_version(
         db: AsyncSession,
         question_id: uuid.UUID,
         actor_id: uuid.UUID | None = None,
     ) -> Question:
-        q = await AdminContentService.get_question(db, question_id)
-
-        # Snapshot old version
-        opts = [
-            {"content": o.content, "order_index": o.order_index, "is_correct": o.is_correct, "explanation": o.explanation}
-            for o in q.options
-        ]
-        ver_record = QuestionVersion(
-            question_id=q.id,
-            version=q.version,
-            prompt=q.prompt,
-            explanation=q.explanation,
-            question_type=q.question_type.value,
-            difficulty=q.difficulty,
-            level=q.level,
-            points=q.points,
-            options_snapshot=opts,
-            created_by_user_id=actor_id,
-            created_at=datetime.datetime.now(datetime.UTC),
-        )
-        db.add(ver_record)
-
-        q.version += 1
-        q.status = ContentStatus.DRAFT.value
-        q.updated_by_user_id = actor_id
-        q.updated_at = datetime.datetime.now(datetime.UTC)
-        await db.flush()
-
-        await AuditService.log_event(
-            db=db,
-            actor_user_id=actor_id,
-            action="content.fork_version",
-            entity_type="question",
-            entity_id=q.id,
-            payload={"new_version": q.version},
-        )
-        return await AdminContentService.get_question(db, question_id)
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.create_draft_version(db, question_id, actor_id)
 
     @staticmethod
     async def list_question_versions(db: AsyncSession, question_id: uuid.UUID) -> list[QuestionVersion]:
-        stmt = (
-            select(QuestionVersion)
-            .where(QuestionVersion.question_id == question_id)
-            .order_by(QuestionVersion.version.desc())
-        )
-        return list((await db.execute(stmt)).scalars().all())
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.list_versions(db, question_id)
+
+    @staticmethod
+    async def get_question_version(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+        version_num: int,
+    ) -> QuestionVersion:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.get_version(db, question_id, version_num)
+
+    @staticmethod
+    async def get_published_question_version(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+    ) -> QuestionVersion:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.get_published_version(db, question_id)
+
+    @staticmethod
+    async def get_question_history(
+        db: AsyncSession,
+        question_id: uuid.UUID,
+    ) -> list[AuditEvent]:
+        from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+        return await QuestionLifecycleService.get_history(db, question_id)
 
     # --- Skills Taxonomy ---
 
@@ -1975,10 +2135,8 @@ class AdminContentService:
             wt.status = ContentStatus.IN_REVIEW.value
             version = wt.version
         elif entity_type == "question":
-            q = (await db.execute(select(Question).where(Question.id == entity_id))).scalar_one_or_none()
-            if not q:
-                raise AppException(message="Question not found", code="NOT_FOUND", status_code=404)
-            q.status = ContentStatus.IN_REVIEW.value
+            from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+            q = await QuestionLifecycleService.submit_for_review(db, entity_id, actor_id, comments)
             version = q.version
         else:
             raise AppException(message=f"Unsupported entity type for review: {entity_type}", code="INVALID_TYPE", status_code=400)
@@ -2053,10 +2211,11 @@ class AdminContentService:
                     wt.status = target_status
                     wt.updated_at = datetime.datetime.now(datetime.UTC)
         elif rev.entity_type == "question":
-            q = (await db.execute(select(Question).where(Question.id == rev.entity_id))).scalar_one_or_none()
-            if q:
-                q.status = target_status
-                q.updated_at = datetime.datetime.now(datetime.UTC)
+            from app.modules.admin.question_lifecycle_service import QuestionLifecycleService
+            if decision.status == ReviewStatus.APPROVED:
+                await QuestionLifecycleService.approve_question(db, rev.entity_id, reviewer_id, notes=decision.comments)
+            else:
+                await QuestionLifecycleService.reject_question(db, rev.entity_id, reviewer_id, notes=decision.comments)
 
         await db.flush()
 

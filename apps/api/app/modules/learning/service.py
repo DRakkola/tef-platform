@@ -79,7 +79,7 @@ class LearningService:
                 question_map[q.id] = q
 
         for ans in score_result.evaluated_answers:
-            if not ans.is_correct:
+            if ans.is_correct is False and getattr(ans, "scoring_status", None) != "pending_evaluation":
                 question = question_map.get(ans.question_id)
                 if not question:
                     continue
@@ -129,6 +129,8 @@ class LearningService:
 
         # 1b. Per-tag granular SkillEvidence from all evaluated answers
         for ans in score_result.evaluated_answers:
+            if ans.is_correct is None or getattr(ans, "scoring_status", None) == "pending_evaluation":
+                continue
             question = question_map.get(ans.question_id)
             if not question or not question.skill_tags:
                 continue

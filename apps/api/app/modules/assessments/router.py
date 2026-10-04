@@ -253,6 +253,7 @@ async def put_answer(
         selected_option_id=body.selected_option_id,
         selected_option_ids=body.selected_option_ids,
         text_response=body.text_response,
+        response_payload=body.response_payload,
         client_timestamp=body.client_timestamp,
     )
     return AttemptAnswerStudentResponse.model_validate(answer)
@@ -278,6 +279,7 @@ async def submit_answer(
         selected_option_id=body.selected_option_id,
         selected_option_ids=body.selected_option_ids,
         text_response=body.text_response,
+        response_payload=body.response_payload,
         client_timestamp=body.client_timestamp,
     )
     return AttemptAnswerStudentResponse.model_validate(answer)

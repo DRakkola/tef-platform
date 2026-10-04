@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 from app.core.database import Base, get_db
-from app.core.security import create_access_token, hash_password
+from app.core.security import create_access_token
 from app.core.storage import StorageService, get_storage
 from app.main import app
+
 settings.ENVIRONMENT = "testing"
 
 from app.modules.admin.beta_models import (  # noqa: F401
@@ -38,13 +39,17 @@ from app.modules.analytics.models import (  # noqa: F401
 from app.modules.assessments.models import (  # noqa: F401
     Assessment,
     AssessmentSection,
+    AssessmentSectionQuestion,
     Attempt,
     AttemptAnswer,
     AttemptScore,
     Question,
     QuestionOption,
+    QuestionProvenance,
     QuestionSkillTag,
+    QuestionValidation,
     Skill,
+    Stimulus,
     TaskType,
 )
 from app.modules.billing.models import (  # noqa: F401

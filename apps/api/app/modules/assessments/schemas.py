@@ -4,7 +4,7 @@ import datetime
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.modules.assessments.enums import (
     AssessmentType,
@@ -28,6 +28,20 @@ class QuestionOptionStudentResponse(BaseModel):
     order_index: int
 
 
+class StimulusStudentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    modality: str
+    content_text: str | None = None
+    text_format: str = "plain_text"
+    word_count: int | None = None
+    media_url: str | None = None
+    media_type: str | None = None
+    source_citation: str | None = None
+
+
 class QuestionSkillTagResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -41,16 +55,47 @@ class QuestionStudentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    section_id: uuid.UUID
+    section_id: uuid.UUID | None = None
+    stimulus_id: uuid.UUID | None = None
+    stimulus: StimulusStudentResponse | None = None
     prompt: str
+    instructions: str | None = None
     question_type: QuestionType
+    response_type: str = "single_choice"
     order_index: int
     level: str
+    target_cefr: str | None = None
     difficulty: int
+    difficulty_rating: int | None = None
+    cognitive_complexity: str | None = None
     points: int
     media_url: str | None = None
     options: list[QuestionOptionStudentResponse] = []
     skill_tags: list[QuestionSkillTagResponse] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_unloaded_relationships(cls, data: Any) -> Any:
+        if not isinstance(data, dict) and hasattr(data, "__table__"):
+            d = dict(data.__dict__)
+            if "stimulus" not in d:
+                d["stimulus"] = None
+            if "options" not in d:
+                d["options"] = []
+            if "skill_tags" not in d:
+                d["skill_tags"] = []
+            return d
+        return data
+
+
+class AssessmentSectionQuestionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    section_id: uuid.UUID
+    question_id: uuid.UUID
+    order_index: int
+    points_override: int | None = None
 
 
 class AssessmentSectionStudentResponse(BaseModel):
@@ -117,6 +162,7 @@ class AnswerSubmitRequest(BaseModel):
     selected_option_id: uuid.UUID | None = None
     selected_option_ids: list[uuid.UUID] = Field(default_factory=list)
     text_response: str | None = None
+    response_payload: dict[str, Any] | list[Any] | None = None
     client_timestamp: datetime.datetime | None = None
 
 
@@ -126,6 +172,7 @@ class PutAnswerRequest(BaseModel):
     selected_option_id: uuid.UUID | None = None
     selected_option_ids: list[uuid.UUID] = Field(default_factory=list)
     text_response: str | None = None
+    response_payload: dict[str, Any] | list[Any] | None = None
     client_timestamp: datetime.datetime | None = None
 
 
@@ -138,6 +185,8 @@ class AttemptAnswerStudentResponse(BaseModel):
     selected_option_id: uuid.UUID | None = None
     selected_option_ids: list[str] = []
     text_response: str | None = None
+    response_payload: dict[str, Any] | list[Any] | None = None
+    scoring_status: str | None = None
     answered_at: datetime.datetime
 
 
@@ -173,7 +222,7 @@ class AttemptStateResponse(BaseModel):
     is_expired: bool
     answered_count: int
     total_questions: int
-    answers: dict[str, str | list[str] | None] = Field(default_factory=dict)
+    answers: dict[str, Any] = Field(default_factory=dict)
 
 
 # ==========================================
@@ -200,8 +249,10 @@ class AttemptAnswerResultResponse(BaseModel):
     selected_option_id: uuid.UUID | None = None
     selected_option_ids: list[str] = []
     text_response: str | None = None
+    response_payload: dict[str, Any] | list[Any] | None = None
     is_correct: bool | None = None
     points_awarded: float = 0.0
+    scoring_status: str | None = None
     answered_at: datetime.datetime
 
 
@@ -240,6 +291,7 @@ class AttemptScoreResponse(BaseModel):
     percentage: float
     is_passed: bool | None = None
     estimated_level: str | None = None
+    scoring_algorithm_version: str = "v2"
     skill_scores: dict[str, Any] = {}
     scored_at: datetime.datetime
 

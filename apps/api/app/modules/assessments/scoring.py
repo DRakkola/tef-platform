@@ -4,8 +4,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.modules.assessments.enums import CEFRLevel, QuestionType, ScoringPolicy
-from app.modules.assessments.models import Assessment, AttemptAnswer
+from app.modules.assessments.enums import ScoringPolicy, ScoringStatus
+from app.modules.assessments.models import Assessment, AttemptAnswer, Question
+from app.modules.assessments.scoring_strategies import ScoringStrategyRegistry
 
 
 @dataclass
@@ -25,6 +26,71 @@ class ScoreCalculationResult:
     estimated_level: str
     skill_scores: dict[str, Any]
     evaluated_answers: list[AttemptAnswer]
+    scoring_algorithm_version: str = "v2"
+
+
+def extract_question_data(
+    question: Question,
+    snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Extract question data either from delivered QuestionVersion snapshot or live question model."""
+    if snapshot:
+        points_val = float(snapshot.get("points", question.points))
+        resp_type = snapshot.get("response_type")
+        if not resp_type:
+            if getattr(question, "response_type", None):
+                resp_type = (
+                    question.response_type.value
+                    if hasattr(question.response_type, "value")
+                    else str(question.response_type)
+                )
+            else:
+                resp_type = (
+                    question.question_type.value
+                    if hasattr(question.question_type, "value")
+                    else str(question.question_type)
+                )
+        elif hasattr(resp_type, "value"):
+            resp_type = resp_type.value
+
+        return {
+            "id": str(question.id),
+            "points": points_val,
+            "response_type": str(resp_type),
+            "options": snapshot.get("options", []),
+            "scoring_payload": snapshot.get("scoring_payload") or getattr(question, "scoring_payload", None) or {},
+        }
+
+    # Use live Question ORM object
+    options_data = [
+        {
+            "id": str(opt.id),
+            "content": opt.content,
+            "is_correct": opt.is_correct,
+            "order_index": opt.order_index,
+            "misconception_type": getattr(opt, "misconception_type", None),
+            "distractor_rationale": getattr(opt, "distractor_rationale", None),
+        }
+        for opt in question.options
+    ]
+
+    resp_type = getattr(question, "response_type", None)
+    if resp_type:
+        resp_type_val = resp_type.value if hasattr(resp_type, "value") else str(resp_type)
+    else:
+        resp_type_val = (
+            question.question_type.value
+            if hasattr(question.question_type, "value")
+            else str(question.question_type)
+        )
+
+    return {
+        "id": str(question.id),
+        "points": float(question.points),
+        "response_type": resp_type_val,
+        "options": options_data,
+        "scoring_payload": getattr(question, "scoring_payload", None) or {},
+    }
 
 
 class ScoringEngine:
@@ -76,65 +142,45 @@ class ScoringEngine:
                         sub["max"] += q_points * tag_weight
 
                 answer = answer_map.get(question.id)
+
+                # Resolve snapshot payload if version is bound
+                snapshot: dict[str, Any] | None = None
+                if answer and getattr(answer, "question_version", None):
+                    snapshot = answer.question_version.snapshot_payload
+
+                q_data = extract_question_data(question, snapshot=snapshot)
+                strategy = ScoringStrategyRegistry.get_strategy(q_data["response_type"])
+
                 if not answer:
                     # Unanswered question
-                    evaluated_answers.append(
-                        AttemptAnswer(
-                            question_id=question.id,
-                            is_correct=False,
-                            points_awarded=0.0,
-                        )
+                    unanswered = AttemptAnswer(
+                        question_id=question.id,
+                        is_correct=False,
+                        points_awarded=0.0,
+                        scoring_status=ScoringStatus.MISSING.value,
                     )
+                    evaluated_answers.append(unanswered)
                     continue
 
-                is_correct = False
-                points_awarded = 0.0
-
-                if question.question_type == QuestionType.SINGLE_CHOICE:
-                    correct_option_ids = {opt.id for opt in question.options if opt.is_correct}
-                    if (
-                        answer.selected_option_id
-                        and answer.selected_option_id in correct_option_ids
-                    ):
-                        is_correct = True
-                        points_awarded = q_points
-
-                elif question.question_type == QuestionType.MULTIPLE_CHOICE:
-                    correct_opt_str_ids = {
-                        str(opt.id) for opt in question.options if opt.is_correct
-                    }
-                    selected_ids = {str(opt_id) for opt_id in (answer.selected_option_ids or [])}
-                    if selected_ids and selected_ids == correct_opt_str_ids:
-                        is_correct = True
-                        points_awarded = q_points
-
-                elif question.question_type == QuestionType.TEXT_INPUT:
-                    acceptable_answers = {
-                        opt.content.strip().lower() for opt in question.options if opt.is_correct
-                    }
-                    if (
-                        answer.text_response
-                        and answer.text_response.strip().lower() in acceptable_answers
-                    ):
-                        is_correct = True
-                        points_awarded = q_points
-
-                answer.is_correct = is_correct
-                answer.points_awarded = points_awarded
-                total_points += points_awarded
+                # Evaluate using strategy
+                result = strategy.score(q_data, answer)
+                answer.is_correct = result.is_correct
+                answer.points_awarded = result.raw_score
+                answer.scoring_status = result.scoring_status.value
+                total_points += result.raw_score
                 evaluated_answers.append(answer)
 
-                # Track skill earned points — use canonical skill_id as key
-                if is_correct:
+                # Track skill earned points — only if correct or partial
+                if result.is_correct is True or result.scoring_status == ScoringStatus.PARTIAL and result.raw_score > 0.0:
                     for tag in question.skill_tags:
                         tag_weight = float(getattr(tag, "weight", 1.0))
                         skill_code = str(tag.skill_id)
-                        skill_tracker[skill_code].earned += points_awarded * tag_weight
+                        skill_tracker[skill_code].earned += result.raw_score * tag_weight
 
                         sub_key = str(getattr(tag, "subskill_id", None) or tag.subskill or "")
                         if sub_key and sub_key in skill_tracker[skill_code].subskills:
                             skill_tracker[skill_code].subskills[sub_key]["earned"] += (
-                                points_awarded * tag_weight
+                                result.raw_score * tag_weight
                             )
 
         # Apply scoring policy adjustment if needed
@@ -179,4 +225,5 @@ class ScoringEngine:
             estimated_level=estimated_level,
             skill_scores=skill_scores,
             evaluated_answers=evaluated_answers,
+            scoring_algorithm_version="v2",
         )

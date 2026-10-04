@@ -570,6 +570,14 @@ class QuestionVersion(UUIDModel):
         default=list,
         nullable=False,
     )
+    snapshot_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+    )
+    changelog: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
     media_asset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("media_assets.id", ondelete="SET NULL"),

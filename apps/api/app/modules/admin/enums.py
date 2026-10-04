@@ -8,6 +8,8 @@ class ContentStatus(str, enum.Enum):
 
     DRAFT = "draft"
     IN_REVIEW = "in_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
     PUBLISHED = "published"
     ARCHIVED = "archived"
 
@@ -54,8 +56,12 @@ class ContentAuditEventType(str, enum.Enum):
     CONTENT_UPDATED = "content.updated"
     CONTENT_SUBMITTED_FOR_REVIEW = "content.submitted_for_review"
     CONTENT_APPROVED = "content.approved"
+    CONTENT_REJECTED = "content.rejected"
     CONTENT_PUBLISHED = "content.published"
     CONTENT_ARCHIVED = "content.archived"
+    CONTENT_FORKED = "content.forked"
+    CONTENT_DRAFT_VERSION_CREATED = "content.draft_version_created"
+    CONTENT_REVERTED = "content.reverted"
     MEDIA_UPLOADED = "media.uploaded"
     MEDIA_DELETED = "media.deleted"
 

@@ -56,6 +56,13 @@ from app.modules.admin.schemas import (
     MediaAssetResponse,
     MediaPresignedUrlResponse,
     PublishValidationResponse,
+    QuestionCreateDraftVersionRequest,
+    QuestionForkRequest,
+    QuestionPublishRequest,
+    QuestionRevertDraftRequest,
+    QuestionReviewDecisionRequest,
+    QuestionSubmitReviewRequest,
+    QuestionValidationResultResponse,
     QuestionVersionResponse,
     SubSkillCreate,
     SubSkillResponse,
@@ -534,9 +541,189 @@ async def update_question(
 
 
 @router.post(
+    "/content/questions/{question_id}/validate",
+    response_model=QuestionValidationResultResponse,
+    summary="Execute automated validation linter on question",
+)
+async def validate_question_endpoint(
+    question_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> QuestionValidationResultResponse:
+    res = await AdminContentService.validate_question(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+    )
+    return QuestionValidationResultResponse.model_validate(res)
+
+
+@router.post(
+    "/content/questions/{question_id}/submit-review",
+    response_model=AdminQuestionResponse,
+    summary="Submit question for editorial peer review with validation gate",
+)
+async def submit_question_for_review(
+    question_id: uuid.UUID,
+    payload: QuestionSubmitReviewRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.submit_question_for_review(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+        comments=payload.comments if payload else None,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
+@router.post(
+    "/content/questions/{question_id}/approve",
+    response_model=AdminQuestionResponse,
+    summary="Approve question currently in review",
+)
+async def approve_question(
+    question_id: uuid.UUID,
+    payload: QuestionReviewDecisionRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.approve_question(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+        notes=payload.notes if payload else None,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
+@router.post(
+    "/content/questions/{question_id}/reject",
+    response_model=AdminQuestionResponse,
+    summary="Reject question currently in review",
+)
+async def reject_question(
+    question_id: uuid.UUID,
+    payload: QuestionReviewDecisionRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.reject_question(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+        notes=payload.notes if payload else None,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
+@router.post(
+    "/content/questions/{question_id}/revert-draft",
+    response_model=AdminQuestionResponse,
+    summary="Revert an in-review or rejected question back to draft status",
+)
+async def revert_question_to_draft(
+    question_id: uuid.UUID,
+    payload: QuestionRevertDraftRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.revert_question_to_draft(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+        reason=payload.reason if payload else None,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
+@router.post(
+    "/content/questions/{question_id}/publish",
+    response_model=AdminQuestionResponse,
+    summary="Publish approved question and freeze immutable historical version snapshot",
+)
+async def publish_question(
+    question_id: uuid.UUID,
+    payload: QuestionPublishRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.publish_question(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+        changelog=payload.changelog if payload else None,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
+@router.post(
+    "/content/questions/{question_id}/archive",
+    response_model=AdminQuestionResponse,
+    summary="Non-destructively archive question",
+)
+async def archive_question(
+    question_id: uuid.UUID,
+    payload: QuestionReviewDecisionRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.archive_question(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+        reason=payload.notes if payload else None,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
+@router.post(
+    "/content/questions/{question_id}/create-draft-version",
+    response_model=AdminQuestionResponse,
+    summary="Branch a new editable draft version from published or approved question",
+)
+async def create_draft_version(
+    question_id: uuid.UUID,
+    payload: QuestionCreateDraftVersionRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.create_draft_version(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+        changelog=payload.changelog if payload else None,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
+@router.post(
+    "/content/questions/{question_id}/fork",
+    response_model=AdminQuestionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Fork question into a distinct new question with lineage provenance",
+)
+async def fork_question(
+    question_id: uuid.UUID,
+    payload: QuestionForkRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    q = await AdminContentService.fork_question(
+        db=db,
+        question_id=question_id,
+        actor_id=current_admin.id,
+        prompt_prefix=payload.prompt_prefix if payload else None,
+        changelog=payload.changelog if payload else None,
+    )
+    return AdminQuestionResponse.model_validate(q)
+
+
+@router.post(
     "/content/questions/{question_id}/new-version",
     response_model=AdminQuestionResponse,
-    summary="Fork a new draft version of a question",
+    summary="Fork a new draft version of a question (alias for create-draft-version)",
 )
 async def fork_question_version(
     question_id: uuid.UUID,
@@ -554,7 +741,7 @@ async def fork_question_version(
 @router.get(
     "/content/questions/{question_id}/versions",
     response_model=list[QuestionVersionResponse],
-    summary="List question versions",
+    summary="List immutable frozen snapshot versions of a question",
 )
 async def list_question_versions(
     question_id: uuid.UUID,
@@ -563,6 +750,49 @@ async def list_question_versions(
 ) -> list[QuestionVersionResponse]:
     versions = await AdminContentService.list_question_versions(db, question_id)
     return [QuestionVersionResponse.model_validate(v) for v in versions]
+
+
+@router.get(
+    "/content/questions/{question_id}/versions/{version_number}",
+    response_model=QuestionVersionResponse,
+    summary="Get a specific historical frozen version snapshot of a question",
+)
+async def get_question_version(
+    question_id: uuid.UUID,
+    version_number: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> QuestionVersionResponse:
+    ver = await AdminContentService.get_question_version(db, question_id, version_number)
+    return QuestionVersionResponse.model_validate(ver)
+
+
+@router.get(
+    "/content/questions/{question_id}/published-version",
+    response_model=QuestionVersionResponse,
+    summary="Get the frozen snapshot version delivered to live examinees",
+)
+async def get_published_question_version(
+    question_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> QuestionVersionResponse:
+    ver = await AdminContentService.get_published_question_version(db, question_id)
+    return QuestionVersionResponse.model_validate(ver)
+
+
+@router.get(
+    "/content/questions/{question_id}/history",
+    response_model=list[AuditEventResponse],
+    summary="Get complete lifecycle transition and modification audit history for question",
+)
+async def get_question_history(
+    question_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> list[AuditEventResponse]:
+    events = await AdminContentService.get_question_history(db, question_id)
+    return [AuditEventResponse.model_validate(e) for e in events]
 
 
 # ---------------------------------------------------------------------------
