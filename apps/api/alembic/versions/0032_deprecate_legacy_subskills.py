@@ -7,7 +7,6 @@ Create Date: 2026-10-03 12:00:00.000000
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0032_deprecate_legacy_subskills"
@@ -59,9 +58,11 @@ def upgrade() -> None:
             RAISE EXCEPTION 'Direct insertion into sub_skills is deprecated and forbidden by Taxonomy V2 architecture. Use canonical skills hierarchy instead.';
         END;
         $$ LANGUAGE plpgsql;
+        """)
 
-        DROP TRIGGER IF EXISTS trg_prevent_sub_skills_insert ON sub_skills;
+        op.execute("DROP TRIGGER IF EXISTS trg_prevent_sub_skills_insert ON sub_skills;")
 
+        op.execute("""
         CREATE TRIGGER trg_prevent_sub_skills_insert
         BEFORE INSERT ON sub_skills
         FOR EACH ROW EXECUTE FUNCTION prevent_sub_skills_insert();
@@ -73,8 +74,6 @@ def downgrade() -> None:
     is_postgres = bind.dialect.name == "postgresql"
 
     if is_postgres:
-        op.execute("""
-        DROP TRIGGER IF EXISTS trg_prevent_sub_skills_insert ON sub_skills;
-        DROP FUNCTION IF EXISTS prevent_sub_skills_insert();
-        COMMENT ON TABLE sub_skills IS NULL;
-        """)
+        op.execute("DROP TRIGGER IF EXISTS trg_prevent_sub_skills_insert ON sub_skills;")
+        op.execute("DROP FUNCTION IF EXISTS prevent_sub_skills_insert();")
+        op.execute("COMMENT ON TABLE sub_skills IS NULL;")

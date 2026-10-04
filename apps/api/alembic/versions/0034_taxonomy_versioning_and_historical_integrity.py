@@ -8,6 +8,7 @@ Create Date: 2026-10-04 03:00:00.000000
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0034_taxonomy_versioning_and_historical_integrity"

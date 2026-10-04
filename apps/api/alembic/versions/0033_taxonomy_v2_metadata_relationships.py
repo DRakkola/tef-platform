@@ -8,6 +8,7 @@ Create Date: 2026-10-03 14:00:00.000000
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0033_taxonomy_v2_metadata_relationships"
