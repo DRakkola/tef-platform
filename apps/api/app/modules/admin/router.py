@@ -73,6 +73,17 @@ from app.modules.admin.schemas import (
     SubSkillUpdate,
     WritingTaskVersionResponse,
 )
+from app.modules.admin.ai_question_schemas import (
+    AIBatchGenerationResponse,
+    AIQuestionGenerationRequest,
+    AIReviewReport,
+    CandidateCreateDraftRequest,
+    CandidateRegenerateRequest,
+    CandidateReviewRequest,
+    GeneratedQuestionCandidate,
+)
+from app.modules.admin.ai_question_service import AIQuestionGenerationService
+
 from app.modules.admin.service import (
     AdminContentService,
     AuditService,
@@ -898,6 +909,85 @@ async def get_question_history(
 ) -> list[AuditEventResponse]:
     events = await AdminContentService.get_question_history(db, question_id)
     return [AuditEventResponse.model_validate(e) for e in events]
+
+
+# ---------------------------------------------------------------------------
+# AI Question Generation Pipeline (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/content/generation/candidates",
+    response_model=AIBatchGenerationResponse,
+    summary="Generate candidate question drafts using AI with automated validation and duplicate checks",
+)
+async def generate_question_candidates_endpoint(
+    payload: AIQuestionGenerationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AIBatchGenerationResponse:
+    return await AIQuestionGenerationService.generate_candidates(
+        db=db,
+        request=payload,
+        actor_id=current_admin.id,
+    )
+
+
+@router.post(
+    "/content/generation/candidates/review",
+    response_model=AIReviewReport,
+    summary="Run an independent second-pass AI quality and naturalness critique on a candidate",
+)
+async def review_question_candidate_endpoint(
+    payload: CandidateReviewRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> AIReviewReport:
+    return await AIQuestionGenerationService.review_candidate(
+        db=db,
+        request=payload,
+    )
+
+
+@router.post(
+    "/content/generation/candidates/create-draft",
+    response_model=AdminQuestionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Commit accepted AI-generated candidate into database as a draft Question",
+)
+async def create_draft_from_candidate_endpoint(
+    payload: CandidateCreateDraftRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    question = await AIQuestionGenerationService.create_draft_from_candidate(
+        db=db,
+        candidate=payload.candidate,
+        actor_id=current_admin.id,
+        section_id=payload.section_id,
+    )
+    return AdminQuestionResponse.model_validate(question)
+
+
+@router.post(
+    "/content/questions/{question_id}/regenerate",
+    response_model=AdminQuestionResponse,
+    summary="Regenerate components of a draft question (strictly prohibited on approved/published questions)",
+)
+async def regenerate_question_component_endpoint(
+    question_id: uuid.UUID,
+    payload: CandidateRegenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminQuestionResponse:
+    question = await AIQuestionGenerationService.regenerate_draft_component(
+        db=db,
+        question_id=question_id,
+        request=payload,
+        actor_id=current_admin.id,
+    )
+    return AdminQuestionResponse.model_validate(question)
+
 
 
 # ---------------------------------------------------------------------------

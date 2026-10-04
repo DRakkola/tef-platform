@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Copy,
   Check,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -39,6 +40,7 @@ interface QuestionWorkspaceHeaderProps {
   onCreateDraftVersion: (changelog?: string) => void;
   onFork: () => void;
   onRefresh: () => void;
+  onRegenerateComponent?: (component: string) => void;
 }
 
 export const QuestionWorkspaceHeader: React.FC<QuestionWorkspaceHeaderProps> = ({
@@ -60,6 +62,7 @@ export const QuestionWorkspaceHeader: React.FC<QuestionWorkspaceHeaderProps> = (
   onCreateDraftVersion,
   onFork,
   onRefresh,
+  onRegenerateComponent,
 }) => {
   const [copied, setCopied] = useState(false);
   const [modalAction, setModalAction] = useState<
@@ -247,17 +250,33 @@ export const QuestionWorkspaceHeader: React.FC<QuestionWorkspaceHeaderProps> = (
                 {isSaving ? "Enregistrement..." : "Enregistrer"}
               </Button>
               {!isNew && (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => handleOpenActionModal("submit_review")}
-                  disabled={isActionLoading || validationStatus === "invalid"}
-                  className="h-8 text-xs gap-1 bg-sky-600 hover:bg-sky-700 text-white font-semibold"
-                  title={validationStatus === "invalid" ? "Corrigez les erreurs bloquantes avant soumission" : "Soumettre pour révision"}
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Soumettre pour révision
-                </Button>
+                <>
+                  {onRegenerateComponent && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onRegenerateComponent("distractors")}
+                      disabled={isActionLoading}
+                      className="h-8 text-xs gap-1 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/30"
+                      title="Régénérer les distracteurs par IA selon les règles didactiques"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Distracteurs IA
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => handleOpenActionModal("submit_review")}
+                    disabled={isActionLoading || validationStatus === "invalid"}
+                    className="h-8 text-xs gap-1 bg-sky-600 hover:bg-sky-700 text-white font-semibold"
+                    title={validationStatus === "invalid" ? "Corrigez les erreurs bloquantes avant soumission" : "Soumettre pour révision"}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    Soumettre pour révision
+                  </Button>
+                </>
               )}
             </>
           )}

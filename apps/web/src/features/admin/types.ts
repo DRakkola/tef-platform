@@ -350,3 +350,140 @@ export interface AuditEventItem {
   user_agent?: string | null;
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// AI Question Generation (Phase 7)
+// ---------------------------------------------------------------------------
+
+export interface CandidateOptionPayload {
+  content: string;
+  is_correct: boolean;
+  order_index?: number;
+  explanation?: string | null;
+  misconception_type?: string | null;
+  distractor_rationale?: string | null;
+}
+
+export interface CandidateSkillMapping {
+  skill_id: string;
+  skill_code?: string | null;
+  skill_name?: string | null;
+  role: string;
+  weight: number;
+}
+
+export interface CandidateGenerationMetadata {
+  model: string;
+  prompt_template_version: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  estimated_cost_usd?: number;
+  latency_ms?: number;
+  is_simulation: boolean;
+  generated_at?: string;
+}
+
+export interface DuplicateCheckReport {
+  is_duplicate: boolean;
+  status: "unique" | "possible_duplicate" | "exact_duplicate" | string;
+  similarity_score: number;
+  matched_question_id?: string | null;
+  matched_prompt?: string | null;
+  message?: string;
+}
+
+export interface AIReviewReport {
+  quality_score: number;
+  naturalness_score: number;
+  pedagogical_alignment: string;
+  distractor_quality?: string | null;
+  strengths: string[];
+  weaknesses: string[];
+  warnings: string[];
+  suggested_improvements: string[];
+  reviewed_at?: string;
+}
+
+export interface GeneratedQuestionCandidate {
+  candidate_id: string;
+  modality: string;
+  prompt: string;
+  instructions?: string | null;
+  response_type: string;
+  target_cefr: string;
+  difficulty_rating: number;
+  item_difficulty: number;
+  cognitive_complexity: string;
+  points: number;
+  penalty_points: number;
+  task_type_id?: string | null;
+  task_type_code?: string | null;
+  stimulus_id?: string | null;
+  stimulus_title?: string | null;
+  stimulus_content?: string | null;
+  stimulus_mode?: string;
+  source_attribution?: string | null;
+  options: CandidateOptionPayload[];
+  skill_mappings: CandidateSkillMapping[];
+  scoring_payload?: Record<string, any> | null;
+  explanation?: string | null;
+  generation_metadata: CandidateGenerationMetadata;
+  duplicate_check: DuplicateCheckReport;
+  validation_report?: QuestionValidationResult | Record<string, any> | null;
+  ai_review?: AIReviewReport | null;
+  status: "pending_review" | "accepted" | "rejected" | string;
+}
+
+export interface AIQuestionGenerationRequest {
+  modality?: string;
+  task_type_id?: string | null;
+  task_type_code?: string | null;
+  response_type?: string;
+  target_cefr?: string;
+  difficulty_rating?: number | null;
+  cognitive_complexity?: string;
+  topic?: string | null;
+  stimulus_mode?: "generate_new" | "existing_stimulus" | "supplied_text" | string;
+  stimulus_id?: string | null;
+  supplied_stimulus_text?: string | null;
+  source_attribution?: string | null;
+  target_skill_ids?: string[];
+  count?: number;
+  temperature?: number;
+  model?: string;
+  api_key_override?: string | null;
+  force_simulation?: boolean;
+}
+
+export interface AIBatchGenerationResponse {
+  batch_id: string;
+  candidates: GeneratedQuestionCandidate[];
+  total_requested: number;
+  total_generated: number;
+  valid_candidates_count: number;
+  invalid_candidates_count: number;
+  generation_time_ms: number;
+  summary: string;
+}
+
+export interface CandidateCreateDraftRequest {
+  candidate: GeneratedQuestionCandidate;
+  section_id?: string | null;
+}
+
+export interface CandidateReviewRequest {
+  candidate: GeneratedQuestionCandidate;
+  api_key_override?: string | null;
+  force_simulation?: boolean;
+}
+
+export interface CandidateRegenerateRequest {
+  component: "distractors" | "prompt" | "explanation" | string;
+  custom_instructions?: string | null;
+  temperature?: number;
+  model?: string;
+  api_key_override?: string | null;
+  force_simulation?: boolean;
+}
+

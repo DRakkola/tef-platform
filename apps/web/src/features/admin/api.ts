@@ -19,6 +19,12 @@ import type {
   QuestionSkillTag,
   QuestionValidationResult,
   QuestionVersionItem,
+  AIBatchGenerationResponse,
+  AIQuestionGenerationRequest,
+  AIReviewReport,
+  CandidateCreateDraftRequest,
+  CandidateRegenerateRequest,
+  CandidateReviewRequest,
   SkillItem,
   SubSkill,
   ValidationReport,
@@ -649,3 +655,45 @@ export async function fetchAuditLogs(params?: {
     `/admin/audit-logs${qs ? `?${qs}` : ""}`
   );
 }
+
+// ---------------------------------------------------------------------------
+// AI Question Generation (Phase 7)
+// ---------------------------------------------------------------------------
+
+export async function generateQuestionCandidates(
+  payload: AIQuestionGenerationRequest
+): Promise<AIBatchGenerationResponse> {
+  return apiClient<AIBatchGenerationResponse>("/admin/content/generation/candidates", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function reviewQuestionCandidate(
+  payload: CandidateReviewRequest
+): Promise<AIReviewReport> {
+  return apiClient<AIReviewReport>("/admin/content/generation/candidates/review", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createDraftFromCandidate(
+  payload: CandidateCreateDraftRequest
+): Promise<QuestionItem> {
+  return apiClient<QuestionItem>("/admin/content/generation/candidates/create-draft", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function regenerateQuestionComponent(
+  questionId: string,
+  payload: CandidateRegenerateRequest
+): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${questionId}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+

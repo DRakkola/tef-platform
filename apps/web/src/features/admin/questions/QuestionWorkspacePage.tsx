@@ -33,6 +33,7 @@ import {
   archiveQuestion,
   createDraftVersion,
   forkQuestion,
+  regenerateQuestionComponent,
 } from "../api";
 import type { QuestionItem, QuestionValidationResult } from "../types";
 
@@ -356,6 +357,27 @@ export const QuestionWorkspacePage: React.FC<QuestionWorkspacePageProps> = ({ mo
     }
   };
 
+  const handleRegenerate = async (component: string) => {
+    if (!question.id) return;
+    setIsActionLoading(true);
+    try {
+      const res = await regenerateQuestionComponent(question.id, {
+        component,
+        force_simulation: false,
+      });
+      setQuestion(res);
+      setOriginalQuestion(res);
+      setAlertMsg({
+        type: "success",
+        text: `Composant '${component}' régénéré par IA avec succès. L'audit de validation a été actualisé.`,
+      });
+    } catch (err: any) {
+      setAlertMsg({ type: "error", text: err.message || "Échec de la régénération par IA." });
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <AdminLayout>
@@ -401,6 +423,7 @@ export const QuestionWorkspacePage: React.FC<QuestionWorkspacePageProps> = ({ mo
           onCreateDraftVersion={handleCreateDraftVersion}
           onFork={handleFork}
           onRefresh={() => id && loadQuestionData(id)}
+          onRegenerateComponent={handleRegenerate}
         />
 
         {/* Global Feedback Banner */}
