@@ -54,6 +54,7 @@ from app.modules.assessments.enums import (
 from app.modules.assessments.models import (
     Assessment,
     AssessmentSection,
+    AssessmentSectionQuestion,
     Question,
     QuestionOption,
     QuestionProvenance,
@@ -467,7 +468,12 @@ async def test_attempt_pins_delivered_question_version(db_session: AsyncSession)
     db_session.add(sec)
     await db_session.flush()
 
-    q.section_id = sec.id
+    asq = AssessmentSectionQuestion(
+        assessment_section_id=sec.id,
+        question_id=q.id,
+        order_index=1,
+    )
+    db_session.add(asq)
     await db_session.commit()
 
     # Create student and attempt

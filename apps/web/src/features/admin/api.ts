@@ -22,6 +22,8 @@ import type {
   AIBatchGenerationResponse,
   AIQuestionGenerationRequest,
   AIReviewReport,
+  AIStimulusCandidate,
+  AIStimulusGenerationRequest,
   CandidateCreateDraftRequest,
   CandidateRegenerateRequest,
   CandidateReviewRequest,
@@ -692,6 +694,24 @@ export async function regenerateQuestionComponent(
   payload: CandidateRegenerateRequest
 ): Promise<QuestionItem> {
   return apiClient<QuestionItem>(`/admin/content/questions/${questionId}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function generateStimulusCandidate(
+  payload: AIStimulusGenerationRequest
+): Promise<AIStimulusCandidate> {
+  return apiClient<AIStimulusCandidate>("/admin/content/generation/stimuli/generate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function persistStimulusCandidate(
+  payload: AIStimulusCandidate
+): Promise<AdminStimulus> {
+  return apiClient<AdminStimulus>("/admin/content/generation/stimuli/persist", {
     method: "POST",
     body: JSON.stringify(payload),
   });

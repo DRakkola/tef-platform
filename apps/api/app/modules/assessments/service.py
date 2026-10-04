@@ -813,7 +813,7 @@ class AssessmentService:
                 questions_data.append(
                     {
                         "id": q.id,
-                        "section_id": q.section_id,
+                        "section_id": getattr(q, "section_id", None) or section.id,
                         "prompt": q.prompt,
                         "question_type": q.question_type,
                         "order_index": q.order_index,

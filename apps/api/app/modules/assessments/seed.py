@@ -15,6 +15,7 @@ from app.modules.assessments.enums import (
 from app.modules.assessments.models import (
     Assessment,
     AssessmentSection,
+    AssessmentSectionQuestion,
     Question,
     QuestionOption,
     QuestionSkillTag,
@@ -133,7 +134,6 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
 
     # Question 1 (Reading Sec A)
     q1_r = Question(
-        section_id=sec_read_a.id,
         prompt="Que pouvez-vous faire à la bibliothèque pendant la première quinzaine d'octobre ?",
         question_type=QuestionType.SINGLE_CHOICE,
         order_index=0,
@@ -145,6 +145,7 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
     )
     db.add(q1_r)
     await db.flush()
+    db.add(AssessmentSectionQuestion(assessment_section_id=sec_read_a.id, question_id=q1_r.id, order_index=0))
 
     db.add_all(
         [
@@ -211,7 +212,6 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
 
     # Question 2 (Reading Sec B)
     q2_r = Question(
-        section_id=sec_read_b.id,
         prompt="Quel est l'objectif principal visé par la municipalité à travers ce nouvel aménagement ?",
         question_type=QuestionType.SINGLE_CHOICE,
         order_index=0,
@@ -223,6 +223,7 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
     )
     db.add(q2_r)
     await db.flush()
+    db.add(AssessmentSectionQuestion(assessment_section_id=sec_read_b.id, question_id=q2_r.id, order_index=0))
 
     db.add_all(
         [
@@ -297,7 +298,6 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
     await db.flush()
 
     q1_l = Question(
-        section_id=sec_listen_a.id,
         prompt="Quelle modification est communiquée aux voyageurs de ce train ?",
         question_type=QuestionType.SINGLE_CHOICE,
         order_index=0,
@@ -308,6 +308,7 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
     )
     db.add(q1_l)
     await db.flush()
+    db.add(AssessmentSectionQuestion(assessment_section_id=sec_listen_a.id, question_id=q1_l.id, order_index=0))
 
     db.add_all(
         [
@@ -342,8 +343,6 @@ async def seed_demo_assessments(db: AsyncSession) -> None:
         QuestionSkillTag(
             question_id=q1_l.id,
             skill_id=listening_skill.id,
-            subskill_id=listening_announcement.id,
-            subskill="listening_announcement",
             role=SkillTagRole.PRIMARY,
             weight=1.0,
         )

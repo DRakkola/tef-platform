@@ -30,6 +30,7 @@ from app.modules.assessments.enums import AssessmentType, QuestionType
 from app.modules.assessments.models import (
     Assessment,
     AssessmentSection,
+    AssessmentSectionQuestion,
     Question,
     QuestionOption,
     QuestionSkillTag,
@@ -127,7 +128,6 @@ async def _make_assessment_with_question(
     await db.flush()
 
     question = Question(
-        section_id=section.id,
         prompt="Quelle est la signification de ce texte?",
         question_type=QuestionType.SINGLE_CHOICE,
         order_index=0,
@@ -139,6 +139,14 @@ async def _make_assessment_with_question(
         version=1,
     )
     db.add(question)
+    await db.flush()
+
+    asq = AssessmentSectionQuestion(
+        assessment_section_id=section.id,
+        question_id=question.id,
+        order_index=0,
+    )
+    db.add(asq)
     await db.flush()
 
     opt_correct = QuestionOption(

@@ -35,6 +35,7 @@ from app.modules.assessments.enums import (
 from app.modules.assessments.models import (
     Assessment,
     AssessmentSection,
+    AssessmentSectionQuestion,
     Question,
     QuestionOption,
     QuestionProvenance,
@@ -519,7 +520,6 @@ async def test_backward_compatibility_legacy_question_serialization(db_session: 
 
     # Legacy Question
     q = Question(
-        section_id=sec.id,
         stimulus_id=None,
         prompt="Question classique sans stimulus ?",
         question_type=QuestionType.SINGLE_CHOICE,
@@ -531,6 +531,13 @@ async def test_backward_compatibility_legacy_question_serialization(db_session: 
     )
     db_session.add(q)
     await db_session.flush()
+
+    asq = AssessmentSectionQuestion(
+        assessment_section_id=sec.id,
+        question_id=q.id,
+        order_index=0,
+    )
+    db_session.add(asq)
 
     opt = QuestionOption(
         question_id=q.id,
@@ -550,6 +557,7 @@ async def test_backward_compatibility_legacy_question_serialization(db_session: 
             selectinload(Question.provenance),
             selectinload(Question.validations),
             selectinload(Question.skill_tags),
+            selectinload(Question.section_associations),
         )
     )
     loaded_q = (await db_session.execute(stmt)).scalar_one()

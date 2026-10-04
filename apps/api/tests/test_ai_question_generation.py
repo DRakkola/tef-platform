@@ -12,19 +12,20 @@ Verifies:
 """
 
 import uuid
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from app.core.exceptions import AppException
 from app.modules.admin.ai_question_schemas import (
     AIQuestionGenerationRequest,
+    AIStimulusGenerationRequest,
+    CandidateGenerationMetadata,
     CandidateOptionPayload,
     CandidateRegenerateRequest,
     CandidateReviewRequest,
     CandidateSkillMapping,
     GeneratedQuestionCandidate,
-    CandidateGenerationMetadata,
 )
 from app.modules.admin.ai_question_service import (
     AIQuestionGenerationService,
@@ -32,6 +33,7 @@ from app.modules.admin.ai_question_service import (
     _tokenize_text,
 )
 from app.modules.admin.enums import ContentStatus
+from app.modules.admin.tagging_service import TaggingValidationEngine
 from app.modules.assessments.enums import (
     CognitiveComplexityLevel,
     QuestionAuthorType,
@@ -39,11 +41,8 @@ from app.modules.assessments.enums import (
     QuestionType,
 )
 from app.modules.assessments.models import (
-    AssessmentSection,
     Question,
     QuestionOption,
-    QuestionProvenance,
-    QuestionSkillTag,
     Skill,
     TaskType,
 )
@@ -413,3 +412,363 @@ async def test_regeneration_on_draft_question_succeeds(db_session: AsyncSession)
     correct_opts = [o for o in updated_q.options if o.is_correct]
     assert len(correct_opts) == 1
     assert correct_opts[0].content == "Bonne réponse d'origine"
+
+
+@pytest.mark.asyncio
+async def test_stimulus_bundling_multi_questions(db_session: AsyncSession):
+    """Verify bundling multiple questions per stimulus shares the same passage across items."""
+    req = AIQuestionGenerationRequest(
+        modality="reading",
+        target_cefr="B1",
+        count=4,
+        questions_per_stimulus=2,
+        force_simulation=True,
+    )
+    resp = await AIQuestionGenerationService.generate_candidates(db=db_session, request=req)
+    assert resp.total_generated == 4
+
+    # Items 0 & 1 belong to bundle 1 and should share the exact same stimulus
+    assert resp.candidates[0].stimulus_content == resp.candidates[1].stimulus_content
+    assert resp.candidates[0].stimulus_title == resp.candidates[1].stimulus_title
+
+    # Items 2 & 3 belong to bundle 2 and should share the exact same stimulus
+    assert resp.candidates[2].stimulus_content == resp.candidates[3].stimulus_content
+
+
+@pytest.mark.asyncio
+async def test_dual_dimension_skill_tagging(db_session: AsyncSession):
+    """Verify dual-dimension tagging assigns 1 reasoning skill and 1 language skill."""
+    r_skill = Skill(
+        code="CE_LOGICAL_INFERENCE",
+        name="Inférer une conclusion",
+        domain="reading",
+        dimension="reasoning",
+        is_active=True,
+    )
+    l_skill = Skill(
+        code="CE_DISCOURSE_MARKERS",
+        name="Connecteurs logiques et discours",
+        domain="reading",
+        dimension="language",
+        is_active=True,
+    )
+    db_session.add_all([r_skill, l_skill])
+    await db_session.flush()
+
+    req = AIQuestionGenerationRequest(
+        modality="reading",
+        target_cefr="B2",
+        count=1,
+        force_simulation=True,
+    )
+    resp = await AIQuestionGenerationService.generate_candidates(db=db_session, request=req)
+    cand = resp.candidates[0]
+
+    # Verify both dimensions are tagged
+    skill_ids = [sm.skill_id for sm in cand.skill_mappings]
+    assert r_skill.id in skill_ids
+    assert l_skill.id in skill_ids
+
+    # Verify each dimension has role='primary' and weight=1.0
+    for sm in cand.skill_mappings:
+        assert sm.role == "primary"
+        assert sm.weight == 1.0
+
+
+@pytest.mark.asyncio
+async def test_multi_format_generation_matching_and_gap(db_session: AsyncSession):
+    """Verify generating matching and text_gap questions and persisting them to draft."""
+    # Test Matching
+    req_matching = AIQuestionGenerationRequest(
+        modality="reading",
+        response_type=QuestionResponseType.MATCHING.value,
+        target_cefr="B2",
+        count=1,
+        force_simulation=True,
+    )
+    resp_m = await AIQuestionGenerationService.generate_candidates(db=db_session, request=req_matching)
+    cand_m = resp_m.candidates[0]
+    assert cand_m.response_type == "matching"
+    assert cand_m.scoring_payload is not None
+    assert "pairs" in cand_m.scoring_payload
+
+    # Persist matching draft
+    q_draft_m = await AIQuestionGenerationService.create_draft_from_candidate(
+        db=db_session,
+        candidate=cand_m,
+        actor_id=uuid.uuid4(),
+    )
+    assert q_draft_m.response_type == "matching"
+    assert q_draft_m.scoring_payload["pairs"] is not None
+
+    # Test Text Gap
+    req_gap = AIQuestionGenerationRequest(
+        modality="reading",
+        response_type="text_gap",
+        target_cefr="B2",
+        count=1,
+        force_simulation=True,
+    )
+    resp_g = await AIQuestionGenerationService.generate_candidates(db=db_session, request=req_gap)
+    cand_g = resp_g.candidates[0]
+    assert cand_g.response_type == "text_gap"
+    assert cand_g.scoring_payload is not None
+    assert "gaps" in cand_g.scoring_payload
+
+    # Persist text_gap draft
+    q_draft_g = await AIQuestionGenerationService.create_draft_from_candidate(
+        db=db_session,
+        candidate=cand_g,
+        actor_id=uuid.uuid4(),
+    )
+    assert q_draft_g.question_type == QuestionType.TEXT_INPUT
+    assert q_draft_g.response_type == "text_gap"
+    assert "gaps" in q_draft_g.scoring_payload
+
+
+@pytest.mark.asyncio
+async def test_stimulus_content_hash_deduplication(db_session: AsyncSession):
+    """Verify candidates sharing the same stimulus content reuse the same Stimulus row."""
+    shared_content = "Le festival annuel des francophonies se déroulera à Limoges du 20 au 30 septembre."
+    cand1 = GeneratedQuestionCandidate(
+        prompt="Où se déroule le festival ?",
+        response_type=QuestionResponseType.SINGLE_CHOICE.value,
+        target_cefr="A2",
+        stimulus_title="Festival des Francophonies",
+        stimulus_content=shared_content,
+        options=[
+            CandidateOptionPayload(content="À Limoges.", is_correct=True, order_index=0),
+            CandidateOptionPayload(content="À Paris.", is_correct=False, order_index=1),
+            CandidateOptionPayload(content="À Lyon.", is_correct=False, order_index=2),
+            CandidateOptionPayload(content="À Marseille.", is_correct=False, order_index=3),
+        ],
+        generation_metadata=CandidateGenerationMetadata(
+            model="models/gemini-2.5-flash",
+            prompt_template_version="reading_mcq_gen_v2.1",
+            is_simulation=True,
+        ),
+    )
+    cand2 = GeneratedQuestionCandidate(
+        prompt="Quelle est la durée approximative du festival ?",
+        response_type=QuestionResponseType.SINGLE_CHOICE.value,
+        target_cefr="A2",
+        stimulus_title="Festival des Francophonies",
+        stimulus_content=shared_content,
+        options=[
+            CandidateOptionPayload(content="10 jours.", is_correct=True, order_index=0),
+            CandidateOptionPayload(content="1 mois.", is_correct=False, order_index=1),
+            CandidateOptionPayload(content="3 jours.", is_correct=False, order_index=2),
+            CandidateOptionPayload(content="2 semaines.", is_correct=False, order_index=3),
+        ],
+        generation_metadata=CandidateGenerationMetadata(
+            model="models/gemini-2.5-flash",
+            prompt_template_version="reading_mcq_gen_v2.1",
+            is_simulation=True,
+        ),
+    )
+
+    actor = uuid.uuid4()
+    q1 = await AIQuestionGenerationService.create_draft_from_candidate(db=db_session, candidate=cand1, actor_id=actor)
+    q2 = await AIQuestionGenerationService.create_draft_from_candidate(db=db_session, candidate=cand2, actor_id=actor)
+
+    assert q1.stimulus_id is not None
+    assert q2.stimulus_id is not None
+    # Both questions must point to the identical Stimulus ID
+    assert q1.stimulus_id == q2.stimulus_id
+
+
+@pytest.mark.asyncio
+async def test_generate_and_persist_stimulus_document_matching(db_session: AsyncSession):
+    """Verify generating and persisting a multi-document stimulus bundle (Documents A/B/C/D)."""
+    req = AIStimulusGenerationRequest(
+        modality="reading",
+        task_type_code="document_matching",
+        target_cefr="B2",
+        topic="Offres de formation professionnelle",
+        force_simulation=True,
+    )
+    stim_cand = await AIQuestionGenerationService.generate_stimulus(
+        db=db_session,
+        request=req,
+    )
+    assert stim_cand.title is not None
+    assert stim_cand.task_type_code == "document_matching"
+    assert stim_cand.text_format == "multi_doc"
+    assert len(stim_cand.sub_documents) == 4
+    doc_labels = [d["label"] for d in stim_cand.sub_documents]
+    assert doc_labels == ["Document A", "Document B", "Document C", "Document D"]
+
+    # Persist stimulus
+    stim_orm = await AIQuestionGenerationService.persist_stimulus(
+        db=db_session,
+        candidate=stim_cand,
+        actor_id=uuid.uuid4(),
+    )
+    assert stim_orm.id == stim_cand.id
+    assert stim_orm.text_format == "multi_doc"
+    assert "Document A" in stim_orm.content_text
+    assert "Document D" in stim_orm.content_text
+
+
+@pytest.mark.asyncio
+async def test_generate_stimulus_graph_matching(db_session: AsyncSession):
+    """Verify generating a graph_matching stimulus with table markdown formatting."""
+    req = AIStimulusGenerationRequest(
+        modality="reading",
+        task_type_code="graph_matching",
+        target_cefr="B2",
+        topic="Sondage sur le télétravail",
+        force_simulation=True,
+    )
+    stim_cand = await AIQuestionGenerationService.generate_stimulus(
+        db=db_session,
+        request=req,
+    )
+    assert stim_cand.text_format == "table"
+    assert "|" in stim_cand.content_text
+    assert "Année" in stim_cand.content_text
+
+
+@pytest.mark.asyncio
+async def test_sentence_gap_suppresses_stimulus(db_session: AsyncSession):
+    """Verify sentence_gap questions strictly suppress stimulus and embed gap in prompt."""
+    req = AIQuestionGenerationRequest(
+        modality="reading",
+        task_type_code="sentence_gap",
+        target_cefr="B1",
+        count=1,
+        force_simulation=True,
+    )
+    resp = await AIQuestionGenerationService.generate_candidates(db=db_session, request=req)
+    cand = resp.candidates[0]
+
+    # Verify stimulus is strictly suppressed
+    assert cand.stimulus_id is None
+    assert cand.stimulus_title is None
+    assert cand.stimulus_content is None
+    assert cand.stimulus_mode == "none"
+
+    # Verify prompt contains gap blank
+    assert "______" in cand.prompt
+
+    # Persist draft question and verify DB stimulus_id is None
+    draft_q = await AIQuestionGenerationService.create_draft_from_candidate(
+        db=db_session,
+        candidate=cand,
+        actor_id=uuid.uuid4(),
+    )
+    assert draft_q.stimulus_id is None
+    assert "______" in draft_q.prompt
+
+
+@pytest.mark.asyncio
+async def test_all_14_tef_task_types_generation(db_session: AsyncSession):
+    """Verify candidate generation across all official TEF task types."""
+    task_types = [
+        ("reading", "document_matching"),
+        ("reading", "press_article"),
+        ("reading", "sentence_gap"),
+        ("reading", "text_gap"),
+        ("reading", "graph_matching"),
+        ("listening", "short_announcement"),
+        ("listening", "radio_broadcast"),
+        ("listening", "public_survey"),
+        ("listening", "phonological_recognition"),
+        ("writing", "fait_divers"),
+        ("writing", "opinion_letter"),
+        ("speaking", "information_gathering"),
+        ("speaking", "persuasive_argumentation"),
+    ]
+
+    for modality, task_code in task_types:
+        req = AIQuestionGenerationRequest(
+            modality=modality,
+            task_type_code=task_code,
+            target_cefr="B2",
+            count=1,
+            force_simulation=True,
+        )
+        resp = await AIQuestionGenerationService.generate_candidates(db=db_session, request=req)
+        assert len(resp.candidates) == 1, f"Failed generation for {task_code}"
+        cand = resp.candidates[0]
+        assert cand.prompt is not None and len(cand.prompt) > 0
+
+
+@pytest.mark.asyncio
+async def test_granular_multi_tagging_validates_cleanly(db_session: AsyncSession):
+    """Verify granular multi-tagging (Primary 0.75 + Secondary 0.25) across reasoning and language dimensions passes TaggingValidationEngine."""
+    # Seed 2 reasoning skills and 2 language skills
+    r_primary = Skill(
+        code="TEST_REASON_PRIM",
+        name="Raisonnement Principal",
+        domain="reading",
+        dimension="reasoning",
+        is_active=True,
+    )
+    r_secondary = Skill(
+        code="TEST_REASON_SEC",
+        name="Raisonnement Secondaire",
+        domain="reading",
+        dimension="reasoning",
+        is_active=True,
+    )
+    l_primary = Skill(
+        code="TEST_LANG_PRIM",
+        name="Langue Principale",
+        domain="reading",
+        dimension="language",
+        is_active=True,
+    )
+    l_secondary = Skill(
+        code="TEST_LANG_SEC",
+        name="Langue Secondaire",
+        domain="reading",
+        dimension="language",
+        is_active=True,
+    )
+    db_session.add_all([r_primary, r_secondary, l_primary, l_secondary])
+    await db_session.flush()
+
+    req = AIQuestionGenerationRequest(
+        modality="reading",
+        task_type_code="press_article",
+        target_cefr="B2",
+        count=1,
+        force_simulation=True,
+    )
+    resp = await AIQuestionGenerationService.generate_candidates(db=db_session, request=req)
+    cand = resp.candidates[0]
+
+    # Verify 4 tags were assigned: 2 reasoning + 2 language
+    assert len(cand.skill_mappings) == 4
+    weights_by_dim: dict[str, float] = {"reasoning": 0.0, "language": 0.0}
+    roles_by_dim: dict[str, list[str]] = {"reasoning": [], "language": []}
+
+    skill_map = {
+        r_primary.id: ("reasoning", "TEST_REASON_PRIM"),
+        r_secondary.id: ("reasoning", "TEST_REASON_SEC"),
+        l_primary.id: ("language", "TEST_LANG_PRIM"),
+        l_secondary.id: ("language", "TEST_LANG_SEC"),
+    }
+
+    for mapping in cand.skill_mappings:
+        assert mapping.skill_id in skill_map
+        dim, _ = skill_map[mapping.skill_id]
+        weights_by_dim[dim] += mapping.weight
+        roles_by_dim[dim].append(mapping.role)
+
+    # Invariants: sum = 1.0 per dimension, exactly 1 primary per dimension
+    assert abs(weights_by_dim["reasoning"] - 1.0) < 0.01
+    assert abs(weights_by_dim["language"] - 1.0) < 0.01
+    assert roles_by_dim["reasoning"].count("primary") == 1
+    assert roles_by_dim["reasoning"].count("secondary") == 1
+    assert roles_by_dim["language"].count("primary") == 1
+    assert roles_by_dim["language"].count("secondary") == 1
+
+    # Validate directly against TaggingValidationEngine without exception
+    validated_skills = await TaggingValidationEngine.validate_skill_tags(
+        db=db_session,
+        tags=cand.skill_mappings,
+    )
+    assert len(validated_skills) == 4
+

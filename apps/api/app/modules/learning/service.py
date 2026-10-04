@@ -115,7 +115,7 @@ class LearningService:
                             user_id=attempt.user_id,
                             skill_id=tag.skill_id,
                             subskill_id=getattr(tag, "subskill_id", None),
-                            subskill=tag.subskill,
+                            subskill=getattr(tag, "subskill", None),
                             source_type="assessment",
                             source_id=attempt.id,
                             question_id=question.id,

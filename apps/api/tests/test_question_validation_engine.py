@@ -559,7 +559,6 @@ async def test_validation_duplication_exact_and_near(db_session: AsyncSession) -
     sec = await _make_assessment_section(db_session)
 
     existing_q = Question(
-        section_id=sec.id,
         prompt="Quelles sont les nouvelles modalités d'inscription pour la session d'automne ?",
         question_type=QuestionType.SINGLE_CHOICE,
         response_type=QuestionResponseType.SINGLE_CHOICE.value,
@@ -685,7 +684,6 @@ async def test_validation_persistence_append_only(db_session: AsyncSession) -> N
     sk1, _, _ = await _make_skills(db_session, tv)
 
     q = Question(
-        section_id=sec.id,
         prompt="Où se situe l'action décrite dans ce court extrait littéraire ?",
         question_type=QuestionType.SINGLE_CHOICE,
         response_type=QuestionResponseType.SINGLE_CHOICE.value,

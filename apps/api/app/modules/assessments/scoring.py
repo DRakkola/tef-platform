@@ -134,7 +134,7 @@ class ScoringEngine:
                     skill_tracker[skill_code].max += q_points * tag_weight
 
                     # Maintain subskill breakdown by subskill_id or legacy subskill string
-                    sub_key = str(getattr(tag, "subskill_id", None) or tag.subskill or "")
+                    sub_key = str(getattr(tag, "subskill_id", None) or getattr(tag, "subskill", None) or "")
                     if sub_key:
                         sub = skill_tracker[skill_code].subskills.setdefault(
                             sub_key, {"earned": 0.0, "max": 0.0}
@@ -177,7 +177,7 @@ class ScoringEngine:
                         skill_code = str(tag.skill_id)
                         skill_tracker[skill_code].earned += result.raw_score * tag_weight
 
-                        sub_key = str(getattr(tag, "subskill_id", None) or tag.subskill or "")
+                        sub_key = str(getattr(tag, "subskill_id", None) or getattr(tag, "subskill", None) or "")
                         if sub_key and sub_key in skill_tracker[skill_code].subskills:
                             skill_tracker[skill_code].subskills[sub_key]["earned"] += (
                                 result.raw_score * tag_weight

@@ -14,7 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.assessments.enums import (
     CognitiveComplexityLevel,
-    QuestionAuthorType,
     QuestionResponseType,
 )
 
@@ -153,6 +152,7 @@ class AIQuestionGenerationRequest(BaseModel):
     source_attribution: str | None = None
 
     target_skill_ids: list[uuid.UUID] = Field(default_factory=list)
+    questions_per_stimulus: int = Field(default=1, ge=1, le=4)
     count: int = Field(default=1, ge=1, le=10)
     temperature: float = Field(default=0.7, ge=0.0, le=1.5)
     model: str = "models/gemini-2.5-flash"
@@ -197,3 +197,37 @@ class CandidateRegenerateRequest(BaseModel):
     model: str = "models/gemini-2.5-flash"
     api_key_override: str | None = None
     force_simulation: bool = False
+
+
+class AIStimulusGenerationRequest(BaseModel):
+    """Payload to generate a specialized TEF stimulus (multi-document, table, audio script, passage)."""
+
+    modality: str = "reading"
+    task_type_code: str = "document_matching"
+    task_type_id: uuid.UUID | None = None
+    target_cefr: str = "B2"
+    topic: str | None = None
+    format: str = "multi_document"  # "multi_document", "table", "passage", "audio_transcript"
+    temperature: float = Field(default=0.7, ge=0.0, le=1.5)
+    model: str = "models/gemini-2.5-flash"
+    api_key_override: str | None = None
+    force_simulation: bool = False
+
+
+class AIStimulusCandidate(BaseModel):
+    """A generated stimulus candidate before or after saving to database."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID | None = None
+    title: str
+    content_text: str
+    text_format: str = "markdown"  # "plain", "markdown", "dialogue", "table"
+    modality: str = "reading"
+    target_cefr: str = "B2"
+    word_count: int = 0
+    source_attribution: str | None = None
+    task_type_code: str | None = None
+    sub_documents: list[dict[str, str]] = Field(default_factory=list)
+    generation_metadata: CandidateGenerationMetadata
+

@@ -70,17 +70,22 @@ class QuestionSerializer:
                 skill_tags_data.append({
                     "id": str(tag.id),
                     "skill_id": str(tag.skill_id),
-                    "subskill": tag.subskill,
+                    "subskill": getattr(tag, "subskill", None),
                     "weight": tag.weight,
                 })
 
         q_type = question.question_type
         q_type_str = q_type.value if hasattr(q_type, "value") else str(q_type)
 
+        sec_id = getattr(question, "section_id", None)
+        sec_assocs = question.__dict__.get("section_associations") if hasattr(question, "__dict__") else None
+        if not sec_id and sec_assocs:
+            sec_id = sec_assocs[0].assessment_section_id
+
         student_payload: dict[str, Any] = {
             "id": str(question.id),
-            "section_id": str(question.section_id) if question.section_id else None,
-            "stimulus_id": str(question.stimulus_id) if question.stimulus_id else None,
+            "section_id": str(sec_id) if sec_id else None,
+            "stimulus_id": str(question.stimulus_id) if getattr(question, "stimulus_id", None) else None,
             "stimulus": stimulus_data,
             "prompt": question.prompt,
             "instructions": question.instructions,
@@ -150,7 +155,7 @@ class QuestionSerializer:
                     "id": str(tag.id),
                     "skill_id": str(tag.skill_id),
                     "subskill_id": str(tag.subskill_id) if getattr(tag, "subskill_id", None) else None,
-                    "subskill": tag.subskill,
+                    "subskill": getattr(tag, "subskill", None),
                     "role": role_val,
                     "weight": tag.weight,
                     "context": getattr(tag, "context", None),
@@ -193,9 +198,14 @@ class QuestionSerializer:
         q_type = question.question_type
         q_type_str = q_type.value if hasattr(q_type, "value") else str(q_type)
 
+        admin_sec_id = getattr(question, "section_id", None)
+        sec_assocs = question.__dict__.get("section_associations") if hasattr(question, "__dict__") else None
+        if not admin_sec_id and sec_assocs:
+            admin_sec_id = sec_assocs[0].assessment_section_id
+
         return {
             "id": str(question.id),
-            "section_id": str(question.section_id) if question.section_id else None,
+            "section_id": str(admin_sec_id) if admin_sec_id else None,
             "stimulus_id": str(question.stimulus_id) if question.stimulus_id else None,
             "stimulus": stimulus_data,
             "question_type": q_type_str,
@@ -276,7 +286,7 @@ class QuestionSerializer:
                 skill_tags_snapshot.append({
                     "skill_id": str(tag.skill_id),
                     "subskill_id": str(tag.subskill_id) if getattr(tag, "subskill_id", None) else None,
-                    "subskill": tag.subskill,
+                    "subskill": getattr(tag, "subskill", None),
                     "role": role_val,
                     "weight": tag.weight,
                     "context": getattr(tag, "context", None),

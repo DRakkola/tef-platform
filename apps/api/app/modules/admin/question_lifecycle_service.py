@@ -635,7 +635,6 @@ class QuestionLifecycleService:
             item_hash=None,
             task_type_id=source_q.task_type_id,
             stimulus_id=source_q.stimulus_id,
-            section_id=None,  # Decoupled
             scoring_payload=source_q.scoring_payload,
             created_by_user_id=actor_id,
             updated_by_user_id=actor_id,
@@ -665,8 +664,6 @@ class QuestionLifecycleService:
             new_tag = QuestionSkillTag(
                 question_id=new_q.id,
                 skill_id=tag.skill_id,
-                subskill_id=tag.subskill_id,
-                subskill=tag.subskill,
                 role=tag.role,
                 weight=tag.weight,
                 context=tag.context,

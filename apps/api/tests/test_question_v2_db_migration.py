@@ -99,7 +99,6 @@ async def test_question_v2_schema_and_section_decoupling(db_session: AsyncSessio
     item_hash = hashlib.sha256(norm_prompt.encode("utf-8")).hexdigest()
 
     question = Question(
-        section_id=None,  # Decoupled!
         stimulus_id=stimulus.id,
         task_type_id=task_type.id,
         prompt=prompt_text,
@@ -176,7 +175,7 @@ async def test_question_v2_schema_and_section_decoupling(db_session: AsyncSessio
         .where(Question.id == question.id)
     )
     assert loaded_q is not None
-    assert loaded_q.section_id is None
+    assert getattr(loaded_q, "section_id", None) is None
     assert loaded_q.stimulus_id == stimulus.id
     assert loaded_q.response_type == "single_choice"
     assert loaded_q.target_cefr == "A2"
@@ -359,7 +358,6 @@ async def test_historical_attempt_answers_integrity(db_session: AsyncSession) ->
     await db_session.flush()
 
     q = Question(
-        section_id=sec.id,
         prompt="Question Historique ?",
         question_type=QuestionType.SINGLE_CHOICE,
         response_type="single_choice",
@@ -368,6 +366,14 @@ async def test_historical_attempt_answers_integrity(db_session: AsyncSession) ->
         points=1,
     )
     db_session.add(q)
+    await db_session.flush()
+
+    asq = AssessmentSectionQuestion(
+        assessment_section_id=sec.id,
+        question_id=q.id,
+        order_index=1,
+    )
+    db_session.add(asq)
     await db_session.flush()
 
     opt = QuestionOption(question_id=q.id, content="Bonne reponse", is_correct=True, order_index=1)

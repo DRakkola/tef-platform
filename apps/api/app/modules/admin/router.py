@@ -19,6 +19,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.storage import StorageService, get_storage
+from app.modules.admin.ai_question_schemas import (
+    AIBatchGenerationResponse,
+    AIQuestionGenerationRequest,
+    AIReviewReport,
+    AIStimulusCandidate,
+    AIStimulusGenerationRequest,
+    CandidateCreateDraftRequest,
+    CandidateRegenerateRequest,
+    CandidateReviewRequest,
+)
+from app.modules.admin.ai_question_service import AIQuestionGenerationService
 from app.modules.admin.enums import ContentStatus, MediaType
 from app.modules.admin.schemas import (
     AdminAssessmentCreate,
@@ -34,6 +45,7 @@ from app.modules.admin.schemas import (
     AdminQuestionResponse,
     AdminSectionCreate,
     AdminSectionResponse,
+    AdminSkillChildResponse,
     AdminSkillCreate,
     AdminSkillMetricsSummary,
     AdminSkillResponse,
@@ -62,7 +74,6 @@ from app.modules.admin.schemas import (
     PublishValidationResponse,
     QuestionCreateDraftVersionRequest,
     QuestionForkRequest,
-    AdminSkillChildResponse,
     QuestionPublishRequest,
     QuestionRevertDraftRequest,
     QuestionReviewDecisionRequest,
@@ -71,17 +82,6 @@ from app.modules.admin.schemas import (
     QuestionVersionResponse,
     WritingTaskVersionResponse,
 )
-from app.modules.admin.ai_question_schemas import (
-    AIBatchGenerationResponse,
-    AIQuestionGenerationRequest,
-    AIReviewReport,
-    CandidateCreateDraftRequest,
-    CandidateRegenerateRequest,
-    CandidateReviewRequest,
-    GeneratedQuestionCandidate,
-)
-from app.modules.admin.ai_question_service import AIQuestionGenerationService
-
 from app.modules.admin.service import (
     AdminContentService,
     AuditService,
@@ -984,6 +984,42 @@ async def regenerate_question_component_endpoint(
         actor_id=current_admin.id,
     )
     return AdminQuestionResponse.model_validate(question)
+
+
+@router.post(
+    "/content/generation/stimuli/generate",
+    response_model=AIStimulusCandidate,
+    summary="Generate authentic stimulus candidate tailored to specific TEF task type",
+)
+async def generate_stimulus_candidate_endpoint(
+    payload: AIStimulusGenerationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AIStimulusCandidate:
+    return await AIQuestionGenerationService.generate_stimulus(
+        db=db,
+        request=payload,
+        actor_id=current_admin.id,
+    )
+
+
+@router.post(
+    "/content/generation/stimuli/persist",
+    response_model=AdminStimulusResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Persist accepted AI-generated stimulus candidate into database",
+)
+async def persist_stimulus_candidate_endpoint(
+    payload: AIStimulusCandidate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AdminStimulusResponse:
+    stim = await AIQuestionGenerationService.persist_stimulus(
+        db=db,
+        candidate=payload,
+        actor_id=current_admin.id,
+    )
+    return AdminStimulusResponse.model_validate(stim)
 
 
 

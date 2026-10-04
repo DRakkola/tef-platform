@@ -487,3 +487,36 @@ export interface CandidateRegenerateRequest {
   force_simulation?: boolean;
 }
 
+export interface AIStimulusSubDocument {
+  label: string;
+  title: string;
+  content: string;
+}
+
+export interface AIStimulusCandidate {
+  id: string;
+  title: string;
+  content_text: string;
+  text_format: "plain" | "markdown" | "table" | "multi_doc" | string;
+  modality: string;
+  target_cefr: string;
+  word_count: number;
+  source_attribution?: string | null;
+  task_type_code?: string | null;
+  sub_documents: AIStimulusSubDocument[];
+  generation_metadata: CandidateGenerationMetadata;
+}
+
+export interface AIStimulusGenerationRequest {
+  modality?: string;
+  task_type_code?: string | null;
+  target_cefr?: string;
+  topic?: string | null;
+  constraints?: string | null;
+  text_format?: string;
+  model?: string;
+  temperature?: number;
+  api_key_override?: string | null;
+  force_simulation?: boolean;
+}
+
