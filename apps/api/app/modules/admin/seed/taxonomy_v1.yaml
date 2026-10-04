@@ -187,17 +187,8 @@ task_types:
 
 skills:
   # =========================================================================
-  # REASONING DIMENSION
+  # REASONING DIMENSION (Orthogonal Dimension: Skill.dimension = 'reasoning')
   # =========================================================================
-  - code: "reasoning"
-    name: "Compétences cognitives et raisonnement"
-    dimension: "reasoning"
-    domain: "reasoning"
-    description: "Ensemble des opérations cognitives mobilisées pour extraire, interpréter, synthétiser et évaluer l'information dans les épreuves du TEF."
-    parent_code: null
-    assessable: false
-    order_index: 100
-    applicable_modalities: ["reading", "listening", "writing", "speaking"]
 
   # 1. Information Retrieval
   - code: "information_retrieval"
@@ -205,7 +196,7 @@ skills:
     dimension: "reasoning"
     domain: "reasoning"
     description: "Opérations de balayage et de repérage d'éléments factuels explicites dans un stimulus écrit ou oral."
-    parent_code: "reasoning"
+    parent_code: null
     assessable: false
     order_index: 110
     applicable_modalities: ["reading", "listening"]
@@ -236,7 +227,7 @@ skills:
     dimension: "reasoning"
     domain: "reasoning"
     description: "Compréhension du sens général, des relations causales, chronologiques et des paramètres de la situation de communication."
-    parent_code: "reasoning"
+    parent_code: null
     assessable: false
     order_index: 120
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -287,7 +278,7 @@ skills:
     dimension: "reasoning"
     domain: "reasoning"
     description: "Opérations de rapprochement, de comparaison et de fusion d'informations provenant de plusieurs sources ou paragraphes."
-    parent_code: "reasoning"
+    parent_code: null
     assessable: false
     order_index: 130
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -318,7 +309,7 @@ skills:
     dimension: "reasoning"
     domain: "reasoning"
     description: "Déduction de sens non formulé explicitement, interprétation du non-dit et des intentions profondes."
-    parent_code: "reasoning"
+    parent_code: null
     assessable: false
     order_index: 140
     applicable_modalities: ["reading", "listening", "speaking"]
@@ -349,7 +340,7 @@ skills:
     dimension: "reasoning"
     domain: "reasoning"
     description: "Analyse du point de vue énonciatif, de la posture de l'auteur ou du locuteur et de la visée communicative du message."
-    parent_code: "reasoning"
+    parent_code: null
     assessable: false
     order_index: 150
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -390,7 +381,7 @@ skills:
     dimension: "reasoning"
     domain: "reasoning"
     description: "Structure du raisonnement persuasif, articulation des thèses, arguments et traitement des contre-discours."
-    parent_code: "reasoning"
+    parent_code: null
     assessable: false
     order_index: 160
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -431,7 +422,7 @@ skills:
     dimension: "reasoning"
     domain: "reasoning"
     description: "Décodage de visualisations statistiques, mise en rapport avec des conclusions écrites."
-    parent_code: "reasoning"
+    parent_code: null
     assessable: false
     order_index: 170
     applicable_modalities: ["reading", "writing"]
@@ -457,17 +448,8 @@ skills:
     applicable_modalities: ["reading"]
 
   # =========================================================================
-  # LANGUAGE DIMENSION
+  # LANGUAGE DIMENSION (Orthogonal Dimension: Skill.dimension = 'language')
   # =========================================================================
-  - code: "language"
-    name: "Compétences linguistiques et maîtrise de la langue"
-    dimension: "language"
-    domain: "language"
-    description: "Ensemble des outils et mécanismes linguistiques (lexique, grammaire, verbes, syntaxe, discours) mobilisés pour comprendre et produire le français."
-    parent_code: null
-    assessable: false
-    order_index: 200
-    applicable_modalities: ["reading", "listening", "writing", "speaking"]
 
   # 1. Vocabulary
   - code: "vocabulary"
@@ -475,7 +457,7 @@ skills:
     dimension: "language"
     domain: "vocabulary"
     description: "Connaissance du vocabulaire, des relations sémantiques et de l'adéquation au registre de communication."
-    parent_code: "language"
+    parent_code: null
     assessable: false
     order_index: 210
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -546,7 +528,7 @@ skills:
     dimension: "language"
     domain: "grammar"
     description: "Maîtrise des catégories grammaticales fondamentales, accords et systèmes fonctionnels."
-    parent_code: "language"
+    parent_code: null
     assessable: false
     order_index: 220
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -607,7 +589,7 @@ skills:
     dimension: "language"
     domain: "verb_system"
     description: "Morphologie verbale, conjugaison, sélection des temps et modes du verbe français."
-    parent_code: "language"
+    parent_code: null
     assessable: false
     order_index: 230
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -648,7 +630,7 @@ skills:
     dimension: "language"
     domain: "syntax"
     description: "Agencement des propositions, subordination, coordination et complexité syntaxique."
-    parent_code: "language"
+    parent_code: null
     assessable: false
     order_index: 240
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -699,7 +681,7 @@ skills:
     dimension: "language"
     domain: "discourse"
     description: "Mécanismes assurant la continuité textuelle, l'articulation logique et la cohésion globale du discours."
-    parent_code: "language"
+    parent_code: null
     assessable: false
     order_index: 250
     applicable_modalities: ["reading", "listening", "writing", "speaking"]
@@ -740,7 +722,7 @@ skills:
     dimension: "language"
     domain: "writing_mechanics"
     description: "Normes graphiques, orthographe lexicale et règles de ponctuation propres à l'expression écrite."
-    parent_code: "language"
+    parent_code: null
     assessable: false
     order_index: 260
     applicable_modalities: ["writing"]
@@ -771,7 +753,7 @@ skills:
     dimension: "language"
     domain: "oral_mechanics"
     description: "Phonétique, prosodie, fluidité et gestion du débit vocal en expression orale."
-    parent_code: "language"
+    parent_code: null
     assessable: false
     order_index: 270
     applicable_modalities: ["speaking"]

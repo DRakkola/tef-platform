@@ -40,15 +40,15 @@ async def test_clean_seed_creates_expected_taxonomy(db_session: AsyncSession):
     stats = await TaxonomySeeder.seed(db_session)
 
     assert stats["taxonomy_version"] == "v1"
-    assert stats["skills"] == 59
+    assert stats["skills"] == 57
     assert stats["assessable_skills"] == 43
-    assert stats["container_skills"] == 16
-    assert stats["reasoning_skills"] == 26
-    assert stats["language_skills"] == 33
+    assert stats["container_skills"] == 14
+    assert stats["reasoning_skills"] == 25
+    assert stats["language_skills"] == 32
     assert stats["task_types"] == 16
     assert stats["cefr_descriptors"] == 28
     assert stats["skill_relations"] == 20
-    assert stats["skill_modalities"] == 174
+    assert stats["skill_modalities"] == 166
     assert stats["task_type_skills"] == 129
 
     # Verify active taxonomy version in DB
@@ -79,8 +79,8 @@ async def test_seed_idempotency_creates_no_duplicates(db_session: AsyncSession):
 
     assert version_count == 1
     assert task_type_count == 16
-    assert skill_count == 59
-    assert modality_count == 174
+    assert skill_count == 57
+    assert modality_count == 166
     assert relation_count == 20
     assert descriptor_count == 28
 
@@ -122,7 +122,7 @@ async def test_skills_dimensions_and_metadata(db_session: AsyncSession):
     await TaxonomySeeder.seed(db_session)
 
     skills = (await db_session.execute(select(Skill))).scalars().all()
-    assert len(skills) == 59
+    assert len(skills) == 57
 
     valid_dims = {SkillDimension.REASONING, SkillDimension.LANGUAGE}
 
