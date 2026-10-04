@@ -53,6 +53,8 @@ export interface AdminStimulus {
   modality?: string | null;
   media_url?: string | null;
   audio_url?: string | null;
+  text_format?: "plain" | "markdown" | "table" | "multi_doc" | string | null;
+  word_count?: number | null;
   source_attribution?: string | null;
   cefr_level?: string | null;
   created_at?: string;

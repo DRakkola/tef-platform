@@ -12,6 +12,11 @@ import {
   Sliders,
   Check,
   X,
+  ArrowRight,
+  ArrowLeft,
+  Edit3,
+  Layers,
+  Save,
 } from "lucide-react";
 import {
   Dialog,
@@ -40,6 +45,7 @@ import type {
   AIQuestionGenerationRequest,
   AIStimulusCandidate,
 } from "../types";
+import { StimulusRenderer } from "./components/StimulusRenderer";
 
 // Task type specifications for TEF compliance & document requirements
 const TASK_TYPE_SPECS: Record<
@@ -62,7 +68,7 @@ const TASK_TYPE_SPECS: Record<
     label: "Article de presse / extrait journalistique",
     badge: "Article suivi",
     docDesc:
-      "Article suivi d'actualité ou d'analyse. Évalue l'identification de la thèse, des arguments et des intentions implicites.",
+      "Article suivi d'actualité ou d'analyse. Évalue l'identification de la thèse, des arguments et des nuances implicites.",
     stimulusRequired: true,
   },
   sentence_gap: {
@@ -161,6 +167,9 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
 }) => {
   const navigate = useNavigate();
 
+  // Stepper state
+  const [activeWorkflowStep, setActiveWorkflowStep] = useState<"step1_stimulus" | "step2_questions">("step2_questions");
+
   // Reference data
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [skills, setSkills] = useState<SkillItem[]>([]);
@@ -178,14 +187,17 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
   const [temperature, setTemperature] = useState(0.7);
   const [forceSimulation, setForceSimulation] = useState(false);
 
-  // Stimulus pre-generation state
+  // Stimulus studio state
   const [isGeneratingStimulus, setIsGeneratingStimulus] = useState(false);
   const [isPersistingStimulus, setIsPersistingStimulus] = useState(false);
   const [stimulusCandidate, setStimulusCandidate] = useState<AIStimulusCandidate | null>(null);
   const [persistedStimulusId, setPersistedStimulusId] = useState<string | null>(null);
-  const [showStimulusStudio, setShowStimulusStudio] = useState(false);
+  const [isEditingStimulus, setIsEditingStimulus] = useState(false);
+  const [editedTitle, setEditedTitle] = useState("");
+  const [editedContent, setEditedContent] = useState("");
+  const [editedSource, setEditedSource] = useState("");
 
-  // Execution state
+  // Question execution state
   const [isGenerating, setIsGenerating] = useState(false);
   const [candidates, setCandidates] = useState<GeneratedQuestionCandidate[]>([]);
   const [selectedCandidateIdx, setSelectedCandidateIdx] = useState<number>(0);
@@ -222,7 +234,14 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
       .catch(() => {});
   }, [isOpen, modality]);
 
-  // Handle independent stimulus generation
+  // Adjust active step if sentence_gap selected
+  useEffect(() => {
+    if (isSentenceGap && activeWorkflowStep === "step1_stimulus") {
+      setActiveWorkflowStep("step2_questions");
+    }
+  }, [isSentenceGap, activeWorkflowStep]);
+
+  // Handle independent stimulus generation in Step 1
   const handleGenerateStimulus = async () => {
     setIsGeneratingStimulus(true);
     setFeedback(null);
@@ -235,34 +254,54 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
         force_simulation: forceSimulation,
       });
       setStimulusCandidate(res);
+      setEditedTitle(res.title);
+      setEditedContent(res.content_text);
+      setEditedSource(res.source_attribution || "");
       setPersistedStimulusId(null);
+      setIsEditingStimulus(false);
       setFeedback({
         type: "success",
-        text: `Support "${res.title}" généré avec succès (${
-          res.text_format === "multi_doc" ? "4 documents A/B/C/D" : res.text_format
-        }).`,
+        text: `Support "${res.title}" généré avec succès. Vous pouvez le retoucher ou passer directement aux questions.`,
       });
     } catch (err: any) {
       setFeedback({
         type: "error",
-        text: err.message || "Échec de génération du support / stimulus.",
+        text: err.message || "Échec de génération du support.",
       });
     } finally {
       setIsGeneratingStimulus(false);
     }
   };
 
-  // Persist generated stimulus to database
-  const handlePersistStimulus = async () => {
+  // Save edits made to the stimulus candidate
+  const handleSaveStimulusEdits = () => {
+    if (!stimulusCandidate) return;
+    setStimulusCandidate({
+      ...stimulusCandidate,
+      title: editedTitle.trim() || stimulusCandidate.title,
+      content_text: editedContent.trim() || stimulusCandidate.content_text,
+      source_attribution: editedSource.trim() || stimulusCandidate.source_attribution,
+      word_count: editedContent.trim().split(/\s+/).filter(Boolean).length,
+    });
+    setIsEditingStimulus(false);
+    setFeedback({
+      type: "info",
+      text: "Modifications du support appliquées avec succès.",
+    });
+  };
+
+  // Persist generated stimulus to database and advance to Step 2
+  const handlePersistAndProceed = async () => {
     if (!stimulusCandidate) return;
     setIsPersistingStimulus(true);
     try {
       const persisted = await persistStimulusCandidate(stimulusCandidate);
       setPersistedStimulusId(persisted.id);
       setStimulusMode("existing_stimulus");
+      setActiveWorkflowStep("step2_questions");
       setFeedback({
         type: "success",
-        text: `Support "${persisted.title}" enregistré dans la base ! Les questions générées y seront automatiquement rattachées.`,
+        text: `Support "${persisted.title}" enregistré et rattaché ! Vous pouvez maintenant générer les questions associées.`,
       });
     } catch (err: any) {
       setFeedback({
@@ -275,7 +314,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
   };
 
   // Handle candidate question generation
-  const handleGenerate = async () => {
+  const handleGenerateQuestions = async () => {
     setIsGenerating(true);
     setFeedback(null);
     try {
@@ -372,144 +411,18 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
 
   const activeCandidate = candidates[selectedCandidateIdx];
 
-  // Helper to render stimulus preview content with multi-document & table support
-  const renderStimulusPreview = (content: string) => {
-    // 1. Multi-document bundle check (Documents A, B, C, D)
-    if (
-      content.includes("### Document") ||
-      (content.includes("Document A") && content.includes("Document B"))
-    ) {
-      const rawDocs = content
-        .split(/(?=### Document [A-D]|Document [A-D] :)/g)
-        .filter(Boolean);
-      if (rawDocs.length > 1) {
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mt-2">
-            {rawDocs.map((doc, idx) => {
-              const lines = doc.trim().split("\n");
-              const header = lines[0].replace(/###\s*/, "");
-              const body = lines.slice(1).join("\n").trim();
-              const colors = [
-                "border-emerald-500/30 bg-emerald-500/5 text-emerald-950 dark:text-emerald-200",
-                "border-blue-500/30 bg-blue-500/5 text-blue-950 dark:text-blue-200",
-                "border-amber-500/30 bg-amber-500/5 text-amber-950 dark:text-amber-200",
-                "border-purple-500/30 bg-purple-500/5 text-purple-950 dark:text-purple-200",
-              ];
-              const badgeColors = [
-                "bg-emerald-600 text-white",
-                "bg-blue-600 text-white",
-                "bg-amber-600 text-white",
-                "bg-purple-600 text-white",
-              ];
-              return (
-                <div
-                  key={idx}
-                  className={`p-3 rounded-lg border flex flex-col gap-1.5 ${colors[idx % 4]}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`px-2 py-0.5 rounded text-2xs font-bold ${
-                        badgeColors[idx % 4]
-                      }`}
-                    >
-                      {header.split(":")[0]?.trim() || `Document ${String.fromCharCode(65 + idx)}`}
-                    </span>
-                    <span className="font-semibold text-xs text-foreground truncate">
-                      {header.split(":")[1]?.trim() || ""}
-                    </span>
-                  </div>
-                  <p className="text-xs leading-relaxed text-foreground/90 whitespace-pre-line">
-                    {body || doc}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        );
-      }
-    }
-
-    // 2. Markdown Table check
-    if (
-      content.includes("|") &&
-      content.split("\n").some((l) => l.trim().startsWith("|"))
-    ) {
-      const lines = content
-        .split("\n")
-        .filter((l) => l.trim().startsWith("|"));
-      if (lines.length >= 2) {
-        const headerCells = lines[0]
-          .split("|")
-          .map((c) => c.trim())
-          .filter(Boolean);
-        const dataRows = lines.slice(lines[1].includes("---") ? 2 : 1);
-        return (
-          <div className="overflow-x-auto my-2 rounded-lg border border-border">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-muted/70 text-foreground font-semibold border-b border-border">
-                <tr>
-                  {headerCells.map((h, i) => (
-                    <th
-                      key={i}
-                      className="px-3 py-2 border-r border-border last:border-r-0"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {dataRows.map((r, rIdx) => {
-                  const cells = r
-                    .split("|")
-                    .map((c) => c.trim())
-                    .filter(Boolean);
-                  return (
-                    <tr key={rIdx} className="hover:bg-muted/30">
-                      {cells.map((c, cIdx) => (
-                        <td
-                          key={cIdx}
-                          className="px-3 py-1.5 border-r border-border last:border-r-0 font-mono text-2xs"
-                        >
-                          {c}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        );
-      }
-    }
-
-    // 3. Audio / Dialog transcript check
-    if (
-      content.includes("[Sonnerie") ||
-      content.includes("[Micro-trottoir") ||
-      content.includes("Locuteur") ||
-      content.includes("[Audio")
-    ) {
-      return (
-        <div className="p-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 font-mono text-xs text-foreground/90 space-y-1.5 whitespace-pre-line">
-          {content}
-        </div>
-      );
-    }
-
-    // 4. Default standard passage
-    return (
-      <p className="italic text-foreground/80 leading-relaxed bg-background/50 p-2.5 rounded border border-border whitespace-pre-line">
-        {content}
-      </p>
-    );
-  };
+  // Derive active document key if question mentions a specific Document (e.g. Document B)
+  const detectedActiveDocKey = useMemo(() => {
+    if (!activeCandidate) return null;
+    const combinedText = `${activeCandidate.prompt} ${activeCandidate.options.map((o) => o.content).join(" ")}`;
+    const match = combinedText.match(/Document\s+([A-D])/i);
+    return match ? `Document ${match[1].toUpperCase()}` : null;
+  }, [activeCandidate]);
 
   // Helper to highlight sentence_gap blanks
   const renderPromptText = (promptText: string) => {
     if (!promptText.includes("______")) {
-      return <span className="font-bold text-sm text-foreground">{promptText}</span>;
+      return <span className="font-bold text-sm text-foreground leading-relaxed">{promptText}</span>;
     }
     const parts = promptText.split("______");
     return (
@@ -518,7 +431,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
           <React.Fragment key={i}>
             {part}
             {i < parts.length - 1 && (
-              <span className="inline-flex items-center px-2 py-0.5 mx-1 rounded bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700 font-mono font-bold text-xs tracking-wider shadow-2xs">
+              <span className="inline-flex items-center px-2.5 py-0.5 mx-1 rounded-md bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700 font-mono font-extrabold text-xs tracking-widest shadow-2xs">
                 ______
               </span>
             )}
@@ -530,7 +443,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto p-6">
+      <DialogContent className="max-w-6xl max-h-[94vh] overflow-y-auto p-6">
         <DialogHeader className="space-y-1">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -549,11 +462,84 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
             </Badge>
           </div>
           <DialogDescription className="text-xs text-muted-foreground">
-            Générez des items d'évaluation supervisés conformes aux standards officiels du TEF.
-            Les questions sont strictement persistées en statut <strong>Brouillon</strong> avec
-            provenance IA auditable.
+            Générez des items d'évaluation supervisés selon les standards officiels du TEF.
+            Tout contenu généré est obligatoirement persisté en statut <strong>Brouillon</strong> avec
+            provenance IA vérifiable.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Workflow Stepper Navigation */}
+        <div className="flex items-center justify-between border-b border-border pb-2 pt-1 text-xs">
+          <div className="flex items-center gap-2">
+            {!isSentenceGap ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveWorkflowStep("step1_stimulus")}
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition flex items-center gap-2 ${
+                    activeWorkflowStep === "step1_stimulus"
+                      ? "bg-purple-600 text-white shadow-xs"
+                      : "bg-muted/50 text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-2xs font-bold">
+                    1
+                  </span>
+                  <span>Conception du Support (Stimulus)</span>
+                  {persistedStimulusId && (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
+                  )}
+                </button>
+
+                <ArrowRight className="h-4 w-4 text-muted-foreground/60" />
+
+                <button
+                  type="button"
+                  onClick={() => setActiveWorkflowStep("step2_questions")}
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition flex items-center gap-2 ${
+                    activeWorkflowStep === "step2_questions"
+                      ? "bg-purple-600 text-white shadow-xs"
+                      : "bg-muted/50 text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-2xs font-bold">
+                    2
+                  </span>
+                  <span>Évaluation & Questions</span>
+                  {candidates.length > 0 && (
+                    <Badge variant="secondary" className="text-3xs px-1.5 py-0 h-4">
+                      {candidates.length}
+                    </Badge>
+                  )}
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2 p-1.5 rounded-lg bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 text-xs font-semibold">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Tâche sans document externe (Phrases à trou) — Étape directe Questions</span>
+              </div>
+            )}
+          </div>
+
+          {persistedStimulusId && (
+            <div className="flex items-center gap-2">
+              <span className="text-3xs font-mono text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">
+                Support lié : #{persistedStimulusId.slice(0, 8)}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setPersistedStimulusId(null);
+                  setStimulusCandidate(null);
+                }}
+                className="h-6 px-1.5 text-2xs text-muted-foreground hover:text-rose-600"
+              >
+                Détacher
+              </Button>
+            </div>
+          )}
+        </div>
 
         {/* Global Feedback Banner */}
         {feedback && (
@@ -583,161 +569,326 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-2">
-          {/* LEFT: Generation Parameters (4 cols) */}
-          <div className="lg:col-span-4 space-y-4 border-r border-border pr-4 text-xs">
-            <div className="font-semibold text-sm flex items-center gap-1.5 text-foreground">
-              <Sliders className="h-4 w-4 text-muted-foreground" /> Paramètres d'évaluation
-            </div>
-
-            {/* Modality */}
-            <div>
-              <label className="font-medium text-muted-foreground block mb-1">
-                Modalité TEF
-              </label>
-              <select
-                value={modality}
-                onChange={(e) => setModality(e.target.value)}
-                className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs capitalize"
-              >
-                <option value="reading">Compréhension écrite (reading)</option>
-                <option value="listening">Compréhension orale (listening)</option>
-                <option value="writing">Expression écrite (writing)</option>
-                <option value="speaking">Expression orale (speaking)</option>
-              </select>
-            </div>
-
-            {/* CEFR Level */}
-            <div>
-              <label className="font-medium text-muted-foreground block mb-1">
-                Niveau CECRL visé
-              </label>
-              <div className="grid grid-cols-6 gap-1">
-                {["A1", "A2", "B1", "B2", "C1", "C2"].map((lvl) => (
-                  <button
-                    key={lvl}
-                    type="button"
-                    onClick={() => setTargetCefr(lvl)}
-                    className={`py-1 rounded font-bold text-center border text-xs transition ${
-                      targetCefr === lvl
-                        ? "bg-purple-600 text-white border-purple-600 shadow-2xs"
-                        : "bg-muted/40 border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {lvl}
-                  </button>
-                ))}
+        {/* ========================================================================= */}
+        {/* STEP 1: STIMULUS STUDIO (SUPPORT DOCUMENTAIRE)                            */}
+        {/* ========================================================================= */}
+        {activeWorkflowStep === "step1_stimulus" && !isSentenceGap && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-2">
+            {/* Step 1 Settings (4 cols) */}
+            <div className="lg:col-span-4 space-y-4 border-r border-border pr-4 text-xs">
+              <div className="font-semibold text-sm flex items-center gap-1.5 text-foreground">
+                <BookOpen className="h-4 w-4 text-purple-600" /> Paramètres du support TEF
               </div>
-            </div>
 
-            {/* Task Type */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-medium text-muted-foreground">Type de tâche TEF</label>
-                {currentTaskSpec && (
-                  <Badge variant="secondary" className="text-2xs font-semibold">
-                    {currentTaskSpec.badge}
-                  </Badge>
-                )}
-              </div>
-              <select
-                value={taskTypeId}
-                onChange={(e) => setTaskTypeId(e.target.value)}
-                className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs"
-              >
-                {taskTypes.map((tt) => (
-                  <option key={tt.id} value={tt.id}>
-                    {tt.code} — {tt.name}
-                  </option>
-                ))}
-              </select>
-              {currentTaskSpec && (
-                <p className="text-2xs text-muted-foreground mt-1 leading-snug">
-                  {currentTaskSpec.docDesc}
-                </p>
-              )}
-            </div>
-
-            {/* Cognitive Complexity */}
-            <div>
-              <label className="font-medium text-muted-foreground block mb-1">
-                Complexité cognitive
-              </label>
-              <select
-                value={cognitiveComplexity}
-                onChange={(e) => setCognitiveComplexity(e.target.value)}
-                className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs"
-              >
-                <option value="recall_recognition">Rappel / Reconnaissance factuelle</option>
-                <option value="interpretation">Compréhension / Interprétation</option>
-                <option value="inferencing_synthesis">Inférence / Déduction / Synthèse</option>
-                <option value="critical_evaluation">Évaluation critique / Nuance implicite</option>
-              </select>
-            </div>
-
-            {/* Topic */}
-            <div>
-              <label className="font-medium text-muted-foreground block mb-1">
-                Thématique ou contexte (optionnel)
-              </label>
-              <Input
-                placeholder="Ex. Transition écologique, ateliers de formation, mobilités..."
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-
-            {/* Stimulus Management Section */}
-            <div className="pt-2 border-t border-border space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="font-semibold text-foreground flex items-center gap-1.5">
-                  <BookOpen className="h-3.5 w-3.5 text-purple-600" />
-                  Gestion du support / document
+              {/* Modality */}
+              <div>
+                <label className="font-medium text-muted-foreground block mb-1">
+                  Modalité
                 </label>
-                {!isSentenceGap && (
-                  <button
-                    type="button"
-                    onClick={() => setShowStimulusStudio(!showStimulusStudio)}
-                    className="text-2xs text-purple-600 hover:text-purple-700 font-medium underline"
-                  >
-                    {showStimulusStudio ? "Masquer studio support" : "Studio support (2 étapes)"}
-                  </button>
+                <select
+                  value={modality}
+                  onChange={(e) => setModality(e.target.value)}
+                  className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs capitalize"
+                >
+                  <option value="reading">Compréhension écrite (reading)</option>
+                  <option value="listening">Compréhension orale (listening)</option>
+                  <option value="writing">Expression écrite (writing)</option>
+                  <option value="speaking">Expression orale (speaking)</option>
+                </select>
+              </div>
+
+              {/* Target CEFR */}
+              <div>
+                <label className="font-medium text-muted-foreground block mb-1">
+                  Niveau CECRL visé
+                </label>
+                <div className="grid grid-cols-6 gap-1">
+                  {["A1", "A2", "B1", "B2", "C1", "C2"].map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => setTargetCefr(lvl)}
+                      className={`py-1 rounded font-bold text-center border text-xs transition ${
+                        targetCefr === lvl
+                          ? "bg-purple-600 text-white border-purple-600 shadow-2xs"
+                          : "bg-muted/40 border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Task Type Selection */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-medium text-muted-foreground">Type de tâche TEF</label>
+                  {currentTaskSpec && (
+                    <Badge variant="secondary" className="text-2xs font-semibold">
+                      {currentTaskSpec.badge}
+                    </Badge>
+                  )}
+                </div>
+                <select
+                  value={taskTypeId}
+                  onChange={(e) => setTaskTypeId(e.target.value)}
+                  className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs"
+                >
+                  {taskTypes.map((tt) => (
+                    <option key={tt.id} value={tt.id}>
+                      {tt.code} — {tt.name}
+                    </option>
+                  ))}
+                </select>
+                {currentTaskSpec && (
+                  <p className="text-2xs text-muted-foreground mt-1 leading-snug">
+                    {currentTaskSpec.docDesc}
+                  </p>
                 )}
               </div>
 
-              {isSentenceGap ? (
-                <div className="p-2.5 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 text-xs">
-                  <div className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1.5 mb-1">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-purple-600" />
-                    Aucun document externe requis
-                  </div>
-                  <p className="text-muted-foreground text-2xs leading-relaxed">
-                    Pour la tâche <strong>Phrases à trou</strong>, le texte avec l'espace lacunaire
-                    (<code>______</code>) est intégré directement à l'énoncé.
+              {/* Topic / Context */}
+              <div>
+                <label className="font-medium text-muted-foreground block mb-1">
+                  Thématique ou contexte ciblé (optionnel)
+                </label>
+                <Input
+                  placeholder="Ex. Formation professionnelle, transition écologique..."
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-between">
+                <span className="font-medium text-muted-foreground">Mode simulation</span>
+                <input
+                  type="checkbox"
+                  checked={forceSimulation}
+                  onChange={(e) => setForceSimulation(e.target.checked)}
+                  className="h-4 w-4 rounded accent-purple-600"
+                />
+              </div>
+
+              <Button
+                onClick={handleGenerateStimulus}
+                disabled={isGeneratingStimulus}
+                className="w-full gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold mt-2 shadow-sm text-xs h-9"
+              >
+                {isGeneratingStimulus ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Génération du support en cours...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Générer le support par IA
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* Step 1 Preview & Edit Studio (8 cols) */}
+            <div className="lg:col-span-8 space-y-4">
+              {!stimulusCandidate ? (
+                <div className="h-full min-h-[360px] flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-8 text-center text-muted-foreground">
+                  <Layers className="h-12 w-12 text-muted-foreground/40 mb-3" />
+                  <h4 className="font-semibold text-sm text-foreground">
+                    Aucun support généré pour l'instant
+                  </h4>
+                  <p className="text-xs max-w-md mt-1">
+                    Choisissez le format désiré à gauche et lancez la génération.
+                    Le support généré s'affichera ici avec son rendu officiel (onglets A/B/C/D, tableau ou audio).
                   </p>
                 </div>
               ) : (
-                <>
-                  {persistedStimulusId ? (
-                    <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-2xs space-y-1">
-                      <div className="font-semibold text-emerald-800 dark:text-emerald-200 flex items-center justify-between">
-                        <span>Support dédié prêt et rattaché</span>
+                <div className="space-y-4">
+                  {/* Actions Bar for Stimulus */}
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-muted/40 border border-border">
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <BookOpen className="h-3.5 w-3.5 text-purple-600" />
+                      Aperçu du support généré
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsEditingStimulus(!isEditingStimulus)}
+                        className="h-7 text-xs gap-1 border-border"
+                      >
+                        <Edit3 className="h-3 w-3" />
+                        {isEditingStimulus ? "Fermer l'éditeur" : "Retoucher le texte"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handlePersistAndProceed}
+                        disabled={isPersistingStimulus}
+                        className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5"
+                      >
+                        {isPersistingStimulus ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Check className="h-3 w-3" />
+                        )}
+                        Valider & Passer aux questions
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Inline Editor if active */}
+                  {isEditingStimulus ? (
+                    <div className="p-4 rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50/20 dark:bg-purple-950/10 space-y-3">
+                      <div>
+                        <label className="text-2xs font-semibold text-muted-foreground block mb-1">
+                          Titre du support
+                        </label>
+                        <Input
+                          value={editedTitle}
+                          onChange={(e) => setEditedTitle(e.target.value)}
+                          className="h-8 text-xs bg-background"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-2xs font-semibold text-muted-foreground block mb-1">
+                          Contenu textuel (Markdown, tableaux ou balises A/B/C/D)
+                        </label>
+                        <Textarea
+                          value={editedContent}
+                          onChange={(e) => setEditedContent(e.target.value)}
+                          rows={10}
+                          className="text-xs font-mono bg-background"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-2xs font-semibold text-muted-foreground block mb-1">
+                          Attribution / Source
+                        </label>
+                        <Input
+                          value={editedSource}
+                          onChange={(e) => setEditedSource(e.target.value)}
+                          className="h-8 text-xs bg-background"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1">
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            setPersistedStimulusId(null);
-                            setStimulusCandidate(null);
-                          }}
-                          className="h-5 px-1 text-2xs text-muted-foreground hover:text-rose-600"
+                          onClick={() => setIsEditingStimulus(false)}
+                          className="h-7 text-xs"
                         >
-                          Détacher
+                          Annuler
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleSaveStimulusEdits}
+                          className="h-7 text-xs bg-purple-600 text-white font-semibold gap-1"
+                        >
+                          <Save className="h-3 w-3" />
+                          Appliquer les modifications
                         </Button>
                       </div>
-                      <p className="text-emerald-700 dark:text-emerald-300 truncate">
-                        ID: {persistedStimulusId.slice(0, 12)}...
-                      </p>
+                    </div>
+                  ) : (
+                    /* Rich Renderer Display */
+                    <StimulusRenderer
+                      title={stimulusCandidate.title}
+                      content={stimulusCandidate.content_text}
+                      modality={stimulusCandidate.modality}
+                      textFormat={stimulusCandidate.text_format}
+                      sourceCitation={stimulusCandidate.source_attribution}
+                      cefrLevel={stimulusCandidate.target_cefr}
+                      wordCount={stimulusCandidate.word_count}
+                      viewMode="full"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* STEP 2: QUESTIONS WORKSPACE (SPLIT-SCREEN EXAM PREVIEW)                   */}
+        {/* ========================================================================= */}
+        {(activeWorkflowStep === "step2_questions" || isSentenceGap) && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-2">
+            {/* Left Column: Generation Parameters (4 cols) */}
+            <div className="lg:col-span-4 space-y-4 border-r border-border pr-4 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-sm flex items-center gap-1.5 text-foreground">
+                  <Sliders className="h-4 w-4 text-purple-600" /> Paramètres d'évaluation
+                </span>
+                {!isSentenceGap && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveWorkflowStep("step1_stimulus")}
+                    className="text-3xs text-purple-600 hover:text-purple-700 font-semibold flex items-center gap-1"
+                  >
+                    <ArrowLeft className="h-3 w-3" /> Retour Support
+                  </button>
+                )}
+              </div>
+
+              {/* Modality & Task Type (Summary) */}
+              <div className="p-2.5 rounded-lg bg-muted/40 border border-border space-y-1">
+                <div className="flex items-center justify-between text-2xs">
+                  <span className="text-muted-foreground">Tâche :</span>
+                  <span className="font-bold text-foreground capitalize">
+                    {currentTaskType?.name || currentTaskCode}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-2xs">
+                  <span className="text-muted-foreground">Niveau :</span>
+                  <Badge className="bg-purple-600 text-white font-bold text-3xs h-4">
+                    {targetCefr}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Cognitive Complexity */}
+              <div>
+                <label className="font-medium text-muted-foreground block mb-1">
+                  Complexité cognitive
+                </label>
+                <select
+                  value={cognitiveComplexity}
+                  onChange={(e) => setCognitiveComplexity(e.target.value)}
+                  className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs"
+                >
+                  <option value="recall_recognition">Rappel / Reconnaissance factuelle</option>
+                  <option value="interpretation">Compréhension / Interprétation</option>
+                  <option value="inferencing_synthesis">Inférence / Déduction / Synthèse</option>
+                  <option value="critical_evaluation">Évaluation critique / Nuance implicite</option>
+                </select>
+              </div>
+
+              {/* Topic */}
+              <div>
+                <label className="font-medium text-muted-foreground block mb-1">
+                  Thématique (optionnel)
+                </label>
+                <Input
+                  placeholder="Ex. Mobilités douces, formation..."
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              {/* Stimulus Attachment Status */}
+              {!isSentenceGap && (
+                <div>
+                  <label className="font-medium text-muted-foreground block mb-1">
+                    Support documentaire rattaché
+                  </label>
+                  {persistedStimulusId ? (
+                    <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-2xs flex items-center justify-between">
+                      <span className="text-emerald-800 dark:text-emerald-200 font-medium">
+                        Support actif (#{persistedStimulusId.slice(0, 8)})
+                      </span>
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
                     </div>
                   ) : (
                     <div>
@@ -747,450 +898,379 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                         className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs"
                       >
                         <option value="generate_new">Générer un support en même temps</option>
-                        <option value="supplied_text">Fournir le texte de référence</option>
+                        <option value="supplied_text">Coller un texte de référence</option>
                       </select>
-
                       {stimulusMode === "supplied_text" && (
-                        <div className="mt-2">
-                          <Textarea
-                            placeholder="Collez ici le document, tableau ou transcription..."
-                            value={suppliedStimulusText}
-                            onChange={(e) => setSuppliedStimulusText(e.target.value)}
-                            className="text-xs h-20"
-                          />
-                        </div>
+                        <Textarea
+                          placeholder="Collez ici le support documentaire..."
+                          value={suppliedStimulusText}
+                          onChange={(e) => setSuppliedStimulusText(e.target.value)}
+                          className="text-xs h-16 mt-1.5"
+                        />
                       )}
                     </div>
                   )}
-
-                  {/* Pre-generation Studio Panel */}
-                  {showStimulusStudio && !persistedStimulusId && (
-                    <div className="p-2.5 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/40 dark:bg-purple-950/20 space-y-2 mt-2">
-                      <div className="font-semibold text-purple-800 dark:text-purple-300 text-2xs flex items-center justify-between">
-                        <span>Studio : Pré-génération de document TEF</span>
-                        <Badge variant="outline" className="text-2xs">
-                          Étape 1 sur 2
-                        </Badge>
-                      </div>
-                      <p className="text-muted-foreground text-2xs">
-                        Générez d'abord un support authentique adapté ({currentTaskSpec?.label || "TEF"})
-                        puis générez des questions associées.
-                      </p>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleGenerateStimulus}
-                        disabled={isGeneratingStimulus}
-                        className="w-full h-7 text-xs border-purple-300 hover:bg-purple-100 text-purple-700 dark:text-purple-300 gap-1.5"
-                      >
-                        {isGeneratingStimulus ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Sparkles className="h-3 w-3" />
-                        )}
-                        Générer support authentique
-                      </Button>
-
-                      {stimulusCandidate && (
-                        <div className="p-2 rounded bg-background border border-border space-y-1.5 mt-2">
-                          <div className="font-bold text-xs truncate">
-                            {stimulusCandidate.title}
-                          </div>
-                          <div className="text-2xs text-muted-foreground">
-                            Format : <strong>{stimulusCandidate.text_format}</strong> • {stimulusCandidate.word_count} mots
-                          </div>
-                          <Button
-                            size="sm"
-                            onClick={handlePersistStimulus}
-                            disabled={isPersistingStimulus}
-                            className="w-full h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1"
-                          >
-                            {isPersistingStimulus ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Check className="h-3 w-3" />
-                            )}
-                            Enregistrer & lier aux questions
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
+                </div>
               )}
-            </div>
 
-            {/* Target Skill Selection */}
-            {skills.length > 0 && (
+              {/* Target Skill Selection */}
+              {skills.length > 0 && (
+                <div>
+                  <label className="font-medium text-muted-foreground block mb-1">
+                    Compétence ciblée (optionnel)
+                  </label>
+                  <select
+                    value={selectedSkillIds[0] || ""}
+                    onChange={(e) => setSelectedSkillIds(e.target.value ? [e.target.value] : [])}
+                    className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs"
+                  >
+                    <option value="">Sélection automatique (Multidimensionnel TEF)</option>
+                    {skills.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.code} — {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Temperature */}
               <div>
-                <label className="font-medium text-muted-foreground block mb-1">
-                  Compétence ciblée (optionnel)
-                </label>
-                <select
-                  value={selectedSkillIds[0] || ""}
-                  onChange={(e) => setSelectedSkillIds(e.target.value ? [e.target.value] : [])}
-                  className="w-full h-8 px-2 rounded-md border border-input bg-background text-xs"
-                >
-                  <option value="">Sélection automatique par IA (Multidimensionnel)</option>
-                  {skills.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.code} — {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Temperature Slider */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-medium text-muted-foreground">
-                  Créativité (Température) : {temperature}
-                </label>
-              </div>
-              <input
-                type="range"
-                min="0.2"
-                max="1.2"
-                step="0.1"
-                value={temperature}
-                onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                className="w-full h-1.5 accent-purple-600 cursor-pointer"
-              />
-            </div>
-
-            {/* Count & Simulation Mode */}
-            <div className="pt-2 border-t border-border flex items-center justify-between">
-              <div>
-                <label className="font-medium text-muted-foreground block">
-                  Nombre de candidats
-                </label>
-                <select
-                  value={count}
-                  onChange={(e) => setCount(parseInt(e.target.value, 10))}
-                  className="h-7 px-2 rounded-md border border-input bg-background text-xs mt-1"
-                >
-                  <option value={1}>1 candidat</option>
-                  <option value={2}>2 candidats</option>
-                  <option value={3}>3 candidats</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col items-end">
-                <label className="font-medium text-muted-foreground block">Mode simulation</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-medium text-muted-foreground">
+                    Créativité : {temperature}
+                  </label>
+                </div>
                 <input
-                  type="checkbox"
-                  checked={forceSimulation}
-                  onChange={(e) => setForceSimulation(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded accent-purple-600"
+                  type="range"
+                  min="0.2"
+                  max="1.2"
+                  step="0.1"
+                  value={temperature}
+                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                  className="w-full h-1.5 accent-purple-600 cursor-pointer"
                 />
               </div>
+
+              {/* Count & Simulation */}
+              <div className="pt-2 border-t border-border flex items-center justify-between">
+                <div>
+                  <label className="font-medium text-muted-foreground block">
+                    Nombre d'items
+                  </label>
+                  <select
+                    value={count}
+                    onChange={(e) => setCount(parseInt(e.target.value, 10))}
+                    className="h-7 px-2 rounded-md border border-input bg-background text-xs mt-1"
+                  >
+                    <option value={1}>1 candidat</option>
+                    <option value={2}>2 candidats</option>
+                    <option value={3}>3 candidats</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col items-end">
+                  <label className="font-medium text-muted-foreground block">Simulation</label>
+                  <input
+                    type="checkbox"
+                    checked={forceSimulation}
+                    onChange={(e) => setForceSimulation(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded accent-purple-600"
+                  />
+                </div>
+              </div>
+
+              <Button
+                onClick={handleGenerateQuestions}
+                disabled={isGenerating}
+                className="w-full gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold mt-2 shadow-sm text-xs h-9"
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Génération des questions...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Générer les questions IA
+                  </>
+                )}
+              </Button>
             </div>
 
-            <Button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="w-full gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold mt-4 shadow-sm"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Génération en cours...
-                </>
+            {/* Right Column: Split-Screen Exam Preview (8 cols) */}
+            <div className="lg:col-span-8 space-y-4">
+              {candidates.length === 0 ? (
+                <div className="h-full min-h-[380px] flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-8 text-center text-muted-foreground">
+                  <Brain className="h-12 w-12 text-muted-foreground/40 mb-3" />
+                  <h4 className="font-semibold text-sm text-foreground">Aucune question générée</h4>
+                  <p className="text-xs max-w-sm mt-1">
+                    Lancez la génération des questions. Elles apparaîtront en écran partagé avec le
+                    support à gauche et l'item avec ses distracteurs à droite.
+                  </p>
+                </div>
               ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  Lancer la génération IA
-                </>
-              )}
-            </Button>
-          </div>
-
-          {/* RIGHT: Candidate Inspection & Review Workspace (8 cols) */}
-          <div className="lg:col-span-8 space-y-4">
-            {candidates.length === 0 ? (
-              <div className="h-full min-h-[380px] flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-8 text-center text-muted-foreground">
-                <Brain className="h-12 w-12 text-muted-foreground/40 mb-3" />
-                <h4 className="font-semibold text-sm text-foreground">Aucun candidat généré</h4>
-                <p className="text-xs max-w-sm mt-1">
-                  Configurez les paramètres à gauche et cliquez sur "Lancer la génération IA".
-                  Les items respecteront les critères officiels de la tâche sélectionnée.
-                </p>
-                {currentTaskSpec && (
-                  <div className="mt-4 p-3 rounded-lg bg-muted/40 border border-border text-2xs max-w-md text-left">
-                    <span className="font-bold text-foreground">Exigence pour {currentTaskSpec.label} :</span>
-                    <p className="text-muted-foreground mt-0.5">{currentTaskSpec.docDesc}</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Candidate Selector Tabs */}
-                {candidates.length > 1 && (
-                  <div className="flex items-center gap-2 border-b border-border pb-2">
-                    {candidates.map((cand, idx) => (
-                      <button
-                        key={cand.candidate_id}
-                        type="button"
-                        onClick={() => setSelectedCandidateIdx(idx)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
-                          selectedCandidateIdx === idx
-                            ? "bg-purple-600 text-white shadow-xs"
-                            : "bg-muted/50 text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        <span>Candidat #{idx + 1}</span>
-                        {cand.validation_report?.is_valid ? (
-                          <Check className="h-3 w-3 text-emerald-300" />
-                        ) : (
-                          <AlertTriangle className="h-3 w-3 text-amber-300" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {activeCandidate && (
-                  <div className="space-y-4 text-xs">
-                    {/* Header Badges & Quality Indicators */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border border-border bg-card">
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-purple-600 text-white font-bold">
-                          {activeCandidate.target_cefr}
-                        </Badge>
-                        <Badge variant="outline">
-                          {activeCandidate.cognitive_complexity}
-                        </Badge>
-                        <Badge variant="outline">
-                          {activeCandidate.response_type}
-                        </Badge>
-                        {activeCandidate.task_type_code && (
-                          <Badge variant="secondary" className="font-mono text-2xs">
-                            {activeCandidate.task_type_code}
-                          </Badge>
-                        )}
-                      </div>
-
-                      {/* Duplicate & Validation Badges */}
-                      <div className="flex items-center gap-2">
-                        {activeCandidate.duplicate_check?.is_duplicate ? (
-                          <span className="px-2 py-0.5 rounded text-2xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/20 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" /> Doublon (
-                            {Math.round(activeCandidate.duplicate_check.similarity_score * 100)}%)
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-2xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1">
-                            <ShieldCheck className="h-3 w-3" /> Unique
-                          </span>
-                        )}
-
-                        {activeCandidate.validation_report?.is_valid ? (
-                          <span className="px-2 py-0.5 rounded text-2xs font-semibold bg-teal-500/10 text-teal-600 border border-teal-500/20 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" /> Conforme règles V2
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-2xs font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" /> Avertissements
-                          </span>
-                        )}
-                      </div>
+                <div className="space-y-4">
+                  {/* Candidate Selector Tabs */}
+                  {candidates.length > 1 && (
+                    <div className="flex items-center gap-2 border-b border-border pb-2">
+                      {candidates.map((cand, idx) => (
+                        <button
+                          key={cand.candidate_id}
+                          type="button"
+                          onClick={() => setSelectedCandidateIdx(idx)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                            selectedCandidateIdx === idx
+                              ? "bg-purple-600 text-white shadow-xs"
+                              : "bg-muted/50 text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <span>Item #{idx + 1}</span>
+                          {cand.validation_report?.is_valid ? (
+                            <Check className="h-3 w-3 text-emerald-300" />
+                          ) : (
+                            <AlertTriangle className="h-3 w-3 text-amber-300" />
+                          )}
+                        </button>
+                      ))}
                     </div>
+                  )}
 
-                    {/* Stimulus Section if present */}
-                    {activeCandidate.stimulus_content && (
-                      <div className="p-3.5 rounded-lg border border-border bg-muted/20 space-y-2">
-                        <div className="font-semibold text-muted-foreground flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <BookOpen className="h-3.5 w-3.5 text-purple-600" /> Support / Document (
-                            {activeCandidate.stimulus_title || "Texte d'accompagnement"})
-                          </span>
-                          {activeCandidate.source_attribution && (
-                            <span className="text-2xs text-muted-foreground font-normal italic">
-                              Source : {activeCandidate.source_attribution}
+                  {activeCandidate && (
+                    <div className="space-y-4 text-xs">
+                      {/* Quality & Validation Banner */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border border-border bg-card">
+                        <div className="flex items-center gap-2">
+                          <Badge className="bg-purple-600 text-white font-bold text-2xs">
+                            {activeCandidate.target_cefr}
+                          </Badge>
+                          <Badge variant="outline" className="text-2xs capitalize">
+                            {activeCandidate.cognitive_complexity}
+                          </Badge>
+                          <Badge variant="outline" className="text-2xs font-mono">
+                            {activeCandidate.response_type}
+                          </Badge>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {activeCandidate.duplicate_check?.is_duplicate ? (
+                            <span className="px-2 py-0.5 rounded text-2xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/20 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> Doublon ({Math.round(activeCandidate.duplicate_check.similarity_score * 100)}%)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-2xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1">
+                              <ShieldCheck className="h-3 w-3" /> Unique
+                            </span>
+                          )}
+
+                          {activeCandidate.validation_report?.is_valid ? (
+                            <span className="px-2 py-0.5 rounded text-2xs font-semibold bg-teal-500/10 text-teal-600 border border-teal-500/20 flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" /> Conforme règles V2
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-2xs font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> Avertissements
                             </span>
                           )}
                         </div>
-                        {renderStimulusPreview(activeCandidate.stimulus_content)}
                       </div>
-                    )}
 
-                    {/* Question Prompt */}
-                    <div className="p-3.5 rounded-lg border border-border bg-card space-y-2">
-                      <div className="font-semibold text-muted-foreground">Énoncé de l'item :</div>
-                      <div className="text-foreground">
-                        {renderPromptText(activeCandidate.prompt)}
-                      </div>
-                      {activeCandidate.instructions && (
-                        <div className="text-muted-foreground italic text-2xs">
-                          Consignes : {activeCandidate.instructions}
-                        </div>
-                      )}
-                    </div>
+                      {/* --- SPLIT-SCREEN EXAM LAYOUT --- */}
+                      <div className={`grid gap-4 ${activeCandidate.stimulus_content ? "grid-cols-1 md:grid-cols-12" : "grid-cols-1"}`}>
+                        {/* Left Side: Stimulus Document Viewer (5 cols if present) */}
+                        {activeCandidate.stimulus_content && (
+                          <div className="md:col-span-5">
+                            <StimulusRenderer
+                              title={activeCandidate.stimulus_title}
+                              content={activeCandidate.stimulus_content}
+                              modality={activeCandidate.modality}
+                              sourceCitation={activeCandidate.source_attribution}
+                              cefrLevel={activeCandidate.target_cefr}
+                              viewMode="split"
+                              activeDocumentKey={detectedActiveDocKey}
+                            />
+                          </div>
+                        )}
 
-                    {/* Options List (Single Choice / Multiple Choice) */}
-                    {activeCandidate.options && activeCandidate.options.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="font-semibold text-muted-foreground">
-                          Options de réponse & Justifications :
-                        </div>
-                        <div className="space-y-2">
-                          {activeCandidate.options.map((opt, oIdx) => (
-                            <div
-                              key={oIdx}
-                              className={`p-2.5 rounded-lg border flex flex-col gap-1 ${
-                                opt.is_correct
-                                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-950 dark:text-emerald-100"
-                                  : "bg-card border-border text-foreground"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between font-medium">
-                                <span className="flex items-center gap-2">
-                                  <span
-                                    className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                        {/* Right Side: Question Item, Options & Rationales (7 cols or 12 cols) */}
+                        <div className={`${activeCandidate.stimulus_content ? "md:col-span-7" : "col-span-1"} space-y-3`}>
+                          {/* Question Prompt */}
+                          <div className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-1.5">
+                            <div className="font-semibold text-2xs text-muted-foreground uppercase tracking-wider">
+                              Énoncé de la question :
+                            </div>
+                            <div>
+                              {renderPromptText(activeCandidate.prompt)}
+                            </div>
+                            {activeCandidate.instructions && (
+                              <div className="text-muted-foreground italic text-2xs pt-1 border-t border-border/40">
+                                {activeCandidate.instructions}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Options List */}
+                          {activeCandidate.options && activeCandidate.options.length > 0 && (
+                            <div className="space-y-2">
+                              <div className="font-semibold text-2xs text-muted-foreground uppercase tracking-wider">
+                                Choix de réponse & Explications didactiques :
+                              </div>
+                              <div className="space-y-2">
+                                {activeCandidate.options.map((opt, oIdx) => (
+                                  <div
+                                    key={oIdx}
+                                    className={`p-3 rounded-xl border flex flex-col gap-1 transition-all ${
                                       opt.is_correct
-                                        ? "bg-emerald-600 text-white"
-                                        : "bg-muted text-muted-foreground"
+                                        ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-950 dark:text-emerald-100 shadow-2xs"
+                                        : "bg-card border-border text-foreground hover:bg-muted/20"
                                     }`}
                                   >
-                                    {String.fromCharCode(65 + oIdx)}
-                                  </span>
-                                  {opt.content}
-                                </span>
-                                {opt.is_correct && (
-                                  <Badge className="bg-emerald-600 text-white font-bold text-2xs">
-                                    Bonne réponse
-                                  </Badge>
-                                )}
+                                    <div className="flex items-center justify-between font-medium">
+                                      <span className="flex items-center gap-2">
+                                        <span
+                                          className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                                            opt.is_correct
+                                              ? "bg-emerald-600 text-white"
+                                              : "bg-muted text-muted-foreground"
+                                          }`}
+                                        >
+                                          {String.fromCharCode(65 + oIdx)}
+                                        </span>
+                                        <span className="text-xs font-semibold">{opt.content}</span>
+                                      </span>
+                                      {opt.is_correct && (
+                                        <Badge className="bg-emerald-600 text-white font-bold text-3xs">
+                                          Bonne réponse
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    {opt.explanation && (
+                                      <div className="text-2xs text-muted-foreground pl-7 italic">
+                                        Justification : {opt.explanation}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
-                              {opt.explanation && (
-                                <div className="text-2xs text-muted-foreground pl-7 italic">
-                                  Explication : {opt.explanation}
-                                </div>
+                            </div>
+                          )}
+
+                          {/* Granular Competencies Tagging */}
+                          {activeCandidate.skill_mappings && activeCandidate.skill_mappings.length > 0 && (
+                            <div className="p-3 rounded-xl border border-border bg-card/60 space-y-1.5">
+                              <div className="font-semibold text-2xs text-muted-foreground uppercase tracking-wider">
+                                Balises de compétences TEF V2 :
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {activeCandidate.skill_mappings.map((sk) => {
+                                  const isPrimary = sk.role === "primary";
+                                  const weightPct = Math.round(sk.weight * 100);
+                                  return (
+                                    <div
+                                      key={sk.skill_id}
+                                      className={`px-2 py-0.5 rounded-md border text-2xs flex items-center gap-1.5 ${
+                                        isPrimary
+                                          ? "bg-purple-500/10 border-purple-500/30 text-purple-700 dark:text-purple-300 font-semibold"
+                                          : "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300"
+                                      }`}
+                                    >
+                                      <span className="font-mono">
+                                        {sk.skill_code || sk.skill_name || sk.skill_id.slice(0, 8)}
+                                      </span>
+                                      <span
+                                        className={`px-1 py-0 rounded text-3xs font-extrabold ${
+                                          isPrimary ? "bg-purple-600 text-white" : "bg-blue-600 text-white"
+                                        }`}
+                                      >
+                                        {isPrimary ? "Primaire" : "Secondaire"} ({weightPct}%)
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* AI Review Report 2nd Pass */}
+                          {activeCandidate.ai_review && (
+                            <div className="p-3 rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 space-y-1.5">
+                              <div className="flex items-center justify-between text-2xs font-bold text-purple-700 dark:text-purple-300">
+                                <span className="flex items-center gap-1">
+                                  <Brain className="h-3.5 w-3.5" /> Rapport d'audit IA (2e passe)
+                                </span>
+                                <span>
+                                  Qualité : {activeCandidate.ai_review.quality_score}/100 • Naturel : {activeCandidate.ai_review.naturalness_score}/100
+                                </span>
+                              </div>
+                              {activeCandidate.ai_review.strengths?.length > 0 && (
+                                <p className="text-3xs text-foreground/80">
+                                  <strong>Forces :</strong> {activeCandidate.ai_review.strengths.join(", ")}
+                                </p>
+                              )}
+                              {activeCandidate.ai_review.suggested_improvements?.length > 0 && (
+                                <p className="text-3xs text-purple-800 dark:text-purple-200">
+                                  <strong>Pistes :</strong> {activeCandidate.ai_review.suggested_improvements.join(", ")}
+                                </p>
                               )}
                             </div>
-                          ))}
+                          )}
                         </div>
                       </div>
-                    )}
 
-                    {/* Granular Skills Tagging Preview (Primary & Secondary across dimensions) */}
-                    {activeCandidate.skill_mappings && activeCandidate.skill_mappings.length > 0 && (
-                      <div className="space-y-1.5 pt-1 border-t border-border">
-                        <div className="font-semibold text-muted-foreground">
-                          Balises de compétences (Moteur de compétences TEF) :
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {activeCandidate.skill_mappings.map((sk) => {
-                            const isPrimary = sk.role === "primary";
-                            const weightPct = Math.round(sk.weight * 100);
-                            return (
-                              <div
-                                key={sk.skill_id}
-                                className={`px-2 py-1 rounded-md border text-2xs flex items-center gap-1.5 ${
-                                  isPrimary
-                                    ? "bg-purple-500/10 border-purple-500/30 text-purple-700 dark:text-purple-300 font-semibold"
-                                    : "bg-indigo-500/10 border-indigo-500/30 text-indigo-700 dark:text-indigo-300"
-                                }`}
-                              >
-                                <span className="font-mono">
-                                  {sk.skill_code || sk.skill_name || sk.skill_id.slice(0, 8)}
-                                </span>
-                                <Badge
-                                  variant="secondary"
-                                  className={`text-3xs px-1 py-0 h-4 ${
-                                    isPrimary
-                                      ? "bg-purple-600 text-white"
-                                      : "bg-indigo-600 text-white"
-                                  }`}
-                                >
-                                  {isPrimary ? "Primaire" : "Secondaire"} ({weightPct}%)
-                                </Badge>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Second-pass AI Review Report if available */}
-                    {activeCandidate.ai_review && (
-                      <div className="p-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
-                            <Brain className="h-4 w-4" /> Rapport d'audit IA (2e passe)
-                          </span>
-                          <span className="text-2xs font-bold text-purple-600">
-                            Qualité : {activeCandidate.ai_review.quality_score}/100 • Naturel français :{" "}
-                            {activeCandidate.ai_review.naturalness_score}/100
-                          </span>
-                        </div>
-                        {activeCandidate.ai_review.strengths?.length > 0 && (
-                          <div className="text-2xs text-foreground/80">
-                            <strong>Points forts :</strong> {activeCandidate.ai_review.strengths.join(", ")}
-                          </div>
-                        )}
-                        {activeCandidate.ai_review.suggested_improvements?.length > 0 && (
-                          <div className="text-2xs text-purple-800 dark:text-purple-200">
-                            <strong>Pistes d'amélioration :</strong>{" "}
-                            {activeCandidate.ai_review.suggested_improvements.join(", ")}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Actions Bar */}
-                    <div className="flex items-center justify-between pt-4 border-t border-border">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={isAuditingCandidate}
-                        onClick={() => handleSecondPassAudit(activeCandidate, selectedCandidateIdx)}
-                        className="gap-1.5 text-xs"
-                      >
-                        {isAuditingCandidate ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        )}
-                        Auditer (2e passe IA)
-                      </Button>
-
-                      <div className="flex items-center gap-2">
+                      {/* Footer Actions */}
+                      <div className="flex items-center justify-between pt-4 border-t border-border">
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          onClick={() => {
-                            const updated = candidates.filter((_, i) => i !== selectedCandidateIdx);
-                            setCandidates(updated);
-                            setSelectedCandidateIdx(0);
-                          }}
-                          className="text-xs text-muted-foreground hover:text-rose-600"
+                          disabled={isAuditingCandidate}
+                          onClick={() => handleSecondPassAudit(activeCandidate, selectedCandidateIdx)}
+                          className="gap-1.5 text-xs h-8"
                         >
-                          <X className="h-3.5 w-3.5 mr-1" /> Écarter ce candidat
-                        </Button>
-
-                        <Button
-                          size="sm"
-                          disabled={isSubmittingDraft}
-                          onClick={() => handleCreateDraft(activeCandidate)}
-                          className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs"
-                        >
-                          {isSubmittingDraft ? (
+                          {isAuditingCandidate ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <Check className="h-3.5 w-3.5" />
+                            <RefreshCw className="h-3.5 w-3.5" />
                           )}
-                          Créer le brouillon & ouvrir dans l'atelier
+                          Auditer (2e passe IA)
                         </Button>
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const updated = candidates.filter((_, i) => i !== selectedCandidateIdx);
+                              setCandidates(updated);
+                              setSelectedCandidateIdx(0);
+                            }}
+                            className="text-xs text-muted-foreground hover:text-rose-600 h-8"
+                          >
+                            <X className="h-3.5 w-3.5 mr-1" /> Écarter cet item
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            disabled={isSubmittingDraft}
+                            onClick={() => handleCreateDraft(activeCandidate)}
+                            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs h-8"
+                          >
+                            {isSubmittingDraft ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                            Créer le brouillon & ouvrir dans l'atelier
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   );

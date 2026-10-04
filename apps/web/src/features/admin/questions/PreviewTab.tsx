@@ -1,6 +1,7 @@
-import React, { useState } from "react";
-import { UserCheck, ShieldAlert, CheckCircle2, Headphones, FileText, Check } from "lucide-react";
+import React, { useState, useMemo } from "react";
+import { UserCheck, ShieldAlert, CheckCircle2, Headphones, Check } from "lucide-react";
 import type { QuestionItem } from "../types";
+import { StimulusRenderer } from "./components/StimulusRenderer";
 
 interface PreviewTabProps {
   question: Partial<QuestionItem>;
@@ -19,6 +20,13 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
   };
 
   const stimulusContent = question.stimulus?.content || question.stimulus_text;
+
+  // Auto-detect referenced document key from prompt or options (e.g. "Document B")
+  const activeDocumentKey = useMemo(() => {
+    const textToScan = `${question.prompt || ""} ${question.options?.map((o) => o.content).join(" ") || ""}`;
+    const match = textToScan.match(/Document\s+([A-D])/i);
+    return match ? `doc_${match[1].toLowerCase()}` : null;
+  }, [question.prompt, question.options]);
 
   return (
     <div className="space-y-6">
@@ -84,15 +92,18 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
 
           {/* Stimulus Passage if Present */}
           {stimulusContent && (
-            <div className="p-4 rounded-xl border border-border/80 bg-muted/20 space-y-2">
-              <div className="flex items-center gap-1.5 text-2xs font-bold text-muted-foreground uppercase tracking-wide">
-                <FileText className="h-3.5 w-3.5 text-primary" />
-                Document
-              </div>
-              <p className="text-xs text-foreground whitespace-pre-line leading-relaxed font-serif">
-                {stimulusContent}
-              </p>
-            </div>
+            <StimulusRenderer
+              title={question.stimulus?.title || "Document support"}
+              content={stimulusContent}
+              modality={question.task_type?.modality || ((question.audio_url || question.media_url) ? "listening" : "reading")}
+              textFormat={question.stimulus?.text_format || undefined}
+              sourceCitation={question.stimulus?.source_attribution}
+              cefrLevel={question.stimulus?.cefr_level || question.target_cefr || question.level}
+              wordCount={question.stimulus?.word_count}
+              viewMode="full"
+              activeDocumentKey={activeDocumentKey}
+              enableExpandModal={true}
+            />
           )}
 
           {/* Prompt */}
@@ -184,6 +195,27 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
               </span>
             )}
           </div>
+
+          {/* Admin Stimulus Support Preview */}
+          {stimulusContent && (
+            <div className="space-y-1.5">
+              <span className="text-2xs font-bold text-muted-foreground uppercase">
+                Document support associé
+              </span>
+              <StimulusRenderer
+                title={question.stimulus?.title || "Document support"}
+                content={stimulusContent}
+                modality={question.task_type?.modality || ((question.audio_url || question.media_url) ? "listening" : "reading")}
+                textFormat={question.stimulus?.text_format || undefined}
+                sourceCitation={question.stimulus?.source_attribution}
+                cefrLevel={question.stimulus?.cefr_level || question.target_cefr || question.level}
+                wordCount={question.stimulus?.word_count}
+                viewMode="compact"
+                activeDocumentKey={activeDocumentKey}
+                enableExpandModal={true}
+              />
+            </div>
+          )}
 
           {/* Prompt */}
           <div className="space-y-1">

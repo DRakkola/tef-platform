@@ -226,13 +226,12 @@ async def seed_learning_data(db: AsyncSession) -> None:
     db.add(ex1)
     await db.flush()
 
-    ex1_skill1 = ExerciseSkill(exercise_id=ex1.id, skill_id=grammar_skill.id, role=SkillTagRole.PRIMARY)
+    ex1_skill1 = ExerciseSkill(exercise_id=ex1.id, skill_id=grammar_skill.id, role=SkillTagRole.PRIMARY, weight=0.75)
     ex1_skill2 = ExerciseSkill(
         exercise_id=ex1.id,
-        skill_id=grammar_skill.id,
-        subskill_id=relative_pronouns_skill.id,
-        subskill=relative_pronouns_skill.code,
+        skill_id=relative_pronouns_skill.id,
         role=SkillTagRole.SECONDARY,
+        weight=0.25,
     )
     db.add_all([ex1_skill1, ex1_skill2])
 
@@ -276,13 +275,12 @@ async def seed_learning_data(db: AsyncSession) -> None:
     db.add(ex2)
     await db.flush()
 
-    ex2_skill1 = ExerciseSkill(exercise_id=ex2.id, skill_id=vocab_skill.id, role=SkillTagRole.PRIMARY)
+    ex2_skill1 = ExerciseSkill(exercise_id=ex2.id, skill_id=vocab_skill.id, role=SkillTagRole.PRIMARY, weight=0.75)
     ex2_skill2 = ExerciseSkill(
         exercise_id=ex2.id,
-        skill_id=vocab_skill.id,
-        subskill_id=connectors_skill.id,
-        subskill=connectors_skill.code,
+        skill_id=connectors_skill.id,
         role=SkillTagRole.SECONDARY,
+        weight=0.25,
     )
     db.add_all([ex2_skill1, ex2_skill2])
 
@@ -326,13 +324,12 @@ async def seed_learning_data(db: AsyncSession) -> None:
     db.add(ex3)
     await db.flush()
 
-    ex3_skill1 = ExerciseSkill(exercise_id=ex3.id, skill_id=conjugation_skill.id, role=SkillTagRole.PRIMARY)
+    ex3_skill1 = ExerciseSkill(exercise_id=ex3.id, skill_id=conjugation_skill.id, role=SkillTagRole.PRIMARY, weight=0.75)
     ex3_skill2 = ExerciseSkill(
         exercise_id=ex3.id,
-        skill_id=conjugation_skill.id,
-        subskill_id=past_tenses_skill.id,
-        subskill=past_tenses_skill.code,
+        skill_id=past_tenses_skill.id,
         role=SkillTagRole.SECONDARY,
+        weight=0.25,
     )
     db.add_all([ex3_skill1, ex3_skill2])
 

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { BookOpen, FileText, Music, Link2, X } from "lucide-react";
+import { BookOpen, FileText, Music, Link2, X, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,7 @@ import { MatchingEditor } from "./MatchingEditor";
 import { OrderingEditor } from "./OrderingEditor";
 import { GapFillEditor } from "./GapFillEditor";
 import { ShortTextEditor } from "./ShortTextEditor";
+import { StimulusRenderer } from "./components/StimulusRenderer";
 import type { QuestionItem, QuestionOption, AdminStimulus } from "../types";
 
 interface ContentTabProps {
@@ -24,6 +25,7 @@ export const ContentTab: React.FC<ContentTabProps> = ({
   disabled = false,
 }) => {
   const [isStimulusDialogOpen, setIsStimulusDialogOpen] = useState(false);
+  const [showStimulusPreview, setShowStimulusPreview] = useState(true);
 
   const handleStimulusSelect = (stim: AdminStimulus) => {
     onChange({
@@ -68,34 +70,64 @@ export const ContentTab: React.FC<ContentTabProps> = ({
         </div>
 
         {question.stimulus_id && question.stimulus ? (
-          <div className="p-3 rounded-lg border border-primary/20 bg-primary/5 flex items-start justify-between gap-3 text-xs">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 font-semibold text-foreground">
-                <span>{question.stimulus.title}</span>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs bg-muted/30 p-2.5 rounded-lg border border-border">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-semibold text-foreground truncate">{question.stimulus.title}</span>
                 {question.stimulus.cefr_level && (
-                  <span className="text-2xs uppercase px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                  <span className="text-2xs uppercase px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-bold shrink-0">
                     {question.stimulus.cefr_level}
                   </span>
                 )}
                 {question.stimulus.source_attribution && (
-                  <span className="text-2xs text-muted-foreground">
+                  <span className="text-2xs text-muted-foreground hidden md:inline truncate">
                     — {question.stimulus.source_attribution}
                   </span>
                 )}
               </div>
-              <p className="text-2xs text-muted-foreground font-mono line-clamp-3">
-                {question.stimulus.content}
-              </p>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowStimulusPreview((prev) => !prev)}
+                  className="h-6 px-2 text-2xs gap-1 text-muted-foreground"
+                >
+                  {showStimulusPreview ? (
+                    <>
+                      <EyeOff className="h-3 w-3" /> Masquer
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-3 w-3" /> Aperçu
+                    </>
+                  )}
+                </Button>
+                <button
+                  type="button"
+                  onClick={handleDetachStimulus}
+                  disabled={disabled}
+                  className="p-1 text-muted-foreground hover:text-rose-500 transition rounded"
+                  title="Détacher le stimulus"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={handleDetachStimulus}
-              disabled={disabled}
-              className="p-1 text-muted-foreground hover:text-rose-500 transition"
-              title="Détacher le stimulus"
-            >
-              <X className="h-4 w-4" />
-            </button>
+
+            {showStimulusPreview && (
+              <StimulusRenderer
+                title={question.stimulus.title}
+                content={question.stimulus.content}
+                modality={question.stimulus.modality || question.task_type?.modality || "reading"}
+                textFormat={question.stimulus.text_format}
+                sourceCitation={question.stimulus.source_attribution}
+                cefrLevel={question.stimulus.cefr_level}
+                wordCount={question.stimulus.word_count}
+                viewMode="compact"
+                enableExpandModal={true}
+              />
+            )}
           </div>
         ) : (
           <div className="text-2xs text-muted-foreground border border-dashed border-border rounded-lg p-3 text-center">
