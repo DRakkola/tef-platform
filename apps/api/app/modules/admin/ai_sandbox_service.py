@@ -1,5 +1,6 @@
 """Service layer for AI Sandbox & Benchmarking Studio."""
 
+import asyncio
 import json
 import time
 import uuid
@@ -806,29 +807,68 @@ Consignes strictes :
         clean_model = model.replace("models/", "")
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
 
-        payload = {
+        # Gemini 3.x "thinking" tokens count against maxOutputTokens. Without a reserve,
+        # the visible JSON answer gets truncated (finishReason=MAX_TOKENS).
+        thinking_reserve = 4096
+        payload: dict[str, Any] = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"parts": [{"text": user_prompt}]}],
             "generationConfig": {
                 "temperature": temperature,
-                "maxOutputTokens": max_tokens,
+                "maxOutputTokens": max_tokens + thinking_reserve,
+                "responseMimeType": "application/json",
+                "thinkingConfig": {"thinkingLevel": "low"},
             },
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(endpoint, json=payload)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Gemini API returned status {resp.status_code}: {resp.text}")
+        transient_statuses = {429, 500, 502, 503, 504}
+        max_attempts = 3
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            attempt = 0
+            while True:
+                attempt += 1
+                resp = await client.post(endpoint, json=payload)
+                if resp.status_code == 200:
+                    break
+                gen_cfg = payload["generationConfig"]
+                if resp.status_code == 400 and "thinkingConfig" in gen_cfg:
+                    # Older models may not support thinkingLevel; retry without it.
+                    logger.warning("gemini.thinking_config_rejected", model=clean_model)
+                    gen_cfg.pop("thinkingConfig", None)
+                    continue
+                if resp.status_code in transient_statuses and attempt < max_attempts:
+                    backoff = 1.5 * (2 ** (attempt - 1))
+                    logger.warning(
+                        "gemini.transient_error_retry",
+                        status=resp.status_code,
+                        attempt=attempt,
+                        backoff_s=backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                raise RuntimeError(f"Gemini API returned status {resp.status_code}")
 
             data = resp.json()
             candidates = data.get("candidates", [])
             if not candidates:
                 raise RuntimeError("No candidate received from Gemini API")
 
-            content_parts = candidates[0].get("content", {}).get("parts", [])
-            text_result = content_parts[0].get("text", "") if content_parts else ""
-
+            finish_reason = candidates[0].get("finishReason")
             usage = data.get("usageMetadata", {})
+            if finish_reason == "MAX_TOKENS":
+                logger.warning(
+                    "gemini.output_truncated",
+                    model=clean_model,
+                    candidates_tokens=usage.get("candidatesTokenCount"),
+                    thoughts_tokens=usage.get("thoughtsTokenCount"),
+                )
+                raise RuntimeError("Gemini output truncated (MAX_TOKENS)")
+
+            content_parts = candidates[0].get("content", {}).get("parts", [])
+            text_result = "".join(
+                p.get("text", "") for p in content_parts if not p.get("thought", False)
+            ).strip()
+
             prompt_tokens = int(usage.get("promptTokenCount", len(user_prompt.split())))
             completion_tokens = int(usage.get("candidatesTokenCount", len(text_result.split())))
 
@@ -836,7 +876,10 @@ Consignes strictes :
 
     @staticmethod
     def _parse_json_or_fallback(raw_text: str) -> dict[str, Any]:
-        """Safely parse JSON from LLM response, stripping markdown backticks if present."""
+        """Safely parse JSON from LLM response, stripping markdown backticks if present and handling trailing noise."""
+        if not raw_text or not raw_text.strip():
+            return {"raw": raw_text}
+
         clean = (
             raw_text.strip()
             .removeprefix("```json")
@@ -845,10 +888,52 @@ Consignes strictes :
             .strip()
         )
 
+        # 1. Direct parse attempt
         try:
-            return json.loads(clean)
+            res = json.loads(clean)
+            if isinstance(res, dict):
+                return res
         except (ValueError, TypeError):
-            return {"raw": raw_text}
+            pass
+
+        # 2. Balanced brace search to extract valid outer JSON object even if trailing tokens exist
+        start_idx = clean.find("{")
+        if start_idx != -1:
+            depth = 0
+            in_string = False
+            escape_next = False
+            end_idx = -1
+
+            for i in range(start_idx, len(clean)):
+                char = clean[i]
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == "\\":
+                    escape_next = True
+                    continue
+                if char == '"':
+                    in_string = not in_string
+                    continue
+                if not in_string:
+                    if char == "{":
+                        depth += 1
+                    elif char == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end_idx = i
+                            break
+
+            if end_idx != -1:
+                candidate_str = clean[start_idx : end_idx + 1]
+                try:
+                    res = json.loads(candidate_str)
+                    if isinstance(res, dict):
+                        return res
+                except (ValueError, TypeError):
+                    pass
+
+        return {"raw": raw_text}
 
     @staticmethod
     def _construct_writing_result(data: dict[str, Any], draft: str) -> WritingTestResult:

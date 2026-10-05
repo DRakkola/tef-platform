@@ -748,6 +748,26 @@ class AIQuestionGenerationService:
                     max_tokens=2500,
                 )
                 parsed_data = AISandboxService._parse_json_or_fallback(raw_text)
+                if (
+                    not isinstance(parsed_data, dict)
+                    or not parsed_data.get("prompt")
+                    or not parsed_data.get("options")
+                    or len(parsed_data.get("options", [])) < 2
+                ):
+                    logger.warning(
+                        "LLM returned malformed JSON or empty prompt/options, falling back to realistic simulation",
+                        raw_preview=raw_text[:200] if raw_text else None,
+                    )
+                    parsed_data = cls._simulate_question_generation(
+                        request=request,
+                        task_type_code=task_type_code,
+                        allowed_skills=allowed_skills,
+                        stimulus_title=stimulus_title,
+                        stimulus_content=stimulus_content,
+                        candidate_index=candidate_index,
+                    )
+                    is_sim = True
+                    completion_tokens = 380
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Gemini API generation failed, falling back to realistic simulation",
@@ -904,7 +924,7 @@ class AIQuestionGenerationService:
                 "Le champ 'prompt' DOIT contenir une phrase unique complète avec un blanc représenté par '______'. "
                 "Les options doivent être 4 mots ou formes grammaticales pour compléter la phrase (1 correcte, 3 distracteurs avec misconception_type)."
             )
-        elif request.stimulus_mode == "generate_new" and not stimulus_content:
+        elif not stimulus_content or not str(stimulus_content).strip():
             if stim_type == "multi_document":
                 stimulus_instructions = (
                     "RÈGLE DOCUMENT MATCHING : Génère un ensemble multi-documents composé de 4 courts documents distincts "
@@ -1014,13 +1034,24 @@ class AIQuestionGenerationService:
         request: AIQuestionGenerationRequest,
         task_type: TaskType | None,
     ) -> list[Skill]:
-        """Fetch active skills compatible with the task modality and partitioned by dimension."""
-        stmt = select(Skill).where(Skill.is_active == True)
+        """Fetch active, assessable skills compatible with the task modality and partitioned by dimension."""
+        from app.modules.admin.models import TaskTypeSkill
+
+        stmt = select(Skill).where(Skill.is_active == True, Skill.is_assessable == True)
         if request.modality:
             # Filter skills whose domain matches modality, is general, or is None
             stmt = stmt.where(
                 (Skill.domain == request.modality) | (Skill.domain == "general") | (Skill.domain == None)
             )
+
+        # Restrict by TaskTypeSkill whitelist if defined for this task type
+        if task_type is not None:
+            tts_stmt = select(TaskTypeSkill.skill_id).where(TaskTypeSkill.task_type_id == task_type.id)
+            whitelisted_ids = set((await db.execute(tts_stmt)).scalars().all())
+            if whitelisted_ids:
+                stmt = stmt.where(
+                    (Skill.id.in_(whitelisted_ids)) | (Skill.parent_id.in_(whitelisted_ids))
+                )
 
         skills = list((await db.execute(stmt)).scalars().all())
 
@@ -1298,6 +1329,8 @@ class AIQuestionGenerationService:
                     "is_correct": o.is_correct,
                     "order_index": o.order_index,
                     "explanation": o.explanation,
+                    "misconception_type": o.misconception_type,
+                    "distractor_rationale": o.distractor_rationale,
                 }
                 for o in candidate.options
             ],
@@ -1314,8 +1347,11 @@ class AIQuestionGenerationService:
             "task_type_id": task_type_id,
             "provenance": {
                 "author_type": QuestionAuthorType.AI.value,
-                "generation_model": candidate.generation_metadata.model,
-                "prompt_template_version": candidate.generation_metadata.prompt_template_version,
+                "generator_model": candidate.generation_metadata.model,
+                "generator_prompt_version": candidate.generation_metadata.prompt_template_version,
+                "generator_parameters": {
+                    "is_simulation": candidate.generation_metadata.is_simulation,
+                },
             },
         }
 

@@ -324,16 +324,23 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
         task_type_code: currentTaskCode || undefined,
         target_cefr: targetCefr,
         cognitive_complexity: cognitiveComplexity,
-        topic: topic.trim() || undefined,
         stimulus_mode: isSentenceGap
           ? "none"
           : persistedStimulusId
           ? "existing_stimulus"
+          : stimulusCandidate?.content_text
+          ? "supplied_text"
           : stimulusMode,
         stimulus_id: isSentenceGap ? undefined : persistedStimulusId || undefined,
         supplied_stimulus_text:
-          !isSentenceGap && stimulusMode === "supplied_text"
-            ? suppliedStimulusText
+          !isSentenceGap
+            ? persistedStimulusId
+              ? undefined
+              : stimulusCandidate?.content_text
+              ? stimulusCandidate.content_text
+              : stimulusMode === "supplied_text"
+              ? suppliedStimulusText
+              : undefined
             : undefined,
         target_skill_ids: selectedSkillIds.length > 0 ? selectedSkillIds : undefined,
         count,
