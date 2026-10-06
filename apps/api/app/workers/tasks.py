@@ -3,6 +3,7 @@
 import asyncio
 import concurrent.futures
 import datetime
+import uuid
 from collections.abc import Coroutine
 from typing import Any
 
@@ -50,6 +51,32 @@ def health_check_task(self, check_id: str = "health-check") -> dict[str, str]:
         "task_id": str(self.request.id),
         "check_id": check_id,
     }
+
+
+@celery_app.task(name="tasks.run_ai_question_generation_job", bind=True)
+def run_ai_question_generation_job_task(self, job_id: str) -> dict[str, Any]:
+    """Execute an AI question-generation batch outside the HTTP request.
+
+    Generation is slow and billable, so it never runs inline. The job row is the
+    source of truth: it is marked RUNNING before work starts and reaches a
+    terminal state whether generation succeeds or fails, so the admin client can
+    always stop polling.
+    """
+
+    async def _run() -> dict[str, Any]:
+        async with async_session_factory() as db:
+            # Imported lazily: the service imports worker-facing config and this
+            # keeps module import order acyclic.
+            from app.modules.admin.ai_question_service import AIQuestionGenerationService
+
+            job = await AIQuestionGenerationService.run_generation_job(
+                db=db, job_id=uuid.UUID(job_id)
+            )
+            return {"status": "success", "job_status": job.status}
+
+    result = run_async(_run())
+    result["task_id"] = str(self.request.id)
+    return result
 
 
 async def cleanup_expired_practice_requests_core(db: AsyncSession) -> int:

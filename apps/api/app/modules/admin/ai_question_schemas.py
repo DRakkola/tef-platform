@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.modules.admin.enums import AIGenerationJobStatus
 from app.modules.assessments.enums import (
     CognitiveComplexityLevel,
     QuestionResponseType,
@@ -110,6 +111,8 @@ class GeneratedQuestionCandidate(BaseModel):
     penalty_points: int = 0
     task_type_id: uuid.UUID | None = None
     task_type_code: str | None = None
+    format_spec_version: str | None = None
+    option_count: int | None = None
 
     # Stimulus handling
     stimulus_id: uuid.UUID | None = None
@@ -145,6 +148,15 @@ class AIQuestionGenerationRequest(BaseModel):
     difficulty_rating: int | None = None
     cognitive_complexity: str = CognitiveComplexityLevel.INTERPRETATION.value
     topic: str | None = None
+    option_count: int | None = Field(
+        default=None,
+        ge=2,
+        le=6,
+        description=(
+            "Requested number of answer options for choice-based formats. "
+            "Clamped to the task-type range declared in the question format registry."
+        ),
+    )
 
     stimulus_mode: str = "generate_new"  # "generate_new", "existing_stimulus", "supplied_text"
     stimulus_id: uuid.UUID | None = None
@@ -173,6 +185,42 @@ class AIBatchGenerationResponse(BaseModel):
     summary: str
 
 
+class AIGenerationJobCreateRequest(AIQuestionGenerationRequest):
+    """Payload to queue an asynchronous AI generation batch.
+
+    Mirrors the synchronous request so both entrypoints stay interchangeable.
+    ``api_key_override`` is accepted for parity but is deliberately stripped
+    before persistence -- a secret must never be written to the jobs table.
+    """
+
+
+class AIGenerationJobResponse(BaseModel):
+    """Polling contract for an asynchronous AI generation batch."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    status: AIGenerationJobStatus
+    task_type_code: str | None = None
+    modality: str
+    target_cefr: str
+    requested_count: int
+    error_message: str | None = None
+    started_at: datetime.datetime | None = None
+    completed_at: datetime.datetime | None = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    is_terminal: bool = False
+    result: AIBatchGenerationResponse | None = None
+
+
+class AIGenerationJobCreateResponse(BaseModel):
+    """Returned when a batch is accepted for background processing."""
+
+    job: AIGenerationJobResponse
+    poll_url: str
+
+
 class CandidateCreateDraftRequest(BaseModel):
     """Payload to commit an accepted candidate into a persistent draft Question."""
 
@@ -197,6 +245,49 @@ class CandidateRegenerateRequest(BaseModel):
     model: str = "models/gemini-3.5-flash"
     api_key_override: str | None = None
     force_simulation: bool = False
+
+
+class CatalogOption(BaseModel):
+    """Static ``(code, label)`` pair for a picklist field such as stimulus kinds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    label: str
+
+
+class TaskFormatCatalogEntry(BaseModel):
+    """A single official TEF task format and everything needed to author it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    module: str
+    module_label: str
+    name: str
+    admin_hint: str
+    stimulus_kind: str
+    stimulus_kind_label: str
+    requires_stimulus: bool
+    allowed_response_types: list[str]
+    default_response_type: str
+    option_count_min: int
+    option_count_max: int
+    prompt_guidance: str
+
+
+class TaskFormatCatalogResponse(BaseModel):
+    """Server-driven catalogue backing the admin generation wizard.
+
+    The frontend renders every selector from this payload instead of
+    hard-coding formats, so adding a task format never requires a frontend
+    release.
+    """
+
+    total_formats: int
+    modules: list[CatalogOption]
+    stimulus_kinds: list[CatalogOption]
+    formats: list[TaskFormatCatalogEntry]
 
 
 class AIStimulusGenerationRequest(BaseModel):

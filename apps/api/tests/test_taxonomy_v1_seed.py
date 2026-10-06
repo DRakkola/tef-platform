@@ -24,7 +24,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin.enums import SkillDimension, TaxonomyLifecycleStatus
-from app.modules.admin.models import SkillModality, TaxonomyVersion
+from app.modules.admin.models import SkillModality, TaskTypeSkill, TaxonomyVersion
 from app.modules.admin.taxonomy_seeder import (
     LEGACY_FORBIDDEN_CODES,
     TaxonomySeeder,
@@ -45,11 +45,11 @@ async def test_clean_seed_creates_expected_taxonomy(db_session: AsyncSession):
     assert stats["container_skills"] == 14
     assert stats["reasoning_skills"] == 25
     assert stats["language_skills"] == 32
-    assert stats["task_types"] == 16
+    assert stats["task_types"] == 24
     assert stats["cefr_descriptors"] == 28
     assert stats["skill_relations"] == 20
-    assert stats["skill_modalities"] == 166
-    assert stats["task_type_skills"] == 129
+    assert stats["skill_modalities"] == 183
+    assert stats["task_type_skills"] == 164
 
     # Verify active taxonomy version in DB
     version_row = await db_session.scalar(
@@ -78,9 +78,9 @@ async def test_seed_idempotency_creates_no_duplicates(db_session: AsyncSession):
     descriptor_count = (await db_session.execute(text("SELECT count(*) FROM skill_level_descriptors"))).scalar()
 
     assert version_count == 1
-    assert task_type_count == 16
+    assert task_type_count == 24
     assert skill_count == 57
-    assert modality_count == 166
+    assert modality_count == 183
     assert relation_count == 20
     assert descriptor_count == 28
 
@@ -106,9 +106,9 @@ async def test_task_types_point_to_valid_modalities(db_session: AsyncSession):
     await TaxonomySeeder.seed(db_session)
 
     task_types = (await db_session.execute(select(TaskType))).scalars().all()
-    valid_modalities = {"reading", "listening", "writing", "speaking"}
+    valid_modalities = {"reading", "listening", "lexique_structure", "writing", "speaking"}
 
-    assert len(task_types) == 16
+    assert len(task_types) == 24
     for tt in task_types:
         assert tt.modality in valid_modalities
         assert tt.code.islower()
@@ -257,3 +257,87 @@ def test_validator_rejects_relation_cycle():
     with pytest.raises(TaxonomyValidationError) as exc:
         TaxonomySeedValidator.validate_dataset(data)
     assert any("Dependency cycle detected" in err for err in exc.value.errors)
+
+
+# ---------------------------------------------------------------------------
+# Lexique et structure module + registry alignment
+# ---------------------------------------------------------------------------
+
+LEXIQUE_TASK_TYPE_CODES = (
+    "word_formation",
+    "adjective_agreement",
+    "pronoun_reference",
+    "syntax_construction",
+)
+
+
+@pytest.mark.asyncio
+async def test_lexique_structure_modality_is_seeded(db_session: AsyncSession):
+    """The fifth TEF module must exist as a canonical modality."""
+    await TaxonomySeeder.seed(db_session)
+
+    lexique_types = (
+        await db_session.execute(
+            select(TaskType).where(TaskType.modality == "lexique_structure")
+        )
+    ).scalars().all()
+
+    assert {tt.code for tt in lexique_types} == set(LEXIQUE_TASK_TYPE_CODES)
+
+
+@pytest.mark.asyncio
+async def test_every_task_type_has_at_least_one_skill(db_session: AsyncSession):
+    """Every canonical task type must feed the student skill model."""
+    await TaxonomySeeder.seed(db_session)
+
+    task_types = (await db_session.execute(select(TaskType))).scalars().all()
+    for tt in task_types:
+        linked = (
+            await db_session.execute(
+                select(Skill.code)
+                .join(TaskTypeSkill, TaskTypeSkill.skill_id == Skill.id)
+                .where(TaskTypeSkill.task_type_id == tt.id)
+            )
+        ).scalars().all()
+        assert linked, f"Task type '{tt.code}' has no linked skills"
+
+
+@pytest.mark.asyncio
+async def test_registry_formats_map_one_to_one_onto_task_types(db_session: AsyncSession):
+    """Every server-driven generation format needs a taxonomy home.
+
+    A generation format whose code has no TaskType row would persist questions
+    with a null task-type foreign key, silently dropping them out of skill
+    scoring and adaptive recommendations.
+    """
+    await TaxonomySeeder.seed(db_session)
+
+    from app.modules.admin.question_formats import QUESTION_FORMAT_SPECS
+
+    rows = (await db_session.execute(select(TaskType))).scalars().all()
+    by_code = {tt.code: tt for tt in rows}
+
+    specs = list(QUESTION_FORMAT_SPECS.values())
+    assert len(specs) == 24
+    assert len(by_code) == len(specs), (
+        "registry format count and taxonomy task-type count have drifted apart"
+    )
+
+    for spec in specs:
+        assert spec.code in by_code, (
+            f"registry format '{spec.code}' has no taxonomy task type"
+        )
+        assert by_code[spec.code].modality == spec.module, (
+            f"registry format '{spec.code}' is module '{spec.module}' but taxonomy "
+            f"says '{by_code[spec.code].modality}'"
+        )
+
+
+def test_registry_and_seed_agree_on_valid_modalities():
+    """The seeder's modality allowlist must cover every registry module."""
+    from app.modules.admin.question_formats import (
+        MODULE_LABELS,
+    )
+    from app.modules.admin.taxonomy_seeder import VALID_MODALITIES
+
+    assert set(MODULE_LABELS) <= VALID_MODALITIES

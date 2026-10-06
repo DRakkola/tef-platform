@@ -175,3 +175,28 @@ class TaxonomyMigrationStatus(str, enum.Enum):
         return None
 
 
+class AIGenerationJobStatus(str, enum.Enum):
+    """Lifecycle of an asynchronous AI question-generation batch.
+
+    ``QUEUED`` -> ``RUNNING`` -> ``SUCCEEDED`` | ``FAILED``.
+
+    A job is only ever advanced by the worker that owns it. Terminal states are
+    final: the worker refuses to re-open a finished job, which makes retries and
+    duplicate deliveries safe.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
+
+

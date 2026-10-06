@@ -7,6 +7,7 @@ from typing import BinaryIO
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -231,6 +232,33 @@ async def setup_test_db():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await test_engine.dispose()
+
+
+def _truncate_all_tables(sync_conn) -> None:
+    """Empty every application table, leaving schema and alembic state intact.
+
+    Tables are cleared child-first so foreign keys stay satisfied, and the
+    pragma guards against a deferred violation from self-referencing rows.
+    """
+    sync_conn.execute(text("PRAGMA foreign_keys=OFF"))
+    for table in reversed(Base.metadata.sorted_tables):
+        sync_conn.execute(table.delete())
+    sync_conn.execute(text("PRAGMA foreign_keys=ON"))
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def isolate_test_data():
+    """Give every test an empty database.
+
+    The engine is session-scoped and several seeders commit their work, so
+    without this a test that seeds canonical taxonomy rows leaks them into
+    every later test in the run. That made outcomes depend on file execution
+    order: for example a test asserting on the single active skill failed once
+    another file had already seeded the full 57-skill catalogue.
+    """
+    async with test_engine.begin() as conn:
+        await conn.run_sync(_truncate_all_tables)
+    yield
 
 
 @pytest_asyncio.fixture

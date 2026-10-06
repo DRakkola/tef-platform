@@ -522,3 +522,58 @@ export interface AIStimulusGenerationRequest {
   force_simulation?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Server-driven generation catalogue & async jobs
+// ---------------------------------------------------------------------------
+
+export interface CatalogOption {
+  code: string;
+  label: string;
+}
+
+export interface TaskFormatCatalogEntry {
+  code: string;
+  module: string;
+  module_label: string;
+  name: string;
+  admin_hint: string;
+  stimulus_kind: string;
+  stimulus_kind_label: string;
+  requires_stimulus: boolean;
+  allowed_response_types: string[];
+  default_response_type: string;
+  option_count_min: number;
+  option_count_max: number;
+  prompt_guidance: string;
+}
+
+export interface TaskFormatCatalogResponse {
+  total_formats: number;
+  modules: CatalogOption[];
+  stimulus_kinds: CatalogOption[];
+  formats: TaskFormatCatalogEntry[];
+}
+
+export type AIGenerationJobStatus = "queued" | "running" | "succeeded" | "failed" | string;
+
+export interface AIGenerationJobResponse {
+  id: string;
+  status: AIGenerationJobStatus;
+  task_type_code: string | null;
+  modality: string;
+  target_cefr: string;
+  requested_count: number;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  is_terminal: boolean;
+  result: AIBatchGenerationResponse | null;
+}
+
+export interface AIGenerationJobCreateResponse {
+  job: AIGenerationJobResponse;
+  poll_url: string;
+}
+

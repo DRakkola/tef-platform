@@ -3,6 +3,7 @@
 import uuid
 from typing import Annotated, Any
 
+import structlog
 from fastapi import (
     APIRouter,
     Depends,
@@ -21,6 +22,9 @@ from app.core.exceptions import AppException
 from app.core.storage import StorageService, get_storage
 from app.modules.admin.ai_question_schemas import (
     AIBatchGenerationResponse,
+    AIGenerationJobCreateRequest,
+    AIGenerationJobCreateResponse,
+    AIGenerationJobResponse,
     AIQuestionGenerationRequest,
     AIReviewReport,
     AIStimulusCandidate,
@@ -28,9 +32,11 @@ from app.modules.admin.ai_question_schemas import (
     CandidateCreateDraftRequest,
     CandidateRegenerateRequest,
     CandidateReviewRequest,
+    TaskFormatCatalogResponse,
 )
 from app.modules.admin.ai_question_service import AIQuestionGenerationService
 from app.modules.admin.enums import ContentStatus, MediaType
+from app.modules.admin.models import AIGenerationJob
 from app.modules.admin.schemas import (
     AdminAssessmentCreate,
     AdminAssessmentListResponse,
@@ -96,6 +102,8 @@ from app.modules.users.schemas import UserResponse
 from app.modules.writing.models import WritingTask
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+logger = structlog.get_logger("tef-api.admin.router")
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +919,92 @@ async def get_question_history(
 # ---------------------------------------------------------------------------
 # AI Question Generation Pipeline (Phase 7)
 # ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/content/generation/formats",
+    response_model=TaskFormatCatalogResponse,
+    summary="List every authorable TEF task format with its authoring constraints",
+)
+async def list_generation_formats_endpoint(
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> TaskFormatCatalogResponse:
+    return AIQuestionGenerationService.get_format_catalog()
+
+
+@router.post(
+    "/content/generation/jobs",
+    response_model=AIGenerationJobCreateResponse,
+    status_code=202,
+    summary="Queue an AI generation batch and return a pollable job handle",
+)
+async def create_generation_job_endpoint(
+    payload: AIGenerationJobCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AIGenerationJobCreateResponse:
+    job = await AIQuestionGenerationService.create_generation_job(
+        db=db,
+        request=payload,
+        actor_id=current_admin.id,
+    )
+    await _enqueue_generation_job(db, job)
+
+    return AIGenerationJobCreateResponse(
+        job=AIQuestionGenerationService._serialize_job(job),
+        poll_url=f"/api/v1/admin/content/generation/jobs/{job.id}",
+    )
+
+
+@router.get(
+    "/content/generation/jobs/{job_id}",
+    response_model=AIGenerationJobResponse,
+    summary="Poll the status and result of an AI generation job",
+)
+async def get_generation_job_endpoint(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AIGenerationJobResponse:
+    job = await AIQuestionGenerationService.get_generation_job(
+        db=db,
+        job_id=job_id,
+        actor_id=current_admin.id,
+        is_admin=True,
+    )
+    return AIQuestionGenerationService._serialize_job(job)
+
+
+async def _enqueue_generation_job(db: AsyncSession, job: AIGenerationJob) -> None:
+    """Hand the job to Celery, degrading gracefully when the broker is down.
+
+    A broker outage must not lose the admin's work: the queued row survives and
+    the failure is logged, so an operator can re-dispatch it.
+    """
+    from app.core.config import settings
+
+    if settings.ENVIRONMENT in ("testing", "test"):
+        # Tests drive the worker core directly; never touch a real broker.
+        return
+
+    try:
+        from app.workers.tasks import run_ai_question_generation_job_task
+
+        async_result = run_ai_question_generation_job_task.delay(str(job.id))
+        job.celery_task_id = str(async_result.id)
+        await db.commit()
+        await db.refresh(job)
+    except Exception as exc:  # noqa: BLE001
+        job.error_message = (
+            "File d'attente indisponible : la génération sera lancée au "
+            "rétablissement du broker ou par un administrateur."
+        )
+        await db.commit()
+        logger.warning(
+            "ai_generation_job.enqueue_failed",
+            job_id=str(job.id),
+            error=type(exc).__name__,
+        )
 
 
 @router.post(

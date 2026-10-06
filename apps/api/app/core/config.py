@@ -280,6 +280,12 @@ class Settings(BaseSettings):
     GEMINI_LIVE_MODEL: str = "models/gemini-3.8-live"
     GEMINI_EVAL_MODEL: str = "models/gemini-3.5-flash"
 
+    # LLM token pricing (USD per 1M tokens) used for generation cost telemetry.
+    # These are estimates for budgeting only and must be kept in sync with the
+    # provider's published price sheet.
+    GEMINI_PRICE_INPUT_PER_MTOK: float = 0.30
+    GEMINI_PRICE_OUTPUT_PER_MTOK: float = 2.50
+
     # System Release Metadata
     APP_VERSION: str = "0.1.0-beta.1"
     GIT_COMMIT: str = "HEAD"

@@ -47,6 +47,7 @@ import {
   AssessmentEditorPage,
   QuestionsListPage,
   QuestionWorkspacePage,
+  AIGenerationPage,
   ExercisesListPage,
   WritingTasksListPage,
   MediaManagerPage,
@@ -202,6 +203,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="/admin/assessments" element={<AdminAssessmentsPage />} />
         <Route path="/admin/assessments/:id" element={<AssessmentEditorPage />} />
         <Route path="/admin/questions" element={<QuestionsListPage />} />
+        <Route path="/admin/questions/generate" element={<AIGenerationPage />} />
         <Route path="/admin/questions/new" element={<QuestionWorkspacePage mode="create" />} />
         <Route path="/admin/questions/:id" element={<QuestionWorkspacePage mode="edit" />} />
         <Route path="/admin/exercises" element={<ExercisesListPage />} />

@@ -13,6 +13,9 @@ modalities:
   - code: "listening"
     name: "Compréhension orale"
     description: "Épreuve de compréhension orale du TEF (40 questions, 40 minutes). Évalue la compréhension de messages courts, chroniques radio, sondages d'opinion et la discrimination phonétique."
+  - code: "lexique_structure"
+    name: "Lexique et structure"
+    description: "Épreuve de lexique et de structure de la langue du TEF Canada. Évalue la formation des mots, l'accord et la place des adjectifs, la reprise anaphorique et la construction syntaxique. Module à questions objectives à choix fermé, sans document long pour la formation des mots et l'accord."
   - code: "writing"
     name: "Expression écrite"
     description: "Épreuve d'expression écrite du TEF (2 sections, 60 minutes). Section A : rédaction d'un fait divers (min. 80 mots). Section B : lettre d'argumentation et d'opinion (min. 200 mots)."
@@ -102,6 +105,26 @@ task_types:
     objective_scoring: true
     applicable_dimensions: ["reasoning", "language"]
 
+  - code: "text_ordering"
+    name: "Remise en ordre"
+    modality: "reading"
+    default_response_type: "ordering"
+    description: "Remise d'un texte en unordered dans l'ordre logique qui en restitue la cohérence narrative ou argumentative. Évalue la restitution de la progression informationnelle du texte."
+    stimulus_requirement: "single_document"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning"]
+
+  - code: "reformulation"
+    name: "Reformulation et paraphrase"
+    modality: "reading"
+    default_response_type: "short_text"
+    description: "Reprise d'un énoncé du texte sous une forme équivalente avec un vocabulaire différent. Évalue la capacité à reformuler sans altérer le sens et le niveau de langue."
+    stimulus_requirement: "single_document"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["language"]
+
   # Listening tasks
   - code: "short_announcement"
     name: "Annonces et messages courts"
@@ -142,6 +165,67 @@ task_types:
     multi_turn: false
     objective_scoring: true
     applicable_dimensions: ["language"]
+
+  - code: "message_association"
+    name: "Association de messages"
+    modality: "listening"
+    default_response_type: "matching"
+    description: "Répartition de plusieurs messages ou consignes dans des catégories thématiques définies par le stimulus audio. Évalue l'appariement de l'information à la bonne destination."
+    stimulus_requirement: "audio_clip"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  - code: "conversation_extract"
+    name: "Repérage en conversation"
+    modality: "listening"
+    default_response_type: "single_choice"
+    description: "Dialogue entre deux interlocuteurs comportant une information explicite à sélectionner ou plusieurs éléments à associates. Évalue le repérage de l'information pertinente dans l'interaction."
+    stimulus_requirement: "audio_clip"
+    multi_turn: true
+    objective_scoring: true
+    applicable_dimensions: ["reasoning", "language"]
+
+  # Lexique et structure tasks
+  - code: "word_formation"
+    name: "Formation des mots"
+    modality: "lexique_structure"
+    default_response_type: "single_choice"
+    description: "Choix du préfixe, du suffixe ou de la base qui complète un mot. Évalue la maîtrise de la morphologie dérivationnelle. Les distracteurs doivent tous relever de la même catégorie morphologique et produire des mots réellement attestés."
+    stimulus_requirement: "none"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["language"]
+
+  - code: "adjective_agreement"
+    name: "Accord et place de l'adjectif"
+    modality: "lexique_structure"
+    default_response_type: "single_choice"
+    description: "Choix de la forme correcte de l'adjectif : accord en genre et en nombre, ou position avant ou après le nom. Les distracteurs sont des erreurs d'accord ou de placement plausibles pour un locuteur non natif."
+    stimulus_requirement: "none"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["language"]
+
+  - code: "pronoun_reference"
+    name: "Reprise anaphorique et mots outils"
+    modality: "lexique_structure"
+    default_response_type: "single_choice"
+    description: "Choix du pronom ou du connecteur qui désigne correctement l'antécédent visé et évite une répétition. Le stimulus comporte au moins deux antécédents de genre et de nombre distincts ; le distracteur correct pointe vers le mauvais antécédent."
+    stimulus_requirement: "single_document"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["language", "reasoning"]
+
+  - code: "syntax_construction"
+    name: "Construction et syntaxe"
+    modality: "lexique_structure"
+    default_response_type: "single_choice"
+    description: "Choix de la construction correcte : subordonnée, complément du nom, ordre des mots, négation ou hypothèse. Les options sont des variantes syntaxiques d'une même phrase et les distracteurs relèvent de l'accord, du zeugme ou du placement."
+    stimulus_requirement: "single_document"
+    multi_turn: false
+    objective_scoring: true
+    applicable_dimensions: ["language", "reasoning"]
 
   # Writing tasks
   - code: "fait_divers"
@@ -470,7 +554,7 @@ skills:
     parent_code: "vocabulary"
     assessable: true
     order_index: 211
-    applicable_modalities: ["reading", "listening"]
+    applicable_modalities: ["reading", "listening", "lexique_structure"]
 
   - code: "paraphrase_and_synonym_recognition"
     name: "Reconnaissance des synonymes et reformulations"
@@ -490,7 +574,7 @@ skills:
     parent_code: "vocabulary"
     assessable: true
     order_index: 213
-    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+    applicable_modalities: ["reading", "listening", "lexique_structure", "writing", "speaking"]
 
   - code: "word_formation"
     name: "Formation des mots et morphologie lexicale"
@@ -500,7 +584,7 @@ skills:
     parent_code: "vocabulary"
     assessable: true
     order_index: 214
-    applicable_modalities: ["reading", "writing"]
+    applicable_modalities: ["reading", "writing", "lexique_structure"]
 
   - code: "lexical_precision"
     name: "Précision et richesse lexicale"
@@ -510,7 +594,7 @@ skills:
     parent_code: "vocabulary"
     assessable: true
     order_index: 215
-    applicable_modalities: ["writing", "speaking"]
+    applicable_modalities: ["reading", "writing", "speaking", "lexique_structure"]
 
   - code: "register_and_formality"
     name: "Registres de langue et niveaux de formalité"
@@ -541,7 +625,7 @@ skills:
     parent_code: "grammar"
     assessable: true
     order_index: 221
-    applicable_modalities: ["reading", "writing"]
+    applicable_modalities: ["reading", "writing", "lexique_structure"]
 
   - code: "articles_and_determiners"
     name: "Articles et déterminants"
@@ -561,7 +645,7 @@ skills:
     parent_code: "grammar"
     assessable: true
     order_index: 223
-    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+    applicable_modalities: ["reading", "listening", "lexique_structure", "writing", "speaking"]
 
   - code: "preposition_usage"
     name: "Régimes prépositionnels"
@@ -581,7 +665,7 @@ skills:
     parent_code: "grammar"
     assessable: true
     order_index: 225
-    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+    applicable_modalities: ["reading", "listening", "lexique_structure", "writing", "speaking"]
 
   # 3. Verb System
   - code: "verb_system"
@@ -643,7 +727,7 @@ skills:
     parent_code: "syntax"
     assessable: true
     order_index: 241
-    applicable_modalities: ["reading", "writing", "speaking"]
+    applicable_modalities: ["reading", "writing", "speaking", "lexique_structure"]
 
   - code: "relative_clauses"
     name: "Propositions relatives"
@@ -653,7 +737,7 @@ skills:
     parent_code: "syntax"
     assessable: true
     order_index: 242
-    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+    applicable_modalities: ["reading", "listening", "lexique_structure", "writing", "speaking"]
 
   - code: "subordination_and_coordination"
     name: "Subordination et coordination complexe"
@@ -663,7 +747,7 @@ skills:
     parent_code: "syntax"
     assessable: true
     order_index: 243
-    applicable_modalities: ["reading", "writing", "speaking"]
+    applicable_modalities: ["reading", "writing", "speaking", "lexique_structure"]
 
   - code: "conditional_structures"
     name: "Structures hypothétiques et conditionnelles"
@@ -673,7 +757,7 @@ skills:
     parent_code: "syntax"
     assessable: true
     order_index: 244
-    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+    applicable_modalities: ["reading", "listening", "lexique_structure", "writing", "speaking"]
 
   # 5. Discourse
   - code: "discourse"
@@ -694,7 +778,7 @@ skills:
     parent_code: "discourse"
     assessable: true
     order_index: 251
-    applicable_modalities: ["reading", "listening", "writing", "speaking"]
+    applicable_modalities: ["reading", "listening", "lexique_structure", "writing", "speaking"]
 
   - code: "reference_resolution"
     name: "Résolution des références et anaphores"
@@ -704,7 +788,7 @@ skills:
     parent_code: "discourse"
     assessable: true
     order_index: 252
-    applicable_modalities: ["reading", "listening"]
+    applicable_modalities: ["reading", "listening", "lexique_structure"]
 
   - code: "textual_cohesion_and_coherence"
     name: "Cohésion et cohérence globale du texte"
@@ -714,7 +798,7 @@ skills:
     parent_code: "discourse"
     assessable: true
     order_index: 253
-    applicable_modalities: ["writing", "speaking"]
+    applicable_modalities: ["reading", "writing", "speaking", "lexique_structure"]
 
   # 6. Writing Mechanics
   - code: "writing_mechanics"
@@ -735,7 +819,7 @@ skills:
     parent_code: "writing_mechanics"
     assessable: true
     order_index: 261
-    applicable_modalities: ["writing"]
+    applicable_modalities: ["writing", "lexique_structure"]
 
   - code: "punctuation"
     name: "Ponctuation et segmentation"
@@ -943,6 +1027,58 @@ task_type_skills:
     - phonological_control
     - oral_fluency
     - textual_cohesion_and_coherence
+
+  # Lexique et structure mappings
+  text_ordering:
+    - understand_sequence
+    - textual_cohesion_and_coherence
+    - discourse_connectors
+    - identify_main_idea
+
+  reformulation:
+    - paraphrase_and_synonym_recognition
+    - lexical_precision
+    - collocations
+    - register_and_formality
+
+  message_association:
+    - locate_information
+    - identify_specific_detail
+    - understand_context
+
+  conversation_extract:
+    - locate_information
+    - identify_specific_detail
+    - understand_context
+    - infer_implicit_information
+    - identify_communicative_intention
+
+  word_formation:
+    - word_formation
+    - lexical_precision
+    - vocabulary_in_context
+    - collocations
+    - orthography
+
+  adjective_agreement:
+    - grammatical_agreement
+    - orthography
+    - sentence_structure
+
+  pronoun_reference:
+    - reference_resolution
+    - pronoun_usage
+    - discourse_connectors
+    - textual_cohesion_and_coherence
+
+  syntax_construction:
+    - sentence_structure
+    - subordination_and_coordination
+    - relative_clauses
+    - conditional_structures
+    - negation_structures
+    - grammatical_agreement
+    - discourse_connectors
 
 skill_relations:
   # Reasoning dependencies

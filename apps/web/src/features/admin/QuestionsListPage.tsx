@@ -20,7 +20,6 @@ import { fetchQuestions, forkQuestion, validateQuestion } from "./api";
 import { fetchTaskTypes } from "./skills/api";
 import type { TaskType } from "./skills/types";
 import type { QuestionItem, ContentStatus, QuestionValidationStatus } from "./types";
-import { AIGenerationModal } from "./questions/AIGenerationModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -32,7 +31,6 @@ export const QuestionsListPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
-  const [isAIGenModalOpen, setIsAIGenModalOpen] = useState(false);
 
   // Filter params
   const [search, setSearch] = useState("");
@@ -192,7 +190,7 @@ export const QuestionsListPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              onClick={() => setIsAIGenModalOpen(true)}
+              onClick={() => navigate("/admin/questions/generate")}
               className="gap-2 shadow-xs font-semibold text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/30"
             >
               <Sparkles className="h-4 w-4" /> Générer par IA
@@ -519,17 +517,6 @@ export const QuestionsListPage: React.FC = () => {
           </div>
         )}
       </div>
-
-      <AIGenerationModal
-        isOpen={isAIGenModalOpen}
-        onClose={() => {
-          setIsAIGenModalOpen(false);
-          loadQuestions();
-        }}
-        onQuestionCreated={() => {
-          loadQuestions();
-        }}
-      />
     </AdminLayout>
   );
 };

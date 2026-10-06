@@ -18,10 +18,12 @@ import json
 import re
 import time
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select
+from pydantic import ValidationError
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,6 +31,8 @@ from app.core.config import settings
 from app.core.exceptions import AppException
 from app.modules.admin.ai_question_schemas import (
     AIBatchGenerationResponse,
+    AIGenerationJobCreateRequest,
+    AIGenerationJobResponse,
     AIQuestionGenerationRequest,
     AIReviewReport,
     AIStimulusCandidate,
@@ -38,17 +42,39 @@ from app.modules.admin.ai_question_schemas import (
     CandidateRegenerateRequest,
     CandidateReviewRequest,
     CandidateSkillMapping,
+    CatalogOption,
     DuplicateCheckReport,
     GeneratedQuestionCandidate,
+    TaskFormatCatalogEntry,
+    TaskFormatCatalogResponse,
 )
 from app.modules.admin.ai_sandbox_service import AISandboxService
-from app.modules.admin.enums import AuditAction, ContentStatus, SkillTagRole
+from app.modules.admin.enums import AIGenerationJobStatus, AuditAction, ContentStatus, SkillTagRole
+from app.modules.admin.models import AIGenerationJob
+from app.modules.admin.question_formats import (
+    QUESTION_FORMAT_SPECS,
+    STIMULUS_AUDIO_TRANSCRIPT,
+    STIMULUS_BROCHURE,
+    STIMULUS_KIND_LABELS,
+    STIMULUS_MULTI_DOCUMENT,
+    STIMULUS_NONE,
+    STIMULUS_PROMPT_LEAD,
+    STIMULUS_TABLE,
+    TaskFormatSpec,
+    catalog_payload,
+    get_spec,
+    prompt_template_version_for,
+    response_type_uses_options,
+    standard_option_count_for,
+)
 from app.modules.admin.service import AuditService
 from app.modules.assessments.enums import (
     CognitiveComplexityLevel,
     QuestionAuthorType,
+    QuestionResponseType,
     QuestionType,
 )
+from app.modules.assessments.item_hash import compute_item_hash, normalize_prompt_for_hash
 from app.modules.assessments.models import (
     AssessmentSectionQuestion,
     Question,
@@ -65,6 +91,16 @@ from app.modules.assessments.question_validation import (
 )
 
 logger = structlog.get_logger("tef-api.admin.ai_question_generation")
+
+# Maximum number of recent questions scanned for fuzzy duplicate detection.
+# Bounded to keep generation latency predictable on large banks.
+DUPLICATE_SCAN_LIMIT = 200
+
+# Lexical similarity above which a candidate is treated as a probable duplicate.
+DUPLICATE_SIMILARITY_THRESHOLD = 0.75
+
+# Components that ``regenerate_draft_component`` knows how to rewrite.
+REGENERABLE_COMPONENTS = ("distractors", "options", "prompt", "explanation")
 
 # Default CEFR score midpoints
 CEFR_MIDPOINTS: dict[str, int] = {
@@ -85,151 +121,6 @@ CEFR_ITEM_DIFFICULTY: dict[str, int] = {
     "C2": 5,
 }
 
-PROMPT_TEMPLATE_VERSIONS: dict[str, str] = {
-    "reading_single_choice": "reading_mcq_gen_v2.1",
-    "reading_multiple_choice": "reading_multi_gen_v2.0",
-    "reading_matching": "reading_matching_gen_v1.0",
-    "reading_text_gap": "reading_text_gap_gen_v1.0",
-    "reading_sentence_gap": "reading_sentence_gap_gen_v1.0",
-    "listening_single_choice": "listening_mcq_gen_v1.0",
-    "listening_matching": "listening_matching_gen_v1.0",
-    "listening_text_gap": "listening_text_gap_gen_v1.0",
-    "writing": "writing_prompt_gen_v1.0",
-    "speaking": "speaking_scenario_gen_v1.0",
-}
-
-
-TASK_PROMPT_CONFIGS: dict[str, dict[str, Any]] = {
-    "daily_document": {
-        "name": "Documents de la vie quotidienne",
-        "modality": "reading",
-        "stimulus_type": "short_document",
-        "description": "Annonces, affiches, horaires, menus, courriels de service. Repérage rapide d'informations factuelles.",
-        "prompt_guidance": "La question doit porter sur une information factuelle explicite ou un détail pratique essentiel (prix, horaire, condition, public visé).",
-        "default_response_type": "single_choice",
-    },
-    "sentence_gap": {
-        "name": "Phrases à compléter",
-        "modality": "reading",
-        "stimulus_type": "none",
-        "description": "Complétion de phrases isolées testant le lexique en contexte ou la grammaire.",
-        "prompt_guidance": "NE GÉNÈRE AUCUN STIMULUS (stimulus_content doit être null). Le prompt doit être une phrase complète contenant un blanc représenté par '______'. Les options sont 4 mots ou locutions grammaticales.",
-        "default_response_type": "single_choice",
-    },
-    "text_gap": {
-        "name": "Textes à trous",
-        "modality": "reading",
-        "stimulus_type": "cloze_passage",
-        "description": "Texte suivi avec lacunes testant la cohésion textuelle et les connecteurs logiques.",
-        "prompt_guidance": "Le stimulus doit être un texte suivi comportant une lacune identifiée par '______' ou '[1]'. La question demande quel élément s'insère à la place indiquée.",
-        "default_response_type": "single_choice",
-    },
-    "document_matching": {
-        "name": "Appariement de documents",
-        "modality": "reading",
-        "stimulus_type": "multi_document",
-        "description": "Mise en relation de critères/profils avec 4 documents courts A, B, C, D.",
-        "prompt_guidance": "Le stimulus doit être composé de 4 documents distincts libellés '### Document A : ...', '### Document B : ...', '### Document C : ...', '### Document D : ...'. Le prompt décrit un profil ou critère précis. Les options doivent correspondre aux documents (ex: 'Document A', 'Document B', 'Document C', 'Document D').",
-        "default_response_type": "single_choice",
-    },
-    "graph_matching": {
-        "name": "Appariement graphiques et énoncés",
-        "modality": "reading",
-        "stimulus_type": "table_or_infographic",
-        "description": "Corrélation entre assertions déclaratives et représentations graphiques ou tableaux statistiques.",
-        "prompt_guidance": "Le stimulus doit être un tableau synthétique au format Markdown avec entêtes de colonnes claires et valeurs chiffrées précises. La question évalue l'interprétation ou la comparaison exacte des chiffres.",
-        "default_response_type": "single_choice",
-    },
-    "administrative_document": {
-        "name": "Documents administratifs et réglementaires",
-        "modality": "reading",
-        "stimulus_type": "passage",
-        "description": "Notices administratives, formulaires, consignes réglementaires et conditions officielles.",
-        "prompt_guidance": "Le stimulus doit présenter des règles, conditions d'éligibilité ou procédures administratives avec un ton formel.",
-        "default_response_type": "single_choice",
-    },
-    "professional_document": {
-        "name": "Communications professionnelles",
-        "modality": "reading",
-        "stimulus_type": "passage",
-        "description": "Notes de service, comptes rendus, courriels formels et synthèses professionnelles.",
-        "prompt_guidance": "Le stimulus doit simuler une communication d'entreprise (note de service, email hiérarchique, compte rendu de réunion) sur un projet ou une directive interne.",
-        "default_response_type": "single_choice",
-    },
-    "press_article": {
-        "name": "Articles de presse et analyses",
-        "modality": "reading",
-        "stimulus_type": "passage",
-        "description": "Articles journalistiques de fond, éditoriaux et tribunes d'opinion.",
-        "prompt_guidance": "Le stimulus doit être un article journalistique élaboré présentant une problématique avec nuances, arguments et contre-arguments. La question doit porter sur la thèse de l'auteur, l'implicite ou le ton.",
-        "default_response_type": "single_choice",
-    },
-    "short_announcement": {
-        "name": "Annonces et messages courts",
-        "modality": "listening",
-        "stimulus_type": "audio_transcript",
-        "description": "Messages répondeur, annonces publiques dans les gares/aéroports/commerces.",
-        "prompt_guidance": "Le stimulus doit être la transcription d'un message oral court (30 à 60 mots) avec annotations sonores (ex: '[Bip sonore] Annonce en gare...').",
-        "default_response_type": "single_choice",
-    },
-    "radio_broadcast": {
-        "name": "Émissions et chroniques radiophoniques",
-        "modality": "listening",
-        "stimulus_type": "audio_transcript",
-        "description": "Extraits de reportages, chroniques culturelles ou vulgarisation scientifique à la radio.",
-        "prompt_guidance": "Le stimulus doit être la transcription d'une émission de radio avec journaliste et intervenant (100 à 200 mots).",
-        "default_response_type": "single_choice",
-    },
-    "public_survey": {
-        "name": "Micro-trottoirs et sondages d'opinion",
-        "modality": "listening",
-        "stimulus_type": "audio_transcript",
-        "description": "Interventions orales de plusieurs locuteurs s'exprimant sur une même question d'actualité.",
-        "prompt_guidance": "Le stimulus doit comporter les avis successifs de 4 personnes ('Locuteur 1 : ...', 'Locuteur 2 : ...', etc.) exprimant des opinions divergentes ou nuancées. La question interroge qui est pour, contre ou neutre.",
-        "default_response_type": "single_choice",
-    },
-    "phonological_recognition": {
-        "name": "Discrimination phonétique et intonation",
-        "modality": "listening",
-        "stimulus_type": "audio_transcript",
-        "description": "Énoncés oraux courts visant la discrimination auditive fine, liaisons et intonations.",
-        "prompt_guidance": "Le stimulus transcrit une phrase orale courte. La question porte sur l'intonation (affirmation, question, surprise) ou la distinction phonétique entre deux termes proches.",
-        "default_response_type": "single_choice",
-    },
-    "fait_divers": {
-        "name": "Rédaction d'un fait divers",
-        "modality": "writing",
-        "stimulus_type": "prompt_lead",
-        "description": "Section A Expression Écrite : amorce d'un événement insolite à compléter au passé.",
-        "prompt_guidance": "Le stimulus est une brève journalistique (amorce de 2-3 lignes). La question invite à rédiger la suite des événements au passé (min. 80 mots).",
-        "default_response_type": "long_text",
-    },
-    "opinion_letter": {
-        "name": "Lettre d'argumentation et d'opinion",
-        "modality": "writing",
-        "stimulus_type": "prompt_statement",
-        "description": "Section B Expression Écrite : prise de position argumentée et persuasive.",
-        "prompt_guidance": "Le stimulus énonce une situation polémique ou un sujet d'actualité. La question demande d'écrire au journal ou à une autorité pour exprimer son point de vue argumenté (min. 200 mots).",
-        "default_response_type": "long_text",
-    },
-    "information_gathering": {
-        "name": "Recueil d'informations",
-        "modality": "speaking",
-        "stimulus_type": "advertisement_prompt",
-        "description": "Section A Expression Orale : jeu de rôle de 5 minutes pour poser 10 questions précises.",
-        "prompt_guidance": "Le stimulus présente une petite annonce détaillée (voyage, logement, offre d'emploi). La consigne invite le candidat à poser des questions pour obtenir des informations manquantes.",
-        "default_response_type": "spoken_response",
-    },
-    "persuasive_argumentation": {
-        "name": "Argumentation persuasive",
-        "modality": "speaking",
-        "stimulus_type": "persuasive_topic",
-        "description": "Section B Expression Orale : convaincre un proche de participer à une activité ou faire un choix.",
-        "prompt_guidance": "Le stimulus présente une brochure ou proposition attrayante. La consigne invite le candidat à convaincre un ami réticent d'y participer.",
-        "default_response_type": "spoken_response",
-    },
-}
-
 
 def _tokenize_text(text: str) -> set[str]:
     """Extract lowercase alphanumeric tokens for similarity comparison."""
@@ -247,8 +138,203 @@ def _calculate_jaccard_similarity(tokens_a: set[str], tokens_b: set[str]) -> flo
     return float(intersection) / float(union) if union > 0 else 0.0
 
 
+def _estimate_cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """Estimate generation cost from configured token prices."""
+    del model  # single provider family; pricing is global
+    return (
+        prompt_tokens * settings.GEMINI_PRICE_INPUT_PER_MTOK / 1_000_000
+        + completion_tokens * settings.GEMINI_PRICE_OUTPUT_PER_MTOK / 1_000_000
+    )
+
+
 class AIQuestionGenerationService:
     """Core service for orchestrating AI question generation, validation, and review."""
+
+    # ---------------------------------------------------------------------------
+    # Format Catalogue (server-driven authoring metadata)
+    # ---------------------------------------------------------------------------
+    @classmethod
+    def get_format_catalog(cls) -> TaskFormatCatalogResponse:
+        """Return the authoritative catalogue of authorable TEF task formats.
+
+        The registry is the single source of truth for both generation and the
+        admin wizard, so the UI can never offer a combination the backend would
+        reject.
+        """
+        payload = catalog_payload()
+        return TaskFormatCatalogResponse(
+            total_formats=len(payload["formats"]),
+            modules=[CatalogOption(**module) for module in payload["modules"]],
+            stimulus_kinds=[CatalogOption(**kind) for kind in payload["stimulus_kinds"]],
+            formats=[TaskFormatCatalogEntry(**entry) for entry in payload["formats"]],
+        )
+
+    # ---------------------------------------------------------------------------
+    # Asynchronous Job Lifecycle
+    # ---------------------------------------------------------------------------
+    @classmethod
+    async def create_generation_job(
+        cls,
+        db: AsyncSession,
+        request: AIGenerationJobCreateRequest,
+        actor_id: uuid.UUID | None,
+    ) -> AIGenerationJob:
+        """Persist a queued generation batch and hand it to the worker queue.
+
+        Only non-secret request fields are persisted. The API key override lives
+        in the enqueued message at most; it is never written to the database.
+        """
+        persistable = request.model_dump(
+            mode="json",
+            exclude={"api_key_override"},
+        )
+        job = AIGenerationJob(
+            status=AIGenerationJobStatus.QUEUED.value,
+            task_type_code=request.task_type_code,
+            modality=request.modality,
+            target_cefr=request.target_cefr,
+            requested_count=request.count,
+            request_payload=persistable,
+            created_by_user_id=actor_id,
+        )
+        db.add(job)
+        await db.flush()
+        await db.refresh(job)
+
+        logger.info(
+            "ai_generation_job.queued",
+            job_id=str(job.id),
+            modality=job.modality,
+            task_type_code=job.task_type_code,
+            requested_count=job.requested_count,
+        )
+        return job
+
+    @classmethod
+    async def get_generation_job(
+        cls,
+        db: AsyncSession,
+        job_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        is_admin: bool = False,
+    ) -> AIGenerationJob:
+        """Fetch a job, enforcing ownership.
+
+        Admins may read any job; everyone else is restricted to jobs they
+        created. Authorization is checked server-side on every poll.
+        """
+        job = await db.get(AIGenerationJob, job_id)
+        if job is None:
+            raise AppException(
+                message="Job de génération introuvable", code="NOT_FOUND", status_code=404
+            )
+        if not is_admin and job.created_by_user_id != actor_id:
+            # Do not disclose existence of another admin's job.
+            raise AppException(
+                message="Job de génération introuvable", code="NOT_FOUND", status_code=404
+            )
+        return job
+
+    @classmethod
+    def _serialize_job(cls, job: AIGenerationJob) -> AIGenerationJobResponse:
+        """Project a job row into its polling response contract."""
+        result: AIBatchGenerationResponse | None = None
+        if job.status == AIGenerationJobStatus.SUCCEEDED.value and job.result_payload:
+            try:
+                result = AIBatchGenerationResponse.model_validate(job.result_payload)
+            except ValidationError:
+                # Never fail a poll because of stored payload drift; the status
+                # and error fields remain meaningful on their own.
+                logger.warning(
+                    "ai_generation_job.result_payload_unreadable",
+                    job_id=str(job.id),
+                )
+                result = None
+
+        return AIGenerationJobResponse(
+            id=job.id,
+            status=AIGenerationJobStatus(job.status),
+            task_type_code=job.task_type_code,
+            modality=job.modality,
+            target_cefr=job.target_cefr,
+            requested_count=job.requested_count,
+            error_message=job.error_message,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            is_terminal=job.status
+            in (AIGenerationJobStatus.SUCCEEDED.value, AIGenerationJobStatus.FAILED.value),
+            result=result,
+        )
+
+    @classmethod
+    async def run_generation_job(
+        cls,
+        db: AsyncSession,
+        job_id: uuid.UUID,
+    ) -> AIGenerationJob:
+        """Execute a queued batch in a worker and persist the outcome.
+
+        Safe to call more than once: a job already in a terminal state is left
+        untouched, so Celery redelivery and manual retries cannot double-run or
+        clobber a finished result.
+        """
+        job = await db.get(AIGenerationJob, job_id, with_for_update=True)
+        if job is None:
+            raise AppException(
+                message="Job de génération introuvable", code="NOT_FOUND", status_code=404
+            )
+
+        if job.status in (
+            AIGenerationJobStatus.SUCCEEDED.value,
+            AIGenerationJobStatus.FAILED.value,
+        ):
+            logger.info(
+                "ai_generation_job.terminal_state_skipped",
+                job_id=str(job.id),
+                status=job.status,
+            )
+            return job
+
+        job.status = AIGenerationJobStatus.RUNNING.value
+        job.started_at = datetime.datetime.now(datetime.UTC)
+        job.error_message = None
+        await db.commit()
+
+        try:
+            request = AIQuestionGenerationRequest.model_validate(job.request_payload)
+            batch = await cls.generate_candidates(
+                db=db,
+                request=request,
+                actor_id=job.created_by_user_id,
+            )
+        except Exception as exc:
+            logger.exception("ai_generation_job.failed", job_id=str(job.id))
+            job.status = AIGenerationJobStatus.FAILED.value
+            # Persist a safe, actionable message rather than an internal trace.
+            job.error_message = (
+                f"{type(exc).__name__}: la génération a échoué. "
+                "Réessayez ou réduisez le nombre d'éléments demandés."
+            )
+            job.completed_at = datetime.datetime.now(datetime.UTC)
+            await db.commit()
+            await db.refresh(job)
+            return job
+
+        job.status = AIGenerationJobStatus.SUCCEEDED.value
+        job.result_payload = batch.model_dump(mode="json")
+        job.completed_at = datetime.datetime.now(datetime.UTC)
+        await db.commit()
+        await db.refresh(job)
+
+        logger.info(
+            "ai_generation_job.succeeded",
+            job_id=str(job.id),
+            total_generated=batch.total_generated,
+            generation_time_ms=batch.generation_time_ms,
+        )
+        return job
 
     # ---------------------------------------------------------------------------
     # Main Batch Generation Entrypoint
@@ -273,17 +359,29 @@ class AIQuestionGenerationService:
         # 1. Resolve TaskType
         task_type = await cls._resolve_task_type(db, request)
         task_type_id = task_type.id if task_type else None
-        task_type_code = task_type.code if task_type else (request.task_type_code or "press_article")
+        task_type_code = task_type.code if task_type else request.task_type_code
 
-        # 2. Resolve Valid Taxonomy Skills
+        # 2. Resolve the registry entry that governs this item family. When the caller
+        #    omits the task type, infer a compatible family from the response type so
+        #    that legacy callers (response_type only) keep working.
+        spec = cls._resolve_spec(
+            task_type_code=task_type_code,
+            response_type=request.response_type,
+            modality=request.modality,
+        )
+        assert spec is not None  # press_article is always present in the registry
+        task_type_code = spec.code
+        response_type = spec.coerce_response_type(request.response_type)
+        option_count = spec.coerce_option_count(request.option_count)
+
+        # 3. Resolve Valid Taxonomy Skills
         allowed_skills = await cls._resolve_allowed_skills(db, request, task_type)
 
-        # 3. Resolve Stimulus Content if existing or supplied
+        # 4. Resolve Stimulus Content if existing or supplied
         stimulus_content, stimulus_title, stimulus_id = await cls._resolve_stimulus_context(db, request)
 
-        # 4. Build System & User Prompts
-        template_key = f"{request.modality}_{request.response_type}"
-        template_version = PROMPT_TEMPLATE_VERSIONS.get(template_key, "tef_qgen_v2.0")
+        # 5. Build System & User Prompts
+        template_version = prompt_template_version_for(task_type_code)
 
         api_key = request.api_key_override or settings.GEMINI_API_KEY
         use_simulation = request.force_simulation or not api_key
@@ -304,6 +402,9 @@ class AIQuestionGenerationService:
                 candidate = await cls._generate_single_candidate(
                     db=db,
                     request=request,
+                    spec=spec,
+                    response_type=response_type,
+                    option_count=option_count,
                     task_type_id=task_type_id,
                     task_type_code=task_type_code,
                     allowed_skills=allowed_skills,
@@ -392,12 +493,14 @@ class AIQuestionGenerationService:
         """Generate a specialized, authentic TEF stimulus (multi-doc, table, passage, audio)."""
         start_time = time.perf_counter()
         task_code = request.task_type_code or "press_article"
-        cfg = TASK_PROMPT_CONFIGS.get(task_code, TASK_PROMPT_CONFIGS["press_article"])
+        spec = get_spec(task_code) or get_spec("press_article")
+        assert spec is not None  # press_article is always present in the registry
+        task_code = spec.code
         target_cefr = (request.target_cefr or "B2").upper()
 
         meta = CandidateGenerationMetadata(
             model=request.model,
-            prompt_template_version="stimulus_gen_v1.0",
+            prompt_template_version=spec.prompt_template_version,
             is_simulation=request.force_simulation or not bool(settings.GEMINI_API_KEY),
         )
 
@@ -406,9 +509,9 @@ class AIQuestionGenerationService:
             sys_prompt = (
                 "Tu es un rédacteur expert officiel de supports d'évaluation du TEF (CCI Paris Île-de-France).\n"
                 f"Rédige un support documentaire authentique pour l'épreuve de {request.modality} au niveau {target_cefr}.\n"
-                f"Format de tâche : {task_code} ({cfg['name']}).\n"
-                f"Type de stimulus requis : {cfg['stimulus_type']}.\n"
-                f"Directives : {cfg['description']} {cfg['prompt_guidance']}"
+                f"Format de tâche : {task_code} ({spec.name}).\n"
+                f"Type de stimulus requis : {STIMULUS_KIND_LABELS.get(spec.stimulus_kind, spec.stimulus_kind)}.\n"
+                f"Directives : {spec.admin_hint} {spec.prompt_guidance}"
             )
             usr_prompt = (
                 f"Génère un support documentaire TEF en français standard au format JSON strict avec les clés :\n"
@@ -422,7 +525,7 @@ class AIQuestionGenerationService:
             )
             try:
                 raw_text, prompt_tok, comp_tok = await AISandboxService._call_gemini_api(
-                    api_key=request.api_key_override or settings.GEMINI_API_KEY,
+                    api_key=request.api_key_override or settings.GEMINI_API_KEY or "",
                     model=request.model,
                     system_prompt=sys_prompt,
                     user_prompt=usr_prompt,
@@ -456,7 +559,7 @@ class AIQuestionGenerationService:
                     })
 
         text_fmt = parsed_data.get("text_format", "markdown")
-        if task_code == "graph_matching":
+        if spec.stimulus_kind == STIMULUS_TABLE:
             text_fmt = "table"
         elif request.modality == "listening":
             text_fmt = "dialogue"
@@ -465,7 +568,7 @@ class AIQuestionGenerationService:
 
         candidate = AIStimulusCandidate(
             id=uuid.uuid4(),
-            title=parsed_data.get("title", f"Support {cfg['name']}"),
+            title=parsed_data.get("title", f"Support {spec.name}"),
             content_text=content_text,
             text_format=text_fmt,
             modality=request.modality,
@@ -709,6 +812,9 @@ class AIQuestionGenerationService:
         cls,
         db: AsyncSession,
         request: AIQuestionGenerationRequest,
+        spec: TaskFormatSpec,
+        response_type: str,
+        option_count: int | None,
         task_type_id: uuid.UUID | None,
         task_type_code: str,
         allowed_skills: list[Skill],
@@ -725,7 +831,9 @@ class AIQuestionGenerationService:
 
         system_prompt, user_prompt = cls._build_generation_prompts(
             request=request,
-            task_type_code=task_type_code,
+            spec=spec,
+            response_type=response_type,
+            option_count=option_count,
             allowed_skills=allowed_skills,
             stimulus_title=stimulus_title,
             stimulus_content=stimulus_content,
@@ -748,19 +856,17 @@ class AIQuestionGenerationService:
                     max_tokens=2500,
                 )
                 parsed_data = AISandboxService._parse_json_or_fallback(raw_text)
-                if (
-                    not isinstance(parsed_data, dict)
-                    or not parsed_data.get("prompt")
-                    or not parsed_data.get("options")
-                    or len(parsed_data.get("options", [])) < 2
-                ):
+                if not cls._is_parse_usable(parsed_data, response_type):
                     logger.warning(
-                        "LLM returned malformed JSON or empty prompt/options, falling back to realistic simulation",
+                        "LLM returned unusable JSON for response_type, falling back to simulation",
+                        response_type=response_type,
                         raw_preview=raw_text[:200] if raw_text else None,
                     )
                     parsed_data = cls._simulate_question_generation(
                         request=request,
-                        task_type_code=task_type_code,
+                        spec=spec,
+                        response_type=response_type,
+                        option_count=option_count,
                         allowed_skills=allowed_skills,
                         stimulus_title=stimulus_title,
                         stimulus_content=stimulus_content,
@@ -775,7 +881,9 @@ class AIQuestionGenerationService:
                 )
                 parsed_data = cls._simulate_question_generation(
                     request=request,
-                    task_type_code=task_type_code,
+                    spec=spec,
+                    response_type=response_type,
+                    option_count=option_count,
                     allowed_skills=allowed_skills,
                     stimulus_title=stimulus_title,
                     stimulus_content=stimulus_content,
@@ -786,7 +894,9 @@ class AIQuestionGenerationService:
         else:
             parsed_data = cls._simulate_question_generation(
                 request=request,
-                task_type_code=task_type_code,
+                spec=spec,
+                response_type=response_type,
+                option_count=option_count,
                 allowed_skills=allowed_skills,
                 stimulus_title=stimulus_title,
                 stimulus_content=stimulus_content,
@@ -796,7 +906,7 @@ class AIQuestionGenerationService:
 
         latency_ms = int((time.perf_counter() - sub_start) * 1000)
         total_tokens = prompt_tokens + completion_tokens
-        cost_usd = (prompt_tokens * 0.075 / 1_000_000) + (completion_tokens * 0.30 / 1_000_000)
+        cost_usd = _estimate_cost_usd(request.model, prompt_tokens, completion_tokens)
 
         # Build candidate object
         meta = CandidateGenerationMetadata(
@@ -820,7 +930,7 @@ class AIQuestionGenerationService:
 
         # Map options
         options_data: list[CandidateOptionPayload] = []
-        for idx, opt in enumerate(parsed_data.get("options", [])):
+        for idx, opt in enumerate(parsed_data.get("options", []) or []):
             if isinstance(opt, dict):
                 options_data.append(
                     CandidateOptionPayload(
@@ -840,12 +950,17 @@ class AIQuestionGenerationService:
             target_skill_ids=request.target_skill_ids,
         )
 
+        uses_stimulus = (
+            spec.requires_stimulus
+            and spec.stimulus_kind != STIMULUS_PROMPT_LEAD
+            and request.stimulus_mode != STIMULUS_NONE
+        )
         candidate = GeneratedQuestionCandidate(
             candidate_id=str(uuid.uuid4()),
             modality=request.modality,
             prompt=str(parsed_data.get("prompt", "")).strip(),
             instructions=parsed_data.get("instructions"),
-            response_type=request.response_type,
+            response_type=response_type,
             target_cefr=cefr,
             difficulty_rating=diff_rating,
             item_difficulty=item_diff,
@@ -856,14 +971,28 @@ class AIQuestionGenerationService:
             penalty_points=0,
             task_type_id=task_type_id,
             task_type_code=task_type_code,
-            stimulus_id=None if (task_type_code == "sentence_gap" or request.stimulus_mode == "none") else stimulus_id,
-            stimulus_title=None if (task_type_code == "sentence_gap" or request.stimulus_mode == "none") else (parsed_data.get("stimulus_title") or stimulus_title),
-            stimulus_content=None if (task_type_code == "sentence_gap" or request.stimulus_mode == "none") else (parsed_data.get("stimulus_content") or stimulus_content),
-            stimulus_mode="none" if (task_type_code == "sentence_gap" or request.stimulus_mode == "none") else request.stimulus_mode,
-            source_attribution=None if (task_type_code == "sentence_gap" or request.stimulus_mode == "none") else (parsed_data.get("source_attribution") or request.source_attribution),
+            format_spec_version=spec.prompt_template_version,
+            option_count=option_count,
+            stimulus_id=stimulus_id if uses_stimulus else None,
+            stimulus_title=(
+                (parsed_data.get("stimulus_title") or stimulus_title)
+                if uses_stimulus
+                else None
+            ),
+            stimulus_content=(
+                (parsed_data.get("stimulus_content") or stimulus_content)
+                if uses_stimulus
+                else None
+            ),
+            stimulus_mode=request.stimulus_mode if uses_stimulus else STIMULUS_NONE,
+            source_attribution=(
+                (parsed_data.get("source_attribution") or request.source_attribution)
+                if uses_stimulus
+                else None
+            ),
             options=options_data,
             skill_mappings=skill_mappings,
-            scoring_payload=parsed_data.get("scoring_payload"),
+            scoring_payload=cls._extract_scoring_payload(parsed_data, response_type),
             explanation=parsed_data.get("explanation"),
             generation_metadata=meta,
             status="pending_review",
@@ -874,31 +1003,231 @@ class AIQuestionGenerationService:
     # ---------------------------------------------------------------------------
     # Prompt Construction
     # ---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Format-Aware Parsing Helpers
+    # ---------------------------------------------------------------------------
+    @classmethod
+    def _resolve_spec(
+        cls,
+        task_type_code: str | None,
+        response_type: str | None,
+        modality: str,
+    ) -> TaskFormatSpec:
+        """Pick the registry entry for a request, inferring it when only a response type is given."""
+        if task_type_code:
+            spec = get_spec(task_type_code)
+            if spec is not None:
+                return spec
+
+        requested = response_type
+
+        # Legacy callers sometimes pass a task code in the response_type slot
+        # (e.g. "text_gap" instead of "gap_fill").
+        if requested and requested in QUESTION_FORMAT_SPECS:
+            return QUESTION_FORMAT_SPECS[requested]
+
+        for candidate in QUESTION_FORMAT_SPECS.values():
+            if candidate.module == modality and candidate.accepts(requested):
+                return candidate
+
+        fallback = QUESTION_FORMAT_SPECS.get("press_article")
+        assert fallback is not None
+        return fallback
+
+    @classmethod
+    def _is_parse_usable(cls, parsed_data: Any, response_type: str) -> bool:
+        """Reject LLM output that cannot satisfy the requested response format."""
+        if not isinstance(parsed_data, dict) or not str(parsed_data.get("prompt", "")).strip():
+            return False
+
+        if response_type in (
+            QuestionResponseType.SINGLE_CHOICE.value,
+            QuestionResponseType.MULTIPLE_CHOICE.value,
+        ):
+            options = parsed_data.get("options")
+            if not isinstance(options, list) or len(options) < 2:
+                return False
+            return any(isinstance(o, dict) and o.get("is_correct") for o in options)
+
+        if response_type in (
+            QuestionResponseType.MATCHING.value,
+            QuestionResponseType.ORDERING.value,
+            QuestionResponseType.GAP_FILL.value,
+            QuestionResponseType.SHORT_TEXT.value,
+        ):
+            return cls._extract_scoring_payload(parsed_data, response_type) is not None
+
+        return True
+
+    @staticmethod
+    def _extract_scoring_payload(parsed_data: dict[str, Any], response_type: str) -> dict[str, Any] | None:
+        """Normalise the LLM scoring payload into the canonical keys the scorers expect."""
+        raw = parsed_data.get("scoring_payload")
+        if not isinstance(raw, dict):
+            return None
+
+        if response_type == QuestionResponseType.MATCHING.value:
+            pairs = raw.get("pairs")
+            if not pairs:
+                pairs = raw.get("matching_pairs")
+            if not pairs:
+                return None
+            normalised: list[dict[str, str]] = []
+            if isinstance(pairs, dict):
+                normalised = [
+                    {"source_id": str(k), "target_id": str(v)} for k, v in pairs.items()
+                ]
+            elif isinstance(pairs, list):
+                for item in pairs:
+                    if isinstance(item, dict):
+                        src = item.get("source_id") or item.get("left") or item.get("key")
+                        tgt = item.get("target_id") or item.get("right") or item.get("value")
+                        if src is not None and tgt is not None:
+                            normalised.append({"source_id": str(src), "target_id": str(tgt)})
+                    elif isinstance(item, (list, tuple)) and len(item) == 2:
+                        normalised.append({"source_id": str(item[0]), "target_id": str(item[1])})
+            if not normalised:
+                return None
+            payload = {k: v for k, v in raw.items() if k not in {"pairs", "matching_pairs"}}
+            payload["pairs"] = normalised
+            for key in ("sources", "targets"):
+                if isinstance(raw.get(key), list):
+                    payload[key] = raw[key]
+            return payload
+
+        if response_type == QuestionResponseType.ORDERING.value:
+            sequence = raw.get("sequence") or raw.get("correct_sequence")
+            if not sequence:
+                items = raw.get("items")
+                if isinstance(items, list) and items:
+                    def _position(entry: Any) -> int:
+                        if not isinstance(entry, dict):
+                            return 0
+                        return int(entry.get("correct_position", entry.get("position", 0)) or 0)
+
+                    items_sorted = sorted(items, key=_position)
+                    sequence = [
+                        str(it.get("id") or it.get("key"))
+                        for it in items_sorted
+                        if isinstance(it, dict) and (it.get("id") or it.get("key"))
+                    ]
+            if not sequence:
+                return None
+            payload = {k: v for k, v in raw.items() if k != "correct_sequence"}
+            payload["sequence"] = [str(x) for x in sequence]
+            payload.setdefault("partial_credit", True)
+            if isinstance(raw.get("items"), list):
+                payload["items"] = raw["items"]
+            return payload
+
+        if response_type == QuestionResponseType.GAP_FILL.value:
+            gaps = raw.get("gaps")
+            if isinstance(gaps, dict):
+                gaps = [gaps]
+            if not isinstance(gaps, list) or not gaps:
+                return None
+            normalised_gaps: list[dict[str, Any]] = []
+            for i, gap in enumerate(gaps, start=1):
+                if not isinstance(gap, dict):
+                    continue
+                accepted = (
+                    gap.get("accepted_answers")
+                    or gap.get("correct_answer")
+                    or gap.get("acceptable_alternatives")
+                )
+                if isinstance(accepted, str):
+                    accepted = [accepted]
+                if not accepted:
+                    continue
+                normalised_gaps.append(
+                    {
+                        "index": gap.get("index", i),
+                        "accepted_answers": [str(a) for a in accepted],
+                        "ignore_case": bool(gap.get("ignore_case", True)),
+                        "ignore_accents": bool(gap.get("ignore_accents", True)),
+                    }
+                )
+            if not normalised_gaps:
+                return None
+            return {"gaps": normalised_gaps}
+
+        if response_type == QuestionResponseType.SHORT_TEXT.value:
+            accepted = raw.get("accepted_answers")
+            if isinstance(accepted, str):
+                accepted = [accepted]
+            if not isinstance(accepted, list) or not accepted:
+                return None
+            return {
+                "accepted_answers": [str(a) for a in accepted],
+                "ignore_case": bool(raw.get("ignore_case", True)),
+                "ignore_accents": bool(raw.get("ignore_accents", True)),
+            }
+
+        return raw
+
     @classmethod
     def _build_generation_prompts(
         cls,
         request: AIQuestionGenerationRequest,
-        task_type_code: str,
+        spec: TaskFormatSpec,
+        response_type: str,
+        option_count: int | None,
         allowed_skills: list[Skill],
         stimulus_title: str | None,
         stimulus_content: str | None,
         candidate_index: int,
     ) -> tuple[str, str]:
-        """Construct high-integrity system and user prompts with CEFR & taxonomy constraints."""
+        """Construct high-integrity system and user prompts from the task-format registry."""
+        is_choice = response_type in (
+            QuestionResponseType.SINGLE_CHOICE.value,
+            QuestionResponseType.MULTIPLE_CHOICE.value,
+        )
+
+        quality_rules = [
+            "1. Authenticité linguistique : Rédige en français standard contemporain, naturel et idiomatique.",
+            (
+                "2. Calibrage CECRL rigoureux : Respecte scrupuleusement la complexité syntaxique "
+                f"et le registre lexical du niveau visé ({request.target_cefr})."
+            ),
+        ]
+        if is_choice:
+            quality_rules.append(
+                "3. Règle absolue des distracteurs : Les fausses réponses doivent être parfaitement plausibles, "
+                "reposer sur des pièges cognitifs typiques (sur-généralisation, mauvaise interprétation d'un "
+                "connecteur, extrapolation), mais formellement réfutables par le support."
+            )
+            quality_rules.append(
+                "4. Interdictions formelles : NE JAMAIS inclure d'options du type 'Toutes les réponses "
+                "ci-dessus', 'Aucune des réponses ci-dessus', 'A et B sont vraies'. Toutes les options doivent "
+                "avoir une longueur similaire."
+            )
+            if response_type == QuestionResponseType.SINGLE_CHOICE.value:
+                quality_rules.append(
+                    "5. Clé de réponse unique : Exactement une seule option doit être indiscutablement correcte."
+                )
+            else:
+                quality_rules.append(
+                    "5. Sélection multiple : Au moins deux options doivent être correctes et au moins une "
+                    "incorrecte ; chaque option correcte doit être justifiée séparément."
+                )
+        else:
+            quality_rules.append(
+                "3. Structure imposée : Respecte à la lettre le schéma JSON du format demandé. "
+                "N'ajoute jamais d'options si le format n'en utilise pas."
+            )
+            quality_rules.append(
+                "4. Fidélité au barème : Le barème (scoring_payload) doit correspondre exactement aux éléments "
+                "présents dans l'énoncé, et inversement."
+            )
+        quality_rules.append(
+            "5. Respect strict de la taxonomie : Tu NE DOIS associer QUE des compétences explicitement "
+            "fournies dans la liste autorisée."
+        )
+
         system_prompt = (
             "Tu es un concepteur expert officiel d'épreuves du TEF (Test d'Évaluation de Français) "
             "pour la Chambre de Commerce et d'Industrie de Paris (CCI Paris Île-de-France).\n\n"
-            "DIRECTIVES PSYCHOMÉTRIQUES ET QUALITÉ DU TEF :\n"
-            "1. Authenticité linguistique : Rédige en français standard contemporain, naturel et idiomatique.\n"
-            "2. Calibrage CECRL rigoureux : Respecte scrupuleusement la complexité syntaxique et le registre lexical "
-            f"du niveau visé ({request.target_cefr}).\n"
-            "3. Règle absolue des distracteurs : Les fausses réponses (distracteurs) doivent être parfaitement plausibles, "
-            "reposer sur des pièges cognitifs typiques (sur-généralisation, mauvaise interprétation d'un connecteur, extrapolation), "
-            "mais formellement réfutables par le texte.\n"
-            "4. Interdictions formelles : NE JAMAIS inclure d'options du type 'Toutes les réponses ci-dessus', "
-            "'Aucune des réponses ci-dessus', 'A et B sont vraies'. Toutes les options doivent avoir une longueur similaire.\n"
-            "5. Clé de réponse unique : Exactement une seule option doit être indiscutablement correcte.\n"
-            "6. Respect strict de la taxonomie : Tu NE DOIS associer QUE des compétences explicitement fournies dans la liste autorisée."
+            "DIRECTIVES PSYCHOMÉTRIQUES ET QUALITÉ DU TEF :\n" + "\n".join(quality_rules)
         )
 
         skills_json = [
@@ -911,96 +1240,214 @@ class AIQuestionGenerationService:
             for s in allowed_skills
         ]
 
-        task_cfg = TASK_PROMPT_CONFIGS.get(task_type_code, {})
-        task_name = task_cfg.get("name", task_type_code)
-        task_desc = task_cfg.get("description", "")
-        task_guidance = task_cfg.get("prompt_guidance", "")
-        stim_type = task_cfg.get("stimulus_type", "passage")
-
-        stimulus_instructions = ""
-        if stim_type == "none" or task_type_code == "sentence_gap" or request.stimulus_mode == "none":
-            stimulus_instructions = (
-                "RÈGLE SPÉCIALE SENTENCE GAP : NE GÉNÈRE AUCUN STIMULUS (stimulus_title et stimulus_content doivent impérativement être null). "
-                "Le champ 'prompt' DOIT contenir une phrase unique complète avec un blanc représenté par '______'. "
-                "Les options doivent être 4 mots ou formes grammaticales pour compléter la phrase (1 correcte, 3 distracteurs avec misconception_type)."
-            )
-        elif not stimulus_content or not str(stimulus_content).strip():
-            if stim_type == "multi_document":
-                stimulus_instructions = (
-                    "RÈGLE DOCUMENT MATCHING : Génère un ensemble multi-documents composé de 4 courts documents distincts "
-                    "libellés '### Document A : [Titre]\\n[Texte]', '### Document B : [Titre]\\n[Texte]', "
-                    "'### Document C : [Titre]\\n[Texte]', '### Document D : [Titre]\\n[Texte]'. "
-                    "Chaque document décrit une offre, un stage, un service ou une annonce (30 à 60 mots chacun). "
-                    "La question ('prompt') décrit le profil ou le besoin précis d'une personne (ex: 'Marc souhaite suivre une formation le week-end...'). "
-                    "Les 4 options doivent correspondre aux documents ('Document A', 'Document B', 'Document C', 'Document D')."
-                )
-            elif stim_type == "table_or_infographic":
-                stimulus_instructions = (
-                    "RÈGLE GRAPH / TABLE MATCHING : Génère un support constitué d'un tableau synthétique au format Markdown "
-                    "(avec entêtes de colonnes claires et valeurs chiffrées/statistiques précises). "
-                    "La question ('prompt') doit évaluer l'analyse ou la comparaison exacte des chiffres du tableau."
-                )
-            elif stim_type == "cloze_passage":
-                stimulus_instructions = (
-                    "RÈGLE TEXT GAP : Génère un texte suivi d'environ 100 à 150 mots comportant une lacune représentée par '______'. "
-                    "La question ('prompt') demande quel connecteur logique ou mot s'insère à la place du blanc. "
-                    "Les options sont 4 termes grammaticaux ou lexicaux plausibles."
-                )
-            elif stim_type == "audio_transcript":
-                stimulus_instructions = (
-                    "RÈGLE COMPRÉHENSION ORALE (LISTENING) : Le champ 'stimulus_content' doit contenir la transcription textuelle "
-                    "de l'enregistrement sonore avec indications contextuelles, bruits de fond ou locuteurs distincts "
-                    "(ex: '[Annonce sonore en gare]...', ou 'Locuteur 1 : ... Locuteur 2 : ...')."
-                )
-            else:
-                stimulus_instructions = (
-                    f"Génère un support textuel ({task_name}) réaliste adapté au format du TEF d'environ 120 à 250 mots, "
-                    f"avec un titre évocateur et une attribution de source crédible. {task_guidance}"
-                )
-        else:
-            stimulus_instructions = (
-                f"Utilise le support textuel fourni ci-dessous :\nTitre : {stimulus_title or 'Document'}\n"
-                f"Texte :\n{stimulus_content}\n"
-            )
-
-        resp_type = request.response_type or task_cfg.get("default_response_type", "single_choice")
+        stimulus_instructions = cls._build_stimulus_instructions(
+            spec=spec,
+            stimulus_title=stimulus_title,
+            stimulus_content=stimulus_content,
+        )
 
         user_prompt = (
             f"Génère une question d'évaluation TEF au format JSON strict avec les paramètres suivants :\n"
             f"- Modalité : {request.modality}\n"
-            f"- Type de tâche : {task_type_code} ({task_name})\n"
-            f"- Description de la tâche : {task_desc}\n"
-            f"- Format de réponse : {resp_type}\n"
+            f"- Type de tâche : {spec.code} ({spec.name})\n"
+            f"- Consigne spécifique au type de tâche : {spec.admin_hint}\n"
+            f"- Format de réponse : {response_type}\n"
             f"- Niveau CECRL visé : {request.target_cefr}\n"
             f"- Complexité cognitive : {request.cognitive_complexity}\n"
             f"- Thématique : {request.topic or 'Société contemporaine, innovation ou vie professionnelle'}\n"
             f"- Échantillon n° : {candidate_index + 1}\n\n"
             f"{stimulus_instructions}\n\n"
+            f"{spec.prompt_guidance}\n\n"
             f"Compétences disponibles (choisis-en 1 ou 2 au maximum parmi cette liste uniquement) :\n"
             f"{json.dumps(skills_json, ensure_ascii=False, indent=2)}\n\n"
-            "SCHEMA JSON ATTENDU (réponds UNIQUEMENT avec ce JSON valide sans texte additionnel) :\n"
-            "{\n"
-            '  "stimulus_title": "Titre du document",\n'
-            '  "stimulus_content": "Texte intégral du document source...",\n'
-            '  "source_attribution": "Source fictive ou réelle (ex: Le Quotidien Économique)",\n'
-            '  "prompt": "Question posée au candidat...",\n'
-            '  "instructions": "Consigne spécifique éventuelle",\n'
-            f'  "target_cefr": "{request.target_cefr}",\n'
-            f'  "cognitive_complexity": "{request.cognitive_complexity}",\n'
-            '  "explanation": "Explication pédagogique complète démontrant pourquoi la bonne réponse est exacte et pourquoi les autres sont fausses.",\n'
-            '  "options": [\n'
-            '    {"content": "Option 1", "is_correct": true, "explanation": "Preuve textuelle...", "distractor_rationale": null},\n'
-            '    {"content": "Option 2", "is_correct": false, "explanation": "Pourquoi c\'est faux...", "misconception_type": "extrapolation", "distractor_rationale": "Piège sur le faux-ami..."},\n'
-            '    {"content": "Option 3", "is_correct": false, "explanation": "Pourquoi c\'est faux...", "misconception_type": "contradiction", "distractor_rationale": "Contredit le 2e paragraphe..."},\n'
-            '    {"content": "Option 4", "is_correct": false, "explanation": "Pourquoi c\'est faux...", "misconception_type": "overgeneralization", "distractor_rationale": "Généralise excessivement..."}\n'
-            "  ],\n"
-            '  "skill_mappings": [\n'
-            '    {"skill_id": "<id de la liste fournie>", "role": "primary", "weight": 1.0}\n'
-            "  ]\n"
-            "}"
+            f"{cls._build_response_schema_block(spec, response_type, option_count, request.target_cefr, request.cognitive_complexity)}"
         )
 
         return system_prompt, user_prompt
+
+    @classmethod
+    def _build_stimulus_instructions(
+        cls,
+        spec: TaskFormatSpec,
+        stimulus_title: str | None,
+        stimulus_content: str | None,
+    ) -> str:
+        """Derive stimulus instructions from the registry's stimulus kind."""
+        if spec.stimulus_kind == STIMULUS_NONE or not spec.requires_stimulus:
+            return (
+                "RÈGLE STIMULUS : NE GÉNÈRE AUCUN STIMULUS. Les champs 'stimulus_title' et "
+                "'stimulus_content' doivent impérativement valoir null. Toute l'information nécessaire "
+                f"doit figurer dans le champ 'prompt'. Type de tâche : {spec.name}."
+            )
+
+        if stimulus_content and str(stimulus_content).strip():
+            return (
+                f"Utilise le support textuel fourni ci-dessous :\n"
+                f"Titre : {stimulus_title or 'Document'}\n"
+                f"Texte :\n{stimulus_content}\n"
+            )
+
+        kind = spec.stimulus_kind
+        if kind == STIMULUS_MULTI_DOCUMENT:
+            return (
+                "RÈGLE DOCUMENT MATCHING : Génère un ensemble multi-documents composé de 4 courts documents "
+                "distincts libellés '### Document A : [Titre]\\n[Texte]', '### Document B : ...', "
+                "'### Document C : ...', '### Document D : ...'. Chaque document décrit une offre, un "
+                "stage, un service ou une annonce (30 à 60 mots chacun). La question décrit le profil ou le "
+                "besoin précis d'une personne. Le 'scoring_payload' doit contenir 'sources' (les besoins), "
+                "'targets' (les documents) et 'pairs' (la correspondance correcte)."
+            )
+        if kind == STIMULUS_TABLE:
+            return (
+                "RÈGLE GRAPH / TABLE MATCHING : Génère un support constitué d'un tableau synthétique au format "
+                "Markdown (entêtes de colonnes claires, valeurs chiffrées précises). La question doit évaluer "
+                "l'analyse ou la comparaison exacte des chiffres. Le 'scoring_payload' doit contenir 'sources', "
+                "'targets' et 'pairs'."
+            )
+        if kind == STIMULUS_AUDIO_TRANSCRIPT:
+            return (
+                "RÈGLE COMPRÉHENSION ORALE (LISTENING) : Le champ 'stimulus_content' doit contenir la "
+                "transcription textuelle de l'enregistrement sonore avec indications contextuelles et "
+                "locuteurs distincts (ex: '[Annonce sonore en gare]...', ou 'Locuteur 1 : ... Locuteur 2 : ...')."
+            )
+        if kind == STIMULUS_PROMPT_LEAD:
+            return (
+                "RÈGLE AMORCE D'ÉNONCÉ : Le champ 'prompt' doit commencer par l'amorce de la consigne fournie "
+                "ci-dessus, puis la reformerule à la première personne pour le candidat. Les champs "
+                "'stimulus_title' et 'stimulus_content' doivent valoir null. NE PRODUIS AUCUNE liste de réponses."
+            )
+        if kind == STIMULUS_BROCHURE:
+            return (
+                "RÈGLE BROCHURE : Génère le contenu de la brochure / fiche d'information qui sert de support "
+                "de présentation. Décris les objectifs, le format de l'échange et les critères d'évaluation "
+                "que le candidat doit respecter. Le champ 'prompt' contient la consigne orale."
+            )
+        return (
+            f"Génère un support textuel ({spec.name}) réaliste adapté au format du TEF d'environ 120 à 250 "
+            f"mots, avec un titre évocateur et une attribution de source crédible."
+        )
+
+    @classmethod
+    def _build_response_schema_block(
+        cls,
+        spec: TaskFormatSpec,
+        response_type: str,
+        option_count: int | None,
+        target_cefr: str,
+        cognitive_complexity: str,
+    ) -> str:
+        """Emit a format-specific JSON contract the model must honour exactly."""
+        common = (
+            '  "stimulus_title": "Titre du document (null si sans support)",\n'
+            '  "stimulus_content": "Texte intégral du document source (null si sans support)",\n'
+            '  "source_attribution": "Source fictive ou réelle (ex: Le Quotidien Économique)",\n'
+            '  "prompt": "Énoncé complet posé au candidat, consigne incluse",\n'
+            '  "instructions": "Consigne spécifique éventuelle, ou null",\n'
+            f'  "target_cefr": "{target_cefr}",\n'
+            f'  "cognitive_complexity": "{cognitive_complexity}",\n'
+        )
+
+        header = (
+            "SCHEMA JSON ATTENDU (réponds UNIQUEMENT avec ce JSON valide, sans texte additionnel "
+            "ni bloc markdown) :\n"
+            "{\n"
+        )
+        tail = (
+            '  "explanation": "Explication pédagogique démontrant la bonne réponse et le rejet des autres.",\n'
+            '  "skill_mappings": [{"skill_id": "<id de la liste fournie>", "role": "primary", "weight": 1.0}]\n'
+            "}"
+        )
+
+        if response_type in (
+            QuestionResponseType.SINGLE_CHOICE.value,
+            QuestionResponseType.MULTIPLE_CHOICE.value,
+        ):
+            n = option_count or (spec.option_count[1] if spec.option_count else 4)
+            options_block = (
+                '  "options": [\n'
+                + ",\n".join(
+                    '    {{"content": "Option {idx}", "is_correct": {correct}, '
+                    '"explanation": "Justification...", "misconception_type": null, '
+                    '"distractor_rationale": null}}'.format(
+                        idx=i + 1, correct="true" if i == 0 else "false"
+                    )
+                    for i in range(n)
+                )
+                + "\n  ],\n"
+            )
+            return header + common + options_block + tail
+
+        if response_type == QuestionResponseType.MATCHING.value:
+            return (
+                header
+                + common
+                + '  "options": [],\n'
+                + '  "scoring_payload": {\n'
+                + '    "sources": [{"id": "besoin_1", "text": "Besoin décrit"},'
+                + ' {"id": "besoin_2", "text": "Autre besoin"}],\n'
+                + '    "targets": [{"id": "doc_a", "text": "Document A"},'
+                + ' {"id": "doc_b", "text": "Document B"}],\n'
+                + '    "pairs": [{"source_id": "besoin_1", "target_id": "doc_a"},'
+                + ' {"source_id": "besoin_2", "target_id": "doc_b"}]\n'
+                + "  }\n"
+                + tail
+            )
+
+        if response_type == QuestionResponseType.ORDERING.value:
+            n = option_count or (spec.option_count[1] if spec.option_count else 5)
+            items = ", ".join(
+                '{{"id": "seg_{n}", "text": "Segment {n} du recit"}}'.format(n=i + 1)
+                for i in range(n)
+            )
+            seq = ", ".join(f'"seg_{i + 1}"' for i in range(n))
+            return (
+                header
+                + common
+                + '  "options": [],\n'
+                + '  "scoring_payload": {\n'
+                + f'    "items": [{items}],\n'
+                + f'    "sequence": [{seq}],\n'
+                + '    "partial_credit": true\n'
+                + "  }\n"
+                + tail
+            )
+
+        if response_type == QuestionResponseType.GAP_FILL.value:
+            return (
+                header
+                + common
+                + '  "options": [],\n'
+                + '  "scoring_payload": {\n'
+                + '    "gaps": [{"index": 1, "accepted_answers": ["cependant", "toutefois"],'
+                ' "ignore_case": true, "ignore_accents": true}]\n'
+                + "  }\n"
+                + tail
+            )
+
+        if response_type == QuestionResponseType.SHORT_TEXT.value:
+            return (
+                header
+                + common
+                + '  "options": [],\n'
+                + '  "scoring_payload": {\n'
+                + '    "accepted_answers": ["reformulation attendue"],\n'
+                + '    "ignore_case": true,\n'
+                + '    "ignore_accents": true\n'
+                + "  }\n"
+                + tail
+            )
+
+        # long_text / spoken_response
+        return (
+            header
+            + common
+            + '  "options": [],\n'
+            + '  "scoring_payload": {\n'
+            + '    "rubric": ["Critère 1 évalué", "Critère 2 évalué", "Critère 3 évalué"],\n'
+            + '    "expected_duration_seconds": 180\n'
+            + "  }\n"
+            + tail
+        )
 
     # ---------------------------------------------------------------------------
     # Taxonomy Skills Resolver & Restrictor
@@ -1009,15 +1456,20 @@ class AIQuestionGenerationService:
     async def _resolve_task_type(
         cls, db: AsyncSession, request: AIQuestionGenerationRequest
     ) -> TaskType | None:
-        """Resolve TaskType from ID or code, defaulting to a reading task."""
+        """Resolve TaskType from ID or code, defaulting to a reading task.
+
+        The registry (not the task_types table) owns the format contract, so an
+        explicitly requested code is always honoured. When no matching row exists
+        we return ``None`` rather than substituting a different format's row:
+        silently attaching e.g. ``press_article`` to a ``text_ordering`` request
+        would corrupt both the persisted provenance and the format spec.
+        """
         if request.task_type_id:
             return await db.get(TaskType, request.task_type_id)
 
         if request.task_type_code:
             stmt = select(TaskType).where(TaskType.code == request.task_type_code)
-            tt = (await db.execute(stmt)).scalar_one_or_none()
-            if tt:
-                return tt
+            return (await db.execute(stmt)).scalar_one_or_none()
 
         # Fallback to default task type for modality
         fallback_code = "press_article" if request.modality == "reading" else "public_announcement"
@@ -1245,12 +1697,25 @@ class AIQuestionGenerationService:
                 message="Énoncé vide, vérification doublon ignorée.",
             )
 
-        clean_prompt = prompt.strip().lower()
+        clean_prompt = normalize_prompt_for_hash(prompt)
+        candidate_hash = compute_item_hash(prompt)
         candidate_tokens = _tokenize_text(clean_prompt)
 
-        # 1. Exact match check
+        # 1. Exact match check.
+        #    Primary path is the index-backed item_hash lookup, which is also
+        #    whitespace-insensitive. The secondary path catches legacy rows whose
+        #    item_hash was never populated (NULL) by an older write path; it
+        #    compares the un-collapsed form because SQL cannot portably reproduce
+        #    the hash normalization, so it stays a best-effort net only.
+        legacy_prompt = prompt.strip().lower()
         exact_stmt = select(Question).where(
-            func.lower(func.trim(Question.prompt)) == clean_prompt
+            or_(
+                Question.item_hash == candidate_hash,
+                and_(
+                    Question.item_hash.is_(None),
+                    func.lower(func.trim(Question.prompt)) == legacy_prompt,
+                ),
+            )
         ).limit(1)
         exact_match = (await db.execute(exact_stmt)).scalar_one_or_none()
 
@@ -1264,8 +1729,14 @@ class AIQuestionGenerationService:
                 message="Doublon exact détecté dans la banque de questions.",
             )
 
-        # 2. Similarity scan over recent or similar questions
-        scan_stmt = select(Question.id, Question.prompt).limit(200)
+        # 2. Similarity scan over recent or similar questions.
+        #    Ordered explicitly: without ORDER BY the row order is undefined and
+        #    the truncated scan would return non-deterministic matches.
+        scan_stmt = (
+            select(Question.id, Question.prompt)
+            .order_by(Question.created_at.desc(), Question.id.desc())
+            .limit(DUPLICATE_SCAN_LIMIT)
+        )
         existing_rows = (await db.execute(scan_stmt)).all()
 
         highest_sim = 0.0
@@ -1282,7 +1753,7 @@ class AIQuestionGenerationService:
                 best_match_id = q_id
                 best_match_prompt = q_prompt
 
-        if highest_sim >= 0.75:
+        if highest_sim >= DUPLICATE_SIMILARITY_THRESHOLD:
             return DuplicateCheckReport(
                 is_duplicate=True,
                 status="possible_duplicate",
@@ -1492,21 +1963,23 @@ class AIQuestionGenerationService:
                 stimulus_id = stim.id
 
 
-        # 2. Map response_type to valid QuestionType enum
-        q_type = QuestionType.SINGLE_CHOICE
-        if candidate.response_type == "multiple_choice":
-            q_type = QuestionType.MULTIPLE_CHOICE
-        elif candidate.response_type in ("text_gap", "sentence_gap", "gap_fill", "short_text", "text_input"):
-            q_type = QuestionType.TEXT_INPUT
-        else:
-            q_type = QuestionType.SINGLE_CHOICE
+        # 2. Validate and map the response format onto the coarse QuestionType enum.
+        try:
+            response_type = QuestionResponseType(candidate.response_type)
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported response_type {candidate.response_type!r}; "
+                "generation must emit a valid QuestionResponseType."
+            ) from exc
+        q_type = cls._question_type_for(response_type)
 
         # 3. Create Question record in DRAFT status in the Question Bank (decoupled from section)
         question = Question(
             question_type=q_type,
-            response_type=candidate.response_type,
+            response_type=response_type.value,
             prompt=candidate.prompt,
             instructions=candidate.instructions,
+            item_hash=compute_item_hash(candidate.prompt),
             stimulus_id=stimulus_id,
             difficulty_rating=candidate.difficulty_rating,
             difficulty=candidate.item_difficulty,
@@ -1515,7 +1988,7 @@ class AIQuestionGenerationService:
             cognitive_complexity=candidate.cognitive_complexity,
             points=candidate.points,
             penalty_points=candidate.penalty_points,
-            scoring_payload=candidate.scoring_payload,
+            scoring_payload=cls._prepare_scoring_payload(response_type, candidate),
             explanation=candidate.explanation,
             task_type_id=candidate.task_type_id,
             status=ContentStatus.DRAFT.value,  # HARD INVARIANT: Always DRAFT
@@ -1531,13 +2004,13 @@ class AIQuestionGenerationService:
         # Optional: Link to assessment section if explicitly targeted
         if section_id:
             sec_assoc = AssessmentSectionQuestion(
-                section_id=section_id,
+                assessment_section_id=section_id,
                 question_id=question.id,
                 order_index=0,
             )
             db.add(sec_assoc)
 
-        # 4. Create Question Options
+        # 4. Create Question Options (distractor metadata is preserved verbatim)
         for opt in candidate.options:
             q_opt = QuestionOption(
                 question_id=question.id,
@@ -1545,10 +2018,18 @@ class AIQuestionGenerationService:
                 is_correct=opt.is_correct,
                 order_index=opt.order_index,
                 explanation=opt.explanation,
+                misconception_type=opt.misconception_type,
+                distractor_rationale=opt.distractor_rationale,
                 created_at=now,
                 updated_at=now,
             )
             db.add(q_opt)
+        await db.flush()
+
+        # 4b. Ordering items are persisted as options; rewrite the candidate's
+        #     ordinal keys to the real option UUIDs the scorer will compare against.
+        if response_type == QuestionResponseType.ORDERING:
+            await cls._persist_ordering_options(db, question, candidate, now)
 
         # 5. Create Question Skill Tags
         for sm in candidate.skill_mappings:
@@ -1625,6 +2106,97 @@ class AIQuestionGenerationService:
         return (await db.execute(stmt)).scalar_one()
 
     # ---------------------------------------------------------------------------
+    # Draft Persistence Helpers
+    # ---------------------------------------------------------------------------
+    @staticmethod
+    def _question_type_for(response_type: QuestionResponseType) -> QuestionType:
+        """Map a precise response format onto the coarse QuestionType enum.
+
+        QuestionType only distinguishes choice / multi-choice / free text, so
+        matching and ordering are stored as text input: the candidate assembles
+        a response payload rather than ticking an option.
+        """
+        if response_type == QuestionResponseType.MULTIPLE_CHOICE:
+            return QuestionType.MULTIPLE_CHOICE
+        if response_type == QuestionResponseType.SINGLE_CHOICE:
+            return QuestionType.SINGLE_CHOICE
+        return QuestionType.TEXT_INPUT
+
+    @classmethod
+    def _prepare_scoring_payload(
+        cls,
+        response_type: QuestionResponseType,
+        candidate: GeneratedQuestionCandidate,
+    ) -> dict[str, Any] | None:
+        """Return a defensive copy of the scoring payload for persistence."""
+        if not candidate.scoring_payload:
+            return None
+        if response_type == QuestionResponseType.ORDERING:
+            # The sequence is rewritten once option UUIDs exist.
+            payload = {
+                k: v for k, v in candidate.scoring_payload.items() if k not in {"sequence"}
+            }
+            payload["sequence"] = [str(x) for x in candidate.scoring_payload.get("sequence") or []]
+            return payload
+        return dict(candidate.scoring_payload)
+
+    @classmethod
+    async def _persist_ordering_options(
+        cls,
+        db: AsyncSession,
+        question: Question,
+        candidate: GeneratedQuestionCandidate,
+        now: datetime.datetime,
+    ) -> None:
+        """Create ordering options and rebind the scoring payload to their UUIDs."""
+        items = (candidate.scoring_payload or {}).get("items") or []
+        if not items:
+            return
+
+        raw_sequence = [str(x) for x in (candidate.scoring_payload or {}).get("sequence") or []]
+        if not raw_sequence:
+            raw_sequence = [
+                str(it.get("id") or it.get("key")) for it in items if isinstance(it, dict)
+            ]
+
+        position_by_id = {key: idx for idx, key in enumerate(raw_sequence)}
+
+        created: list[tuple[int, uuid.UUID, str]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("id") or item.get("key"))
+            if not key:
+                continue
+            order_index = int(position_by_id.get(key, item.get("correct_position") or 0))
+            option_id = uuid.uuid4()
+            text = str(item.get("text", ""))
+            db.add(
+                QuestionOption(
+                    id=option_id,
+                    question_id=question.id,
+                    content=text,
+                    is_correct=False,
+                    order_index=order_index,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            created.append((order_index, option_id, text))
+
+        created.sort(key=lambda entry: entry[0])
+        new_items = [
+            {"id": str(option_id), "text": text, "correct_position": idx}
+            for idx, (_order_index, option_id, text) in enumerate(created)
+        ]
+
+        payload = dict(question.scoring_payload or {})
+        payload["sequence"] = [str(option_id) for _order_index, option_id, _text in created]
+        payload["items"] = new_items
+        question.scoring_payload = payload
+        await db.flush()
+
+    # ---------------------------------------------------------------------------
     # Component Regeneration on Draft Questions
     # ---------------------------------------------------------------------------
     @classmethod
@@ -1674,16 +2246,98 @@ class AIQuestionGenerationService:
 
         now = datetime.datetime.now(datetime.UTC)
 
+        spec = await cls._resolve_spec_for_existing_question(db, question)
+
+        if request.component not in REGENERABLE_COMPONENTS:
+            raise AppException(
+                message=(
+                    f"Composant '{request.component}' non régénérable. "
+                    f"Composants acceptés : {', '.join(REGENERABLE_COMPONENTS)}."
+                ),
+                code="UNSUPPORTED_REGENERATION_COMPONENT",
+                status_code=400,
+            )
+
+        # Distractors only make sense for items that actually render options.
+        # This keys off the question's own response type rather than the family's
+        # capabilities: `text_gap` supports both `single_choice` and `gap_fill`,
+        # and a gap-fill variant must never gain distractors.
+        if request.component in ("distractors", "options") and not response_type_uses_options(
+            question.response_type
+        ):
+            raise AppException(
+                message=(
+                    f"Le format de réponse '{question.response_type}' n'utilise pas de "
+                    "choix discrets : la régénération de distracteurs est inapplicable."
+                ),
+                code="UNSUPPORTED_REGENERATION_COMPONENT",
+                status_code=400,
+            )
+
+        api_key = request.api_key_override or settings.GEMINI_API_KEY
+        use_simulation = request.force_simulation or not api_key
+        regen_payload: dict[str, Any] = {}
+        target_total = cls._target_option_count(question, spec)
+
+        if not use_simulation and api_key:
+            try:
+                raw_text, _, _ = await AISandboxService._call_gemini_api(
+                    api_key=api_key,
+                    model=request.model,
+                    system_prompt=cls._build_regeneration_system_prompt(request.component, spec),
+                    user_prompt=cls._build_regeneration_user_prompt(question, request, spec),
+                    temperature=request.temperature,
+                    max_tokens=2000,
+                )
+                parsed = AISandboxService._parse_json_or_fallback(raw_text)
+                if isinstance(parsed, dict):
+                    regen_payload = parsed
+                else:
+                    logger.warning(
+                        "regeneration.parse_unusable",
+                        question_id=str(question.id),
+                        component=request.component,
+                    )
+            except Exception:
+                logger.exception(
+                    "regeneration.llm_failed",
+                    question_id=str(question.id),
+                    component=request.component,
+                )
+        else:
+            logger.warning(
+                "regeneration.using_deterministic_fallback",
+                question_id=str(question.id),
+                component=request.component,
+                reason="simulation" if request.force_simulation else "missing_api_key",
+            )
+            # Produce the same payload shape as the LLM path so the apply and
+            # validation logic below is exercised identically in simulation.
+            regen_payload = cls._simulate_regeneration_payload(
+                component=request.component,
+                question=question,
+                spec=spec,
+                target_total=target_total,
+            )
+
         # Handle regeneration of distractors
         if request.component in ("distractors", "options"):
             correct_opt = next((o for o in question.options if o.is_correct), None)
-            correct_content = correct_opt.content if correct_opt else "Option correcte"
+            if correct_opt is None:
+                raise AppException(
+                    message=(
+                        "Aucune option correcte identifiée : impossible de régénérer les "
+                        "distracteurs sans altérer la clé de correction."
+                    ),
+                    code="MISSING_CORRECT_OPTION",
+                    status_code=409,
+                )
 
-            new_distractors = [
-                f"Alternative révisée 1 pour {question.target_cefr or 'B2'}",
-                f"Alternative révisée 2 pour {question.target_cefr or 'B2'}",
-                f"Alternative révisée 3 pour {question.target_cefr or 'B2'}",
-            ]
+            distractors = cls._extract_regenerated_distractors(
+                regen_payload,
+                existing=question.options,
+                target_count=target_total - 1,
+            )
 
             # Clear old options and add regenerated options
             question.options.clear()
@@ -1692,47 +2346,42 @@ class AIQuestionGenerationService:
             new_opts = [
                 QuestionOption(
                     question_id=question.id,
-                    content=correct_content,
+                    content=correct_opt.content,
                     is_correct=True,
                     order_index=0,
-                    explanation=correct_opt.explanation if correct_opt else "Bonne réponse.",
+                    explanation=correct_opt.explanation or "Bonne réponse.",
+                    misconception_type=correct_opt.misconception_type,
+                    distractor_rationale=correct_opt.distractor_rationale,
                     created_at=now,
                     updated_at=now,
-                ),
-                QuestionOption(
-                    question_id=question.id,
-                    content=new_distractors[0],
-                    is_correct=False,
-                    order_index=1,
-                    explanation="Distracteur régénéré par IA.",
-                    created_at=now,
-                    updated_at=now,
-                ),
-                QuestionOption(
-                    question_id=question.id,
-                    content=new_distractors[1],
-                    is_correct=False,
-                    order_index=2,
-                    explanation="Distracteur régénéré par IA.",
-                    created_at=now,
-                    updated_at=now,
-                ),
-                QuestionOption(
-                    question_id=question.id,
-                    content=new_distractors[2],
-                    is_correct=False,
-                    order_index=3,
-                    explanation="Distracteur régénéré par IA.",
-                    created_at=now,
-                    updated_at=now,
-                ),
+                )
             ]
+            for offset, distractor in enumerate(distractors, start=1):
+                new_opts.append(
+                    QuestionOption(
+                        question_id=question.id,
+                        content=distractor["content"],
+                        is_correct=False,
+                        order_index=offset,
+                        explanation=distractor["explanation"],
+                        misconception_type=distractor["misconception_type"],
+                        distractor_rationale=distractor["distractor_rationale"],
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
             question.options.extend(new_opts)
 
         elif request.component == "prompt":
-            question.prompt = f"{question.prompt} (Reformulation IA)"
+            new_prompt = cls._extract_regenerated_prompt(regen_payload, question, request)
+            if new_prompt:
+                question.prompt = new_prompt
+                # Keep the duplicate-detection index in sync with the new text.
+                question.item_hash = compute_item_hash(new_prompt)
         elif request.component == "explanation":
-            question.explanation = "Explication pédagogique enrichie et régénérée par l'IA."
+            new_explanation = regen_payload.get("explanation") or regen_payload.get("global_explanation")
+            if isinstance(new_explanation, str) and new_explanation.strip():
+                question.explanation = new_explanation.strip()
 
         question.updated_by_user_id = actor_id
         question.updated_at = now
@@ -1765,19 +2414,265 @@ class AIQuestionGenerationService:
         return res.scalar_one()
 
     # ---------------------------------------------------------------------------
+    # Component Regeneration Helpers
+    # ---------------------------------------------------------------------------
+    @classmethod
+    async def _resolve_spec_for_existing_question(
+        cls, db: AsyncSession, question: Question
+    ) -> TaskFormatSpec:
+        """Infer the governing format spec for an already-persisted question.
+
+        ``Question`` exposes only the ``task_type_id`` foreign key (there is no
+        ORM relationship), so the owning task type is loaded explicitly here.
+        """
+        task_code: str | None = None
+        modality = "reading"
+
+        if question.task_type_id:
+            task_type = await db.get(TaskType, question.task_type_id)
+            if task_type is not None:
+                task_code = task_type.code
+                modality = task_type.modality
+
+        return cls._resolve_spec(
+            task_type_code=task_code,
+            response_type=question.response_type,
+            modality=modality,
+        )
+
+    @staticmethod
+    def _build_regeneration_system_prompt(component: str, spec: TaskFormatSpec) -> str:
+        """System prompt scoped to a single component and the question's format."""
+        common = (
+            "Tu es un concepteur d'épreuves TEF. Tu régénères UN SEUL composant d'une "
+            f"question existante de la famille « {spec.name} » ({spec.code}). "
+            "Réponds uniquement en JSON valide, sans texte autour. "
+            "Conserve le sens pédagogique et le niveau CECRL d'origine."
+        )
+        if component in ("distractors", "options"):
+            return (
+                f"{common}\n"
+                "Tâche : produire des distracteurs (mauvaises réponses) crédibles et "
+                "de longueur comparable à la bonne réponse.\n"
+                "JSON attendu : "
+                '{"distractors": [{"content": "...", "explanation": "...", '
+                '"misconception_type": "...", "distractor_rationale": "..."}]}\n'
+                "Champs : misconception_type ∈ {false_fact, extrapolation, wording_shift, "
+                "absurdity, false_quantifier, distractor_category}. "
+                "distractor_rationale doit nommer le mécanisme de l'erreur."
+            )
+        if component == "prompt":
+            return (
+                f"{common}\n"
+                "Tâche : réécrire uniquement l'énoncé, sans changer la réponse attendue "
+                "ni le sens de la question.\n"
+                'JSON attendu : {"prompt": "..."}'
+            )
+        return (
+            f"{common}\n"
+            "Tâche : rédiger l'explication pédagogique de la réponse correcte "
+            "(pourquoi c'est juste, et le raisonnement attendu).\n"
+            'JSON attendu : {"explanation": "..."}'
+        )
+
+    @staticmethod
+    def _build_regeneration_user_prompt(
+        question: Question,
+        request: CandidateRegenerateRequest,
+        spec: TaskFormatSpec,
+    ) -> str:
+        options_block = "\n".join(
+            f"- {'[CORRECTE] ' if o.is_correct else '[DISTRACTEUR] '}{o.content}"
+            for o in question.options
+        )
+        parts = [
+            f"Famille de tâche : {spec.name} ({spec.code})",
+            f"Format de réponse : {question.response_type}",
+            f"Niveau CECRL : {question.target_cefr or question.level or 'B2'}",
+            f"Énoncé actuel : {question.prompt}",
+        ]
+        if options_block:
+            parts.append(f"Options actuelles :\n{options_block}")
+        if request.custom_instructions:
+            parts.append(f"Consignes de l'administrateur : {request.custom_instructions}")
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _target_option_count(question: Question, spec: TaskFormatSpec) -> int:
+        """Number of options a regenerated item should carry.
+
+        Regeneration completes *and* improves the option set, so the target is
+        the format's standard option count rather than however many distractors
+        the draft happened to have. The value is clamped into the family's valid
+        range so 2-3 and 4-5 families are never forced to four options.
+        """
+        response_type = question.response_type or spec.default_response_type
+        minimum, maximum = spec.option_count
+
+        if maximum == 0:
+            # Ordering items and other option-bearing families without a declared
+            # range: preserve the author's ordering size, floor of four.
+            return max(len(question.options), 4)
+
+        standard_min, standard_max = standard_option_count_for(response_type)
+        preferred = standard_max or standard_min
+        if minimum <= preferred <= maximum:
+            return preferred
+        return max(1, min(preferred, maximum))
+
+    @classmethod
+    def _simulate_regeneration_payload(
+        cls,
+        component: str,
+        question: Question,
+        spec: TaskFormatSpec,
+        target_total: int | None = None,
+    ) -> dict[str, Any]:
+        """Deterministic stand-in for the model when no API key is available.
+
+        The output deliberately mirrors the real contract so downstream
+        normalisation is exercised, and is clearly labelled so a human reviewer
+        can tell simulated content from model output.
+        """
+        cefr = question.target_cefr or question.level or "B2"
+        family = spec.code
+
+        if component in ("distractors", "options"):
+            total = target_total or cls._target_option_count(question, spec)
+            target = max(1, total - 1)
+            return {
+                "distractors": [
+                    {
+                        "content": f"[Simulation] Piège {index} calibré sur {family} ({cefr})",
+                        "explanation": "Distracteur synthétique généré sans appel modèle.",
+                        "misconception_type": "false_fact",
+                        "distractor_rationale": "Erreur factuelle plausible simulée.",
+                    }
+                    for index in range(1, target + 1)
+                ]
+            }
+        if component == "prompt":
+            return {
+                "prompt": f"{question.prompt.strip()} [simulation {family}]",
+            }
+        return {
+            "explanation": (
+                f"[Simulation] Explication enrichie pour la famille {family} "
+                f"au niveau {cefr}."
+            )
+        }
+
+    @classmethod
+    def _extract_regenerated_distractors(
+        cls,
+        payload: dict[str, Any],
+        existing: Sequence[QuestionOption],
+        target_count: int,
+    ) -> list[dict[str, Any]]:
+        """Normalise LLM distractor output, falling back deterministically.
+
+        The correct answer is never regenerated, so a short or malformed model
+        response degrades to reusing the existing distractors rather than
+        silently producing a short option list.
+        """
+        target_count = max(1, target_count)
+        raw = payload.get("distractors")
+        if not isinstance(raw, list):
+            raw = []
+
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content") or "").strip()
+            if not content:
+                continue
+            fingerprint = normalize_prompt_for_hash(content)
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            results.append(
+                {
+                    "content": content,
+                    "explanation": str(item.get("explanation") or "").strip()
+                    or "Distracteur régénéré.",
+                    "misconception_type": item.get("misconception_type") or "false_fact",
+                    "distractor_rationale": str(item.get("distractor_rationale") or "").strip()
+                    or "Mécanisme d'erreur non précisé.",
+                }
+            )
+
+        if len(results) < target_count:
+            logger.info(
+                "regeneration.distractors_fallback",
+                requested=len(results),
+                needed=target_count,
+                reason="insufficient_llm_distractors",
+            )
+            fallback_pool = [o for o in existing if not o.is_correct]
+            for option in fallback_pool:
+                if len(results) >= target_count:
+                    break
+                fingerprint = normalize_prompt_for_hash(option.content or "")
+                if not fingerprint or fingerprint in seen:
+                    continue
+                seen.add(fingerprint)
+                results.append(
+                    {
+                        "content": option.content,
+                        "explanation": option.explanation or "Distracteur existant conservé.",
+                        "misconception_type": option.misconception_type or "false_fact",
+                        "distractor_rationale": option.distractor_rationale
+                        or "Mécanisme d'erreur non précisé.",
+                    }
+                )
+
+        if not results:
+            raise AppException(
+                message=(
+                    "La régénération des distracteurs n'a produit aucune alternative "
+                    "exploitable. Réessayez ou saisissez les distracteurs manuellement."
+                ),
+                code="REGENERATION_PRODUCED_NO_DISTRACTORS",
+                status_code=502,
+            )
+
+        return results[:target_count]
+
+    @staticmethod
+    def _extract_regenerated_prompt(
+        payload: dict[str, Any],
+        question: Question,
+        request: CandidateRegenerateRequest,
+    ) -> str | None:
+        """Return a new prompt, or None to keep the existing one."""
+        candidate = payload.get("prompt")
+        if isinstance(candidate, str) and candidate.strip():
+            new_prompt = candidate.strip()
+            # Guard against a no-op rewrite, which would only churn provenance.
+            if normalize_prompt_for_hash(new_prompt) != normalize_prompt_for_hash(question.prompt):
+                return new_prompt
+            logger.info("regeneration.prompt_unchanged", question_id=str(question.id))
+        return None
+
+    # ---------------------------------------------------------------------------
     # Deterministic High-Fidelity Simulation Fallback
     # ---------------------------------------------------------------------------
     @classmethod
     def _simulate_question_generation(
         cls,
         request: AIQuestionGenerationRequest,
-        task_type_code: str,
+        spec: TaskFormatSpec,
+        response_type: str,
+        option_count: int | None,
         allowed_skills: list[Skill],
         stimulus_title: str | None,
         stimulus_content: str | None,
         candidate_index: int,
     ) -> dict[str, Any]:
         """Produce realistic TEF candidates when API is unavailable or simulated."""
+        task_type_code = spec.code
         cefr = (request.target_cefr or "B2").upper()
 
         sample_stimuli = {
@@ -1873,25 +2768,7 @@ class AIQuestionGenerationService:
 
         default_sample = sample_stimuli.get(cefr, sample_stimuli["B2"])
 
-        # Response-type / Task-specific simulation handling
-        scoring_payload = None
-        if request.response_type == "matching" or task_type_code == "matching":
-            scoring_payload = {
-                "pairs": [
-                    {"left": "Situation A", "right": "Document A"},
-                    {"left": "Situation B", "right": "Document B"},
-                    {"left": "Situation C", "right": "Document C"},
-                    {"left": "Situation D", "right": "Document D"},
-                ]
-            }
-        elif request.response_type == "text_gap" or task_type_code == "text_gap":
-            scoring_payload = {
-                "gaps": [
-                    {"index": 0, "correct_answer": "Bien que", "acceptable_alternatives": ["Quoique"]}
-                ]
-            }
-
-        if task_type_code == "sentence_gap" or request.stimulus_mode == "none":
+        if task_type_code == "sentence_gap" or not spec.requires_stimulus:
             title = None
             content = None
             prompt = "Malgré les intempéries survenues durant la nuit, l'équipe municipale a réussi à ______ l'accès au centre-ville."
@@ -2056,6 +2933,24 @@ class AIQuestionGenerationService:
         if candidate_index > 0 and prompt:
             prompt = f"{prompt} (Variante {candidate_index + 1})"
 
+        shaped = cls._shape_simulation_for_format(
+            response_type=response_type,
+            option_count=option_count,
+            spec=spec,
+            prompt=prompt,
+            options=options,
+        )
+        options = shaped["options"]
+        scoring_payload = shaped["scoring_payload"]
+
+        # For prompt-lead families (writing, speaking) the situation lives inside the
+        # prompt itself; there is no separate stimulus document.
+        if spec.stimulus_kind == STIMULUS_PROMPT_LEAD:
+            if title and content:
+                prompt = f"{content}\n\n{prompt}"
+            title = None
+            content = None
+
         # Granular Multi-Tagging (up to 2 skills per dimension: 1 Primary at 0.75 + 1 Secondary at 0.25)
         reasoning_skills = [s for s in allowed_skills if getattr(s.dimension, "value", str(s.dimension)) == "reasoning"]
         language_skills = [s for s in allowed_skills if getattr(s.dimension, "value", str(s.dimension)) == "language"]
@@ -2081,11 +2976,159 @@ class AIQuestionGenerationService:
             "stimulus_content": content,
             "source_attribution": request.source_attribution or "Revue des Études Francophones",
             "prompt": prompt,
-            "instructions": "Lisez le document puis choisissez la réponse correcte.",
+            "instructions": shaped["instructions"] or cls._default_instructions_for(response_type),
             "target_cefr": cefr,
             "cognitive_complexity": request.cognitive_complexity or CognitiveComplexityLevel.INTERPRETATION.value,
-            "explanation": "La bonne réponse découle directement de l'analyse du texte. Les autres options constituent des extrapolations ou des contresens fréquents.",
+            "explanation": (
+                "La bonne réponse découle directement de l'analyse du support. "
+                "Les autres propositions constituent des extrapolations ou des contresens fréquents."
+            ),
             "options": options,
             "scoring_payload": scoring_payload,
             "skill_mappings": skill_mappings_payload,
         }
+
+    @classmethod
+    def _shape_simulation_for_format(
+        cls,
+        response_type: str,
+        option_count: int | None,
+        spec: TaskFormatSpec,
+        prompt: str,
+        options: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Convert a hand-written sample into the exact shape the target format requires."""
+        is_choice = response_type in (
+            QuestionResponseType.SINGLE_CHOICE.value,
+            QuestionResponseType.MULTIPLE_CHOICE.value,
+        )
+
+        if is_choice:
+            n = option_count or (spec.option_count[1] if spec.option_count else 4)
+            shaped_options = cls._resize_choice_options(options, n, response_type)
+            return {"options": shaped_options, "scoring_payload": None, "instructions": None}
+
+        if response_type == QuestionResponseType.MATCHING.value:
+            n = option_count or (spec.option_count[1] if spec.option_count else 4)
+            # Use the sample options as targets when they look like a matching bank,
+            # otherwise synthesise a four-document bank.
+            targets = [
+                {"id": f"doc_{chr(ord('a') + i)}", "text": f"Document {chr(ord('A') + i)}"}
+                for i in range(n)
+            ]
+            sources = [
+                {"id": f"besoin_{i + 1}", "text": f"Besoin {i + 1} : {opt.get('content', '')}"}
+                for i, opt in enumerate(options[:n])
+            ] or [{"id": "besoin_1", "text": "Besoin décrit dans la consigne"}]
+            pairs = [
+                {"source_id": src["id"], "target_id": targets[i % len(targets)]["id"]}
+                for i, src in enumerate(sources)
+            ]
+            return {
+                "options": [],
+                "scoring_payload": {"sources": sources, "targets": targets, "pairs": pairs},
+                "instructions": "Associez chaque besoin au document correspondant.",
+            }
+
+        if response_type == QuestionResponseType.ORDERING.value:
+            n = option_count or (spec.option_count[1] if spec.option_count else 5)
+            items = [
+                {"id": f"seg_{i + 1}", "text": opt.get("content", f"Segment {i + 1}")}
+                for i, opt in enumerate(options[:n])
+            ] or [
+                {"id": f"seg_{i + 1}", "text": f"Segment {i + 1} du recit"} for i in range(n)
+            ]
+            sequence = [it["id"] for it in items]
+            return {
+                "options": [],
+                "scoring_payload": {"items": items, "sequence": sequence, "partial_credit": True},
+                "instructions": "Remettez les elements dans l'ordre logique.",
+            }
+
+        if response_type == QuestionResponseType.GAP_FILL.value:
+            correct = next(
+                (o.get("content", "") for o in options if o.get("is_correct")),
+                "cependant",
+            )
+            alternatives = [
+                o.get("content", "") for o in options if not o.get("is_correct") and o.get("content")
+            ]
+            return {
+                "options": [],
+                "scoring_payload": {
+                    "gaps": [
+                        {
+                            "index": 1,
+                            "accepted_answers": [correct, *alternatives],
+                            "ignore_case": True,
+                            "ignore_accents": True,
+                        }
+                    ]
+                },
+                "instructions": "Completez le blanc avec le connecteur adapte.",
+            }
+
+        if response_type == QuestionResponseType.SHORT_TEXT.value:
+            correct = next(
+                (o.get("content", "") for o in options if o.get("is_correct")),
+                "la reformulation attendue",
+            )
+            return {
+                "options": [],
+                "scoring_payload": {
+                    "accepted_answers": [correct],
+                    "ignore_case": True,
+                    "ignore_accents": True,
+                },
+                "instructions": "Reformulez l'information demandee en une phrase.",
+            }
+
+        return {
+            "options": [],
+            "scoring_payload": {
+                "rubric": [
+                    "Respect de la consigne et complétude de la production",
+                    "Organisation et cohérence du propos",
+                    "Richesse et correction de la langue",
+                ],
+                "expected_duration_seconds": 300 if response_type == "long_text" else 600,
+            },
+            "instructions": None,
+        }
+
+    @staticmethod
+    def _resize_choice_options(
+        options: list[dict[str, Any]], target_count: int, response_type: str
+    ) -> list[dict[str, Any]]:
+        """Pad or trim simulated options to the requested count, keeping the correct key intact."""
+        if not options:
+            return []
+        correct = [o for o in options if o.get("is_correct")]
+        distractors = [o for o in options if not o.get("is_correct")]
+
+        minimum_correct = 1 if response_type == QuestionResponseType.SINGLE_CHOICE.value else 2
+        if len(correct) < minimum_correct and distractors:
+            # Promote enough distractors to satisfy the multi-select minimum.
+            for extra in distractors[: minimum_correct - len(correct)]:
+                correct.append(extra)
+                distractors.remove(extra)
+
+        keep_correct = correct[:target_count]
+        keep_distractors = distractors[: max(0, target_count - len(keep_correct))]
+        result = [*keep_correct, *keep_distractors]
+        return result[:target_count]
+
+    @staticmethod
+    def _default_instructions_for(response_type: str) -> str:
+        """Human-readable candidate instruction per response type."""
+        mapping = {
+            QuestionResponseType.SINGLE_CHOICE.value: "Lisez le document puis choisissez la reponse correcte.",
+            QuestionResponseType.MULTIPLE_CHOICE.value: "Lisez le document puis selectionnez toutes les reponses exactes.",
+            QuestionResponseType.MATCHING.value: "Associez chaque element a son correspondant.",
+            QuestionResponseType.ORDERING.value: "Remettez les elements dans l'ordre logique.",
+            QuestionResponseType.GAP_FILL.value: "Completez le blanc avec le terme adapte.",
+            QuestionResponseType.SHORT_TEXT.value: "Redigez une reponse courte et exacte.",
+            QuestionResponseType.LONG_TEXT.value: "Redigez votre production complete en respectant la consigne.",
+            QuestionResponseType.SPOKEN_RESPONSE.value: "Produisez votre intervention orale en respectant la consigne.",
+        }
+        return mapping.get(response_type, "Repondez a la consigne.")

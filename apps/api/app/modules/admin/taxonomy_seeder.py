@@ -38,7 +38,7 @@ logger = structlog.get_logger("tef-api.taxonomy_seeder")
 SEED_DIR = Path(__file__).parent / "seed"
 DEFAULT_YAML_PATH = SEED_DIR / "taxonomy_v1.yaml"
 
-VALID_MODALITIES = {"reading", "listening", "writing", "speaking"}
+VALID_MODALITIES = {"reading", "listening", "lexique_structure", "writing", "speaking"}
 VALID_DIMENSIONS = {"reasoning", "language"}
 VALID_CEFR_LEVELS = {"A1", "A2", "B1", "B2", "C1", "C2"}
 VALID_RELATION_TYPES = {"prerequisite", "depends_on", "supports", "related"}

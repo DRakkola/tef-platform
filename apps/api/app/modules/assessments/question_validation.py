@@ -17,6 +17,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.admin.question_formats import standard_option_count_for
 from app.modules.admin.tagging_service import TaggingValidationEngine
 from app.modules.assessments.enums import (
     CognitiveComplexityLevel,
@@ -582,8 +583,9 @@ class QuestionValidationEngine:
                     metadata={"correct_count": len(correct_opts)},
                 )
         elif data.response_type == QuestionResponseType.MATCHING.value:
-            pairs = (data.scoring_payload or {}).get("pairs") or (data.scoring_payload or {}).get("matching_pairs")
-            if not pairs and len(data.options) < 2:
+            payload = data.scoring_payload or {}
+            # ScoringStrategyRegistry reads "pairs"; "matching_pairs" is legacy input.
+            if not (payload.get("pairs") or payload.get("matching_pairs")) and len(data.options) < 2:
                 result.add_error(
                     code="ERR_INVALID_MATCHING_CONFIG",
                     message="Matching question must define matching pairs in scoring payload or options.",
@@ -591,8 +593,9 @@ class QuestionValidationEngine:
                     field="scoring_payload",
                 )
         elif data.response_type == QuestionResponseType.ORDERING.value:
-            seq = (data.scoring_payload or {}).get("correct_sequence")
-            if not seq and len(data.options) < 2:
+            payload = data.scoring_payload or {}
+            # OrderingStrategy reads "sequence" and falls back to option order_index.
+            if not (payload.get("sequence") or payload.get("correct_sequence")) and len(data.options) < 2:
                 result.add_error(
                     code="ERR_INVALID_ORDERING_CONFIG",
                     message="Ordering question must define a valid sequence in scoring payload or options.",
@@ -600,11 +603,36 @@ class QuestionValidationEngine:
                     field="scoring_payload",
                 )
         elif data.response_type == QuestionResponseType.GAP_FILL.value:
-            accepted = (data.scoring_payload or {}).get("accepted_answers") or (data.scoring_payload or {}).get("gaps")
+            payload = data.scoring_payload or {}
+            accepted = payload.get("accepted_answers") or payload.get("gaps")
             if not accepted and len(data.options) == 0:
                 result.add_error(
                     code="ERR_INVALID_GAP_FILL_CONFIG",
                     message="Gap-fill question must define accepted answers or gaps in scoring payload.",
+                    rule="structural",
+                    field="scoring_payload",
+                )
+        elif data.response_type == QuestionResponseType.SHORT_TEXT.value:
+            payload = data.scoring_payload or {}
+            if not (payload.get("accepted_answers") or payload.get("answer_key")) and len(data.options) == 0:
+                result.add_error(
+                    code="ERR_INVALID_SHORT_TEXT_CONFIG",
+                    message="Short-text question must define accepted answers in scoring payload.",
+                    rule="structural",
+                    field="scoring_payload",
+                )
+        elif data.response_type in (
+            QuestionResponseType.LONG_TEXT.value,
+            QuestionResponseType.SPOKEN_RESPONSE.value,
+        ):
+            payload = data.scoring_payload or {}
+            if not (payload.get("rubric") or payload.get("criteria")):
+                result.add_warning(
+                    code="WARN_NO_RUBRIC",
+                    message=(
+                        f"{data.response_type} question has no rubric in its scoring payload; "
+                        "AI correction will fall back to a generic rubric."
+                    ),
                     rule="structural",
                     field="scoring_payload",
                 )
@@ -622,8 +650,11 @@ class QuestionValidationEngine:
         ):
             return
 
-        # 1. Option count
+        # 1. Option count. The expected range comes from the task-format registry
+        #    rather than a hardcoded four, because some TEF families genuinely
+        #    use 2-3 (phonological recognition) or 4-5 (lexique et structure) choices.
         total_options = len(data.options)
+        expected_min, expected_max = standard_option_count_for(data.response_type)
         if total_options < 2:
             result.add_error(
                 code="ERR_INSUFFICIENT_OPTIONS",
@@ -631,12 +662,21 @@ class QuestionValidationEngine:
                 rule="option_quality",
                 field="options",
             )
-        elif data.response_type == QuestionResponseType.SINGLE_CHOICE.value and total_options != 4:
+        elif not expected_min <= total_options <= expected_max:
+            expectation = (
+                f"exactly {expected_min}"
+                if expected_min == expected_max
+                else f"{expected_min} to {expected_max}"
+            )
             result.add_warning(
                 code="WARN_DISTRACTOR_COUNT",
-                message=f"Question has {total_options} options; standard TEF format expects exactly 4 choices.",
+                message=(
+                    f"Question has {total_options} options; the standard format for this "
+                    f"task type expects {expectation} choices."
+                ),
                 rule="option_quality",
                 field="options",
+                metadata={"option_count": total_options, "expected_min": expected_min, "expected_max": expected_max},
             )
 
         # 2. Empty options and duplicate option text

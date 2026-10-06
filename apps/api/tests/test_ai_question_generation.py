@@ -40,6 +40,7 @@ from app.modules.assessments.enums import (
     QuestionResponseType,
     QuestionType,
 )
+from app.modules.assessments.item_hash import compute_item_hash
 from app.modules.assessments.models import (
     Question,
     QuestionOption,
@@ -119,7 +120,10 @@ async def test_generate_candidates_deterministic(db_session: AsyncSession):
 
     # Verify provenance & metadata
     assert first_cand.generation_metadata.is_simulation is True
-    assert first_cand.generation_metadata.prompt_template_version.startswith("reading_mcq_gen")
+    # Template versions are now per task type, e.g. "tef_press_article_gen_v3.0".
+    assert first_cand.generation_metadata.prompt_template_version.startswith("tef_")
+    assert first_cand.generation_metadata.prompt_template_version.endswith("_gen_v3.0")
+    assert first_cand.format_spec_version == first_cand.generation_metadata.prompt_template_version
 
     # Verify duplicate report was attached
     assert first_cand.duplicate_check is not None
@@ -397,6 +401,7 @@ async def test_regeneration_on_draft_question_succeeds(db_session: AsyncSession)
     regen_req = CandidateRegenerateRequest(
         component="distractors",
         custom_instructions="Rendre les distracteurs plus complexes",
+        force_simulation=True,
     )
 
     updated_q = await AIQuestionGenerationService.regenerate_draft_component(
@@ -412,6 +417,200 @@ async def test_regeneration_on_draft_question_succeeds(db_session: AsyncSession)
     correct_opts = [o for o in updated_q.options if o.is_correct]
     assert len(correct_opts) == 1
     assert correct_opts[0].content == "Bonne réponse d'origine"
+
+
+@pytest.mark.asyncio
+async def test_regeneration_rejects_unknown_component(db_session: AsyncSession):
+    """An unsupported component must fail loudly instead of silently no-op."""
+    draft_q = Question(
+        prompt="Question brouillon",
+        difficulty=3,
+        level="B1",
+        points=1,
+        penalty_points=0,
+        status=ContentStatus.DRAFT.value,
+        version=1,
+    )
+    db_session.add(draft_q)
+    await db_session.flush()
+
+    with pytest.raises(AppException) as exc_info:
+        await AIQuestionGenerationService.regenerate_draft_component(
+            db=db_session,
+            question_id=draft_q.id,
+            request=CandidateRegenerateRequest(component="not_a_component", force_simulation=True),
+            actor_id=uuid.uuid4(),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.code == "UNSUPPORTED_REGENERATION_COMPONENT"
+
+
+@pytest.mark.asyncio
+async def test_regeneration_rejects_distractors_for_non_option_format(db_session: AsyncSession):
+    """Gap-fill items have no options; distractor regeneration must not fake them."""
+    gap_q = Question(
+        prompt="La ligne ___ est temporairement interrompue.",
+        question_type=QuestionType.TEXT_INPUT,
+        response_type="gap_fill",
+        scoring_payload={"gaps": [{"gap_id": "g1", "accepted": ["B"]}]},
+        difficulty=3,
+        level="B1",
+        points=1,
+        penalty_points=0,
+        status=ContentStatus.DRAFT.value,
+        version=1,
+    )
+    db_session.add(gap_q)
+    await db_session.flush()
+
+    with pytest.raises(AppException) as exc_info:
+        await AIQuestionGenerationService.regenerate_draft_component(
+            db=db_session,
+            question_id=gap_q.id,
+            request=CandidateRegenerateRequest(component="distractors", force_simulation=True),
+            actor_id=uuid.uuid4(),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.code == "UNSUPPORTED_REGENERATION_COMPONENT"
+
+
+@pytest.mark.asyncio
+async def test_regenerating_prompt_refreshes_item_hash(db_session: AsyncSession):
+    """A rewritten prompt must invalidate the duplicate-detection hash."""
+    draft_q = Question(
+        prompt="Question initiale",
+        difficulty=3,
+        level="B1",
+        points=1,
+        penalty_points=0,
+        status=ContentStatus.DRAFT.value,
+        version=1,
+        item_hash=compute_item_hash("Question initiale"),
+    )
+    db_session.add(draft_q)
+    await db_session.flush()
+    original_hash = draft_q.item_hash
+
+    updated_q = await AIQuestionGenerationService.regenerate_draft_component(
+        db=db_session,
+        question_id=draft_q.id,
+        request=CandidateRegenerateRequest(component="prompt", force_simulation=True),
+        actor_id=uuid.uuid4(),
+    )
+
+    assert updated_q.prompt != "Question initiale"
+    assert updated_q.item_hash == compute_item_hash(updated_q.prompt)
+    assert updated_q.item_hash != original_hash
+
+
+@pytest.mark.asyncio
+async def test_regenerating_explanation_updates_text(db_session: AsyncSession):
+    draft_q = Question(
+        prompt="Question avec explication",
+        difficulty=3,
+        level="B1",
+        points=1,
+        penalty_points=0,
+        status=ContentStatus.DRAFT.value,
+        version=1,
+        explanation="Ancienne explication.",
+    )
+    db_session.add(draft_q)
+    await db_session.flush()
+
+    updated_q = await AIQuestionGenerationService.regenerate_draft_component(
+        db=db_session,
+        question_id=draft_q.id,
+        request=CandidateRegenerateRequest(component="explanation", force_simulation=True),
+        actor_id=uuid.uuid4(),
+    )
+
+    assert updated_q.explanation != "Ancienne explication."
+    assert updated_q.explanation
+
+
+@pytest.mark.asyncio
+async def test_regeneration_distractors_keep_exact_option_count(db_session: AsyncSession):
+    """Distractor regeneration must respect the format's option-count contract."""
+    draft_q = Question(
+        prompt="Quelle ligne est interrompue ?",
+        question_type=QuestionType.SINGLE_CHOICE,
+        response_type="single_choice",
+        difficulty=3,
+        level="B1",
+        points=1,
+        penalty_points=0,
+        status=ContentStatus.DRAFT.value,
+        version=1,
+    )
+    db_session.add(draft_q)
+    await db_session.flush()
+
+    db_session.add(
+        QuestionOption(
+            question_id=draft_q.id,
+            content="Bonne réponse",
+            is_correct=True,
+            order_index=0,
+        )
+    )
+    db_session.add(
+        QuestionOption(
+            question_id=draft_q.id,
+            content="Ancien distracteur",
+            is_correct=False,
+            order_index=1,
+        )
+    )
+    await db_session.flush()
+
+    updated_q = await AIQuestionGenerationService.regenerate_draft_component(
+        db=db_session,
+        question_id=draft_q.id,
+        request=CandidateRegenerateRequest(component="distractors", force_simulation=True),
+        actor_id=uuid.uuid4(),
+    )
+
+    assert len(updated_q.options) == 4
+    correct = [o for o in updated_q.options if o.is_correct]
+    assert len(correct) == 1
+    assert correct[0].content == "Bonne réponse"
+    assert [o.order_index for o in updated_q.options] == [0, 1, 2, 3]
+    # Every distractor must carry a misconception taxonomy for diagnostics.
+    for option in updated_q.options:
+        if not option.is_correct:
+            assert option.misconception_type is not None
+
+
+@pytest.mark.asyncio
+async def test_regeneration_requires_correct_option(db_session: AsyncSession):
+    """Without a correct answer we cannot regenerate distractors safely."""
+    draft_q = Question(
+        prompt="Question sans option correcte",
+        question_type=QuestionType.SINGLE_CHOICE,
+        response_type="single_choice",
+        difficulty=3,
+        level="B1",
+        points=1,
+        penalty_points=0,
+        status=ContentStatus.DRAFT.value,
+        version=1,
+    )
+    db_session.add(draft_q)
+    await db_session.flush()
+
+    with pytest.raises(AppException) as exc_info:
+        await AIQuestionGenerationService.regenerate_draft_component(
+            db=db_session,
+            question_id=draft_q.id,
+            request=CandidateRegenerateRequest(component="distractors", force_simulation=True),
+            actor_id=uuid.uuid4(),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "MISSING_CORRECT_OPTION"
 
 
 @pytest.mark.asyncio
@@ -501,17 +700,20 @@ async def test_multi_format_generation_matching_and_gap(db_session: AsyncSession
     assert q_draft_m.response_type == "matching"
     assert q_draft_m.scoring_payload["pairs"] is not None
 
-    # Test Text Gap
+    # Test Text Gap (free-text gap fill). "text_gap" is a task type, not a
+    # response type; the canonical response format is QuestionResponseType.GAP_FILL.
     req_gap = AIQuestionGenerationRequest(
         modality="reading",
-        response_type="text_gap",
+        task_type_code="text_gap",
+        response_type=QuestionResponseType.GAP_FILL.value,
         target_cefr="B2",
         count=1,
         force_simulation=True,
     )
     resp_g = await AIQuestionGenerationService.generate_candidates(db=db_session, request=req_gap)
     cand_g = resp_g.candidates[0]
-    assert cand_g.response_type == "text_gap"
+    assert cand_g.task_type_code == "text_gap"
+    assert cand_g.response_type == QuestionResponseType.GAP_FILL.value
     assert cand_g.scoring_payload is not None
     assert "gaps" in cand_g.scoring_payload
 
@@ -522,7 +724,7 @@ async def test_multi_format_generation_matching_and_gap(db_session: AsyncSession
         actor_id=uuid.uuid4(),
     )
     assert q_draft_g.question_type == QuestionType.TEXT_INPUT
-    assert q_draft_g.response_type == "text_gap"
+    assert q_draft_g.response_type == QuestionResponseType.GAP_FILL.value
     assert "gaps" in q_draft_g.scoring_payload
 
 

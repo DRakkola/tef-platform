@@ -20,6 +20,8 @@ import type {
   QuestionValidationResult,
   QuestionVersionItem,
   AIBatchGenerationResponse,
+  AIGenerationJobCreateResponse,
+  AIGenerationJobResponse,
   AIQuestionGenerationRequest,
   AIReviewReport,
   AIStimulusCandidate,
@@ -29,6 +31,7 @@ import type {
   CandidateReviewRequest,
   SkillItem,
   SubSkill,
+  TaskFormatCatalogResponse,
   ValidationReport,
   WritingTaskItem,
 } from "./types";
@@ -715,5 +718,26 @@ export async function persistStimulusCandidate(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+// ---------------------------------------------------------------------------
+// AI Question Generation — server-driven catalogue & async jobs
+// ---------------------------------------------------------------------------
+
+export async function fetchGenerationFormats(): Promise<TaskFormatCatalogResponse> {
+  return apiClient<TaskFormatCatalogResponse>("/admin/content/generation/formats");
+}
+
+export async function createGenerationJob(
+  payload: AIQuestionGenerationRequest
+): Promise<AIGenerationJobCreateResponse> {
+  return apiClient<AIGenerationJobCreateResponse>("/admin/content/generation/jobs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getGenerationJob(jobId: string): Promise<AIGenerationJobResponse> {
+  return apiClient<AIGenerationJobResponse>(`/admin/content/generation/jobs/${jobId}`);
 }
 

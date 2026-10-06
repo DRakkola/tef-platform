@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import SQLEnumValues, TimeStampedUUIDModel, UUIDModel
 from app.modules.admin.enums import (
+    AIGenerationJobStatus,
     CEFRBand,
     MediaType,
     SkillRelationType,
@@ -730,6 +732,83 @@ class ContentReview(TimeStampedUUIDModel):
     )
 
     reviewer: Mapped[User] = relationship("User", foreign_keys=[reviewer_id])
+
+
+class AIGenerationJob(TimeStampedUUIDModel):
+    """Durable record of an asynchronous AI question-generation batch.
+
+    AI generation is slow and billable, so it must not run inside an HTTP
+    request. This row is the hand-off point: the API creates it, a Celery worker
+    advances it, and the admin client polls it for progress.
+
+    The persisted ``result_payload`` holds only *candidates*, never committed
+    questions. Committing a candidate to a draft stays an explicit, separate
+    admin action so a background job can never auto-publish content.
+    """
+
+    __tablename__ = "ai_generation_jobs"
+
+    status: Mapped[str] = mapped_column(
+        SQLEnumValues(AIGenerationJobStatus),
+        default=AIGenerationJobStatus.QUEUED.value,
+        nullable=False,
+        index=True,
+    )
+    task_type_code: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,
+    )
+    modality: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+    target_cefr: Mapped[str] = mapped_column(
+        String(4),
+        nullable=False,
+    )
+    requested_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    request_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+    error_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    celery_task_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        index=True,
+    )
+    started_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    created_by: Mapped[User | None] = relationship("User", foreign_keys=[created_by_user_id])
+
+    __table_args__ = (
+        Index("ix_ai_generation_jobs_status_created", "status", "created_at"),
+    )
 
 
 # Ensure Beta Models, AI Sandbox Models, and Speaking Examiner Config Models are registered in Admin domain
