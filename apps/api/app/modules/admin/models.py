@@ -15,7 +15,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    event,
 )
 from sqlalchemy import (
     Enum as SQLEnum,
@@ -749,7 +748,10 @@ class AIGenerationJob(TimeStampedUUIDModel):
     __tablename__ = "ai_generation_jobs"
 
     status: Mapped[str] = mapped_column(
-        SQLEnumValues(AIGenerationJobStatus),
+        # Native enum here would emit `::aigenerationjobstatus` binds, but the
+        # Alembic schema stores VARCHAR(20) (see 0040): every enum column in
+        # this codebase is non-native so the ORM binding matches the migration.
+        SQLEnumValues(AIGenerationJobStatus, name="ai_generation_job_status", native_enum=False),
         default=AIGenerationJobStatus.QUEUED.value,
         nullable=False,
         index=True,
