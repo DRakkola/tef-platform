@@ -577,3 +577,74 @@ export interface AIGenerationJobCreateResponse {
   poll_url: string;
 }
 
+// ---------------------------------------------------------------------------
+// Bulk Question Operations & Import Types
+// ---------------------------------------------------------------------------
+
+export type BulkActionType = "publish" | "archive" | "delete" | "validate";
+
+export interface BulkActionRequest {
+  question_ids: string[];
+  action: BulkActionType;
+  notes?: string;
+}
+
+export interface BulkActionResponse {
+  action: BulkActionType;
+  total_requested: number;
+  success_count: number;
+  failure_count: number;
+  affected_ids: string[];
+  errors: Array<{ question_id: string; code: string; message: string }>;
+}
+
+export interface BulkOptionPayload {
+  content: string;
+  is_correct: boolean;
+  explanation?: string | null;
+  order_index?: number;
+  misconception_type?: string | null;
+}
+
+export interface BulkImportQuestionItem {
+  temp_id?: string;
+  prompt: string;
+  question_type?: string;
+  response_type?: string;
+  modality?: string;
+  level?: string;
+  target_cefr?: string | null;
+  difficulty?: number;
+  cognitive_complexity?: string | null;
+  points?: number;
+  penalty_points?: number;
+  explanation?: string | null;
+  stimulus_title?: string | null;
+  stimulus_text?: string | null;
+  stimulus_id?: string | null;
+  media_url?: string | null;
+  options: BulkOptionPayload[];
+  skill_codes?: string[];
+  is_valid?: boolean;
+  validation_errors?: string[];
+}
+
+export interface BulkParseResponse {
+  items: BulkImportQuestionItem[];
+  total_parsed: number;
+  valid_count: number;
+  invalid_count: number;
+  parse_errors: string[];
+}
+
+export interface AIAutoTagAndFormatResponse {
+  items: BulkImportQuestionItem[];
+  enriched_count: number;
+}
+
+export interface BulkImportCommitResponse {
+  created_count: number;
+  created_ids: string[];
+  errors: Array<{ item_index: number; prompt: string; error?: string; errors?: string[] }>;
+}
+

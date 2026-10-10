@@ -14,6 +14,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +36,16 @@ from app.modules.admin.ai_question_schemas import (
     TaskFormatCatalogResponse,
 )
 from app.modules.admin.ai_question_service import AIQuestionGenerationService
+from app.modules.admin.bulk_question_schemas import (
+    AIAutoTagAndFormatRequest,
+    AIAutoTagAndFormatResponse,
+    BulkActionRequest,
+    BulkActionResponse,
+    BulkImportCommitRequest,
+    BulkImportCommitResponse,
+    BulkParseResponse,
+)
+from app.modules.admin.bulk_question_service import BulkQuestionService
 from app.modules.admin.enums import ContentStatus, MediaType
 from app.modules.admin.models import AIGenerationJob
 from app.modules.admin.schemas import (
@@ -558,6 +569,99 @@ async def list_questions(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bulk Question Operations & Import
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/content/questions/bulk-action",
+    response_model=BulkActionResponse,
+    summary="Execute bulk status transitions or validation checks on selected questions",
+)
+async def bulk_action_endpoint(
+    payload: BulkActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> BulkActionResponse:
+    """Executes bulk actions (publish, archive, delete, validate) on questions."""
+    return await BulkQuestionService.execute_bulk_action(
+        db=db,
+        payload=payload,
+        actor_id=current_admin.id,
+    )
+
+
+@router.post(
+    "/content/questions/bulk-parse",
+    response_model=BulkParseResponse,
+    summary="Parse uploaded question batch file (CSV, XLSX, JSON) for pre-import preview",
+)
+async def bulk_parse_file_endpoint(
+    file: UploadFile = File(...),
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> BulkParseResponse:
+    """Parses uploaded file and returns structured items with schema format validation."""
+    content_bytes = await file.read()
+    return BulkQuestionService.parse_import_file(
+        content_bytes=content_bytes,
+        filename=file.filename or "import.csv",
+    )
+
+
+@router.post(
+    "/content/questions/ai-auto-tag",
+    response_model=AIAutoTagAndFormatResponse,
+    summary="AI Auto-tagging of CEFR/skills and auto rich-text Markdown formatting for questions",
+)
+async def bulk_ai_auto_tag_endpoint(
+    payload: AIAutoTagAndFormatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> AIAutoTagAndFormatResponse:
+    """Uses canonical competency graph and AI heuristics to auto-tag CEFR levels, canonical skills, and format document text."""
+    return await BulkQuestionService.ai_auto_tag_and_format_items(
+        db=db,
+        payload=payload,
+        actor_id=current_admin.id,
+    )
+
+
+@router.post(
+    "/content/questions/bulk-import",
+    response_model=BulkImportCommitResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Commit validated bulk question items into Question Bank",
+)
+async def bulk_import_commit_endpoint(
+    payload: BulkImportCommitRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+) -> BulkImportCommitResponse:
+    """Atomically commits imported questions, stimuli, options, and skill tags into PostgreSQL."""
+    return await BulkQuestionService.commit_bulk_import(
+        db=db,
+        payload=payload,
+        actor_id=current_admin.id,
+    )
+
+
+@router.get(
+    "/content/questions/import-template",
+    summary="Download bulk import CSV template",
+)
+async def get_import_template(
+    _: User = Depends(require_role(UserRole.ADMIN)),
+) -> PlainTextResponse:
+    """Returns downloadable CSV template with standard headers and sample items."""
+    csv_content = BulkQuestionService.generate_csv_template()
+    return PlainTextResponse(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="tef_question_import_template.csv"'},
     )
 
 

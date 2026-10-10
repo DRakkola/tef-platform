@@ -7,6 +7,7 @@ export * from "./AssessmentsListPage";
 export * from "./AssessmentEditorPage";
 export * from "./QuestionsListPage";
 export * from "./questions/QuestionWorkspacePage";
+export * from "./questions/CreateQuestionStreamlinedPage";
 export * from "./questions/AIGenerationPage";
 export * from "./ExercisesListPage";
 export * from "./WritingTasksListPage";

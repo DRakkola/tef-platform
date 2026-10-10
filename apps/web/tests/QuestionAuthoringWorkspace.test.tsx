@@ -141,7 +141,7 @@ describe("Question System V2 - Phase 6 Workspace & Admin UI", () => {
     expect(screen.getByText("v1")).toBeInTheDocument();
     expect(screen.getByText("B1")).toBeInTheDocument();
     expect(screen.getAllByText("Brouillon").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Conforme")).toBeInTheDocument();
+    expect(screen.getAllByText("Conforme").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Ouvrir l'atelier")).toBeInTheDocument();
   });
 

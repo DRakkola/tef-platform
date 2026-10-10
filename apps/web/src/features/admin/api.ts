@@ -34,6 +34,12 @@ import type {
   TaskFormatCatalogResponse,
   ValidationReport,
   WritingTaskItem,
+  BulkActionRequest,
+  BulkActionResponse,
+  BulkImportCommitResponse,
+  BulkImportQuestionItem,
+  BulkParseResponse,
+  AIAutoTagAndFormatResponse,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -740,4 +746,82 @@ export async function createGenerationJob(
 export async function getGenerationJob(jobId: string): Promise<AIGenerationJobResponse> {
   return apiClient<AIGenerationJobResponse>(`/admin/content/generation/jobs/${jobId}`);
 }
+
+// ---------------------------------------------------------------------------
+// Bulk Question Operations & Import API
+// ---------------------------------------------------------------------------
+
+export async function executeBulkQuestionAction(
+  payload: BulkActionRequest
+): Promise<BulkActionResponse> {
+  return apiClient<BulkActionResponse>("/admin/content/questions/bulk-action", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function bulkParseQuestionFile(file: File): Promise<BulkParseResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch("/api/v1/admin/content/questions/bulk-parse", {
+    method: "POST",
+    body: formData,
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.message || "Échec de l'analyse du fichier.");
+  }
+  return res.json();
+}
+
+export async function aiAutoTagAndFormatQuestions(
+  items: BulkImportQuestionItem[],
+  autoTagSkills = true,
+  autoFormatRichText = true
+): Promise<AIAutoTagAndFormatResponse> {
+  return apiClient<AIAutoTagAndFormatResponse>("/admin/content/questions/ai-auto-tag", {
+    method: "POST",
+    body: JSON.stringify({
+      items,
+      auto_tag_skills: autoTagSkills,
+      auto_format_rich_text: autoFormatRichText,
+    }),
+  });
+}
+
+export async function commitBulkQuestionImport(
+  items: BulkImportQuestionItem[],
+  defaultStatus = "draft"
+): Promise<BulkImportCommitResponse> {
+  return apiClient<BulkImportCommitResponse>("/admin/content/questions/bulk-import", {
+    method: "POST",
+    body: JSON.stringify({
+      items,
+      default_status: defaultStatus,
+    }),
+  });
+}
+
+export async function downloadImportTemplateCsv(): Promise<void> {
+  const res = await fetch("/api/v1/admin/content/questions/import-template", {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new Error("Impossible de télécharger le modèle d'import.");
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "tef_question_import_template.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+export const uploadMediaFile = uploadMediaAsset;
+
 
