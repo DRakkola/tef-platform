@@ -54,7 +54,7 @@ class BulkImportQuestionItem(BaseModel):
     level: str = "B1"
     target_cefr: str | None = None
     difficulty: int = 3
-    cognitive_complexity: str | None = "understand"
+    cognitive_complexity: str | None = "interpretation"
     points: int = 1
     penalty_points: int = 0
     explanation: str | None = None

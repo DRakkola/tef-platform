@@ -605,7 +605,14 @@ async def bulk_parse_file_endpoint(
     _: User = Depends(require_role(UserRole.ADMIN)),
 ) -> BulkParseResponse:
     """Parses uploaded file and returns structured items with schema format validation."""
-    content_bytes = await file.read()
+    max_bytes = 10 * 1024 * 1024  # 10 MB
+    content_bytes = await file.read(max_bytes + 1)
+    if len(content_bytes) > max_bytes:
+        raise AppException(
+            message="Le fichier dépasse la taille maximale autorisée (10 Mo).",
+            code="FILE_TOO_LARGE",
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
     return BulkQuestionService.parse_import_file(
         content_bytes=content_bytes,
         filename=file.filename or "import.csv",

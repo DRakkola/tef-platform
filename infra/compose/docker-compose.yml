@@ -6,6 +6,8 @@
 # - Python runtime: python:3.14-slim (Non-root user appuser:10001)
 # - Web runtime: node:24-alpine & nginx:1.27-alpine
 
+name: tef-platform
+
 services:
   postgres:
     profiles: ["local-infra"]
@@ -129,6 +131,9 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-tef_redis_password}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-tef_redis_password}@redis:6379/1
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-tef_redis_password}@redis:6379/2
+    volumes:
+      - ../../apps/api/app:/app/app:ro
+      - ../../apps/api/alembic:/app/alembic:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -159,6 +164,9 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-tef_redis_password}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-tef_redis_password}@redis:6379/1
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-tef_redis_password}@redis:6379/2
+    volumes:
+      - ../../apps/api/app:/app/app:ro
+      - ../../apps/api/alembic:/app/alembic:ro
     depends_on:
       redis:
         condition: service_healthy

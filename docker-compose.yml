@@ -1,2 +1,4 @@
+name: tef-platform
+
 include:
   - path: infra/compose/docker-compose.yml

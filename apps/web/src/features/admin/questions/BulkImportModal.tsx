@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -33,6 +33,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "success">("upload");
+  const [isDragging, setIsDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [isEnriching, setIsEnriching] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
@@ -41,6 +42,21 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   const [targetStatus, setTargetStatus] = useState("draft");
   const [committedCount, setCommittedCount] = useState(0);
   const [globalError, setGlobalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setStep("upload");
+      setIsDragging(false);
+      setIsParsing(false);
+      setIsEnriching(false);
+      setIsCommitting(false);
+      setParsedItems([]);
+      setParseErrors([]);
+      setTargetStatus("draft");
+      setCommittedCount(0);
+      setGlobalError(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -55,12 +71,18 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       if (res.items && res.items.length > 0) {
         setStep("preview");
       } else {
-        setGlobalError("Aucune question valide n'a pu être extraite de ce fichier.");
+        const firstErr = res.parse_errors?.[0];
+        setGlobalError(
+          firstErr || "Aucune question valide n'a pu être extraite de ce fichier."
+        );
       }
     } catch (err: any) {
       setGlobalError(err.message || "Erreur lors de la lecture du fichier.");
     } finally {
       setIsParsing(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -88,6 +110,12 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     setGlobalError(null);
     try {
       const res = await commitBulkQuestionImport(validItems, targetStatus);
+      if (res.created_count === 0 && res.errors?.length > 0) {
+        setGlobalError(
+          `Échec de l'importation (${res.errors.length} erreur(s)) : ${res.errors[0].error || "erreur de validation"}`
+        );
+        return;
+      }
       setCommittedCount(res.created_count);
       setStep("success");
       onSuccess(res.created_count);
@@ -112,7 +140,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           { content: "Féliciter un collègue", is_correct: false }
         ],
         stimulus_title: "Note de service",
-        stimulus_text: "En raison d'un problème technique, le train aura 20 minutes de retard."
+        stimulus_text: "En raison d'un problème technique, le train aura 20 minutes de retard.",
+        skill_codes: ["identify_main_idea"]
       }
     ];
     const blob = new Blob([JSON.stringify(sample, null, 2)], { type: "application/json" });
@@ -164,8 +193,31 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             <div className="space-y-6">
               {/* Dropzone */}
               <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-border hover:border-primary rounded-2xl p-8 text-center cursor-pointer transition bg-card/60 hover:bg-primary/5 flex flex-col items-center justify-center gap-3"
+                onClick={() => !isParsing && fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!isParsing) setIsDragging(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragging(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragging(false);
+                  const droppedFile = e.dataTransfer.files?.[0];
+                  if (droppedFile && !isParsing) {
+                    handleFileUpload(droppedFile);
+                  }
+                }}
+                className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition flex flex-col items-center justify-center gap-3 ${
+                  isDragging
+                    ? "border-primary bg-primary/10"
+                    : "border-border hover:border-primary bg-card/60 hover:bg-primary/5"
+                }`}
               >
                 <input
                   ref={fileInputRef}

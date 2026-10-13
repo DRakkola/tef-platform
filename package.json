@@ -12,7 +12,7 @@
     "dev:web": "pnpm --filter web dev",
     "build:web": "pnpm --filter web build && node -e \"require('fs').cpSync('apps/web/dist', 'dist', {recursive: true})\"",
     "lint:web": "pnpm --filter web lint",
-    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
-    "infra:down": "docker compose -f infra/docker-compose.yml down"
+    "infra:up": "docker compose up -d --build",
+    "infra:down": "docker compose down"
   }
 }

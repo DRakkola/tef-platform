@@ -3,6 +3,7 @@
  */
 
 import { apiClient } from "@/core/api";
+import { getApiUrl } from "@/core/config";
 import type {
   AdminStimulus,
   AssessmentItem,
@@ -764,16 +765,10 @@ export async function bulkParseQuestionFile(file: File): Promise<BulkParseRespon
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch("/api/v1/admin/content/questions/bulk-parse", {
+  return apiClient<BulkParseResponse>("/admin/content/questions/bulk-parse", {
     method: "POST",
     body: formData,
-    credentials: "include",
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || err.message || "Échec de l'analyse du fichier.");
-  }
-  return res.json();
 }
 
 export async function aiAutoTagAndFormatQuestions(
@@ -805,7 +800,15 @@ export async function commitBulkQuestionImport(
 }
 
 export async function downloadImportTemplateCsv(): Promise<void> {
-  const res = await fetch("/api/v1/admin/content/questions/import-template", {
+  const headers = new Headers();
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("auth_token");
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  }
+  const res = await fetch(getApiUrl("/admin/content/questions/import-template"), {
+    headers,
     credentials: "include",
   });
   if (!res.ok) {

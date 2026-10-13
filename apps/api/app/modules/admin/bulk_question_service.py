@@ -8,7 +8,7 @@ import io
 import json
 import re
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 from sqlalchemy import select
@@ -96,10 +96,8 @@ class BulkQuestionService:
                     val = await QuestionValidationEngine.validate_and_persist(
                         db=db, question=q, actor_id=actor_id, check_duplication=False
                     )
-                    if not val.is_valid:
-                        blocking_msgs = [
-                            iss.message for iss in val.issues if iss.severity == "blocking"
-                        ]
+                    if not val.valid:
+                        blocking_msgs = [iss.message for iss in val.errors]
                         errors.append(
                             BulkActionErrorDetail(
                                 question_id=q.id,
@@ -221,6 +219,86 @@ class BulkQuestionService:
     # ---------------------------------------------------------------------------
     # 2. File Parsing (CSV, XLSX, JSON)
     # ---------------------------------------------------------------------------
+    LEGACY_SKILL_ALIASES: ClassVar[dict[str, str]] = {
+        "ce-l1-comp-glob": "identify_main_idea",
+        "ce-l2-comp-fin": "identify_specific_detail",
+        "ce-l1-rep-info": "locate_information",
+        "ce-l2-gram": "grammar_structures",
+        "ce-l2-lex": "vocabulary_in_context",
+        "co-l1-comp-glob": "identify_main_idea",
+        "co-l2-comp-fin": "identify_specific_detail",
+        "co-l2-intent": "identify_communicative_intention",
+    }
+
+    COGNITIVE_COMPLEXITY_ALIASES: ClassVar[dict[str, str]] = {
+        "recall_recognition": "recall_recognition",
+        "recall": "recall_recognition",
+        "remember": "recall_recognition",
+        "locate": "recall_recognition",
+        "interpretation": "interpretation",
+        "understand": "interpretation",
+        "comprehension": "interpretation",
+        "apply": "interpretation",
+        "inferencing_synthesis": "inferencing_synthesis",
+        "infer": "inferencing_synthesis",
+        "inference": "inferencing_synthesis",
+        "analyze": "inferencing_synthesis",
+        "analysis": "inferencing_synthesis",
+        "synthesis": "inferencing_synthesis",
+        "critical_evaluation": "critical_evaluation",
+        "evaluate": "critical_evaluation",
+        "evaluation": "critical_evaluation",
+        "critical": "critical_evaluation",
+    }
+
+    CEFR_BASE_RATING: ClassVar[dict[str, int]] = {
+        "A1": 100,
+        "A2": 200,
+        "B1": 300,
+        "B2": 400,
+        "C1": 500,
+        "C2": 600,
+    }
+
+    @classmethod
+    def _normalize_cognitive_complexity(cls, raw_val: str | None) -> str:
+        if not raw_val:
+            return "interpretation"
+        key = str(raw_val).strip().lower()
+        return cls.COGNITIVE_COMPLEXITY_ALIASES.get(key, "interpretation")
+
+    @classmethod
+    def _compute_difficulty_rating(cls, cefr: str | None, difficulty: int) -> int:
+        norm_cefr = (cefr or "B1").strip().upper()
+        base = cls.CEFR_BASE_RATING.get(norm_cefr, 300)
+        clamped_diff = max(1, min(5, int(difficulty)))
+        # Maps 1..5 -> base+10, base+30, base+50, base+70, base+90 (strictly inside [base, base+99])
+        return base + (clamped_diff - 1) * 20 + 10
+
+    @staticmethod
+    def _decode_text_bytes(content_bytes: bytes) -> str:
+        for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+            try:
+                return content_bytes.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        return content_bytes.decode("utf-8", errors="replace")
+
+    @staticmethod
+    def _detect_csv_delimiter(decoded: str) -> str:
+        first_line = next((line for line in decoded.splitlines() if line.strip()), "")
+        if not first_line:
+            return ","
+        try:
+            dialect = csv.Sniffer().sniff(first_line, delimiters=",;\t")
+            return dialect.delimiter
+        except csv.Error:
+            if first_line.count(";") > first_line.count(","):
+                return ";"
+            if first_line.count("\t") > first_line.count(","):
+                return "\t"
+            return ","
+
     @classmethod
     def parse_import_file(cls, content_bytes: bytes, filename: str) -> BulkParseResponse:
         """Parses question batch file into standardized preview items."""
@@ -230,7 +308,8 @@ class BulkQuestionService:
 
         if ext == "json":
             try:
-                data = json.loads(content_bytes.decode("utf-8-sig"))
+                decoded = cls._decode_text_bytes(content_bytes)
+                data = json.loads(decoded)
                 raw_list = data if isinstance(data, list) else data.get("items", [])
                 for idx, raw in enumerate(raw_list):
                     try:
@@ -243,10 +322,12 @@ class BulkQuestionService:
 
         elif ext in ("csv", "txt"):
             try:
-                # Decode with BOM detection
-                decoded = content_bytes.decode("utf-8-sig")
-                reader = csv.DictReader(io.StringIO(decoded))
+                decoded = cls._decode_text_bytes(content_bytes)
+                delimiter = cls._detect_csv_delimiter(decoded)
+                reader = csv.DictReader(io.StringIO(decoded), delimiter=delimiter)
                 for idx, row in enumerate(reader):
+                    if not row or not any(v is not None and str(v).strip() for v in row.values()):
+                        continue
                     try:
                         item = cls._csv_row_to_import_item(row, f"row_{idx + 1}")
                         items.append(item)
@@ -271,7 +352,7 @@ class BulkQuestionService:
                             if headers[c_idx]
                         }
                         # Skip empty rows
-                        if not any(row_dict.values()):
+                        if not any(v is not None and str(v).strip() for v in row_dict.values()):
                             continue
                         try:
                             item = cls._csv_row_to_import_item(row_dict, f"row_{idx + 1}")
@@ -301,99 +382,124 @@ class BulkQuestionService:
     @classmethod
     def _csv_row_to_import_item(cls, row: dict[str, Any], temp_id: str) -> BulkImportQuestionItem:
         """Transforms a flat CSV/Excel dictionary into a structured BulkImportQuestionItem."""
-        # Normalize keys
-        clean = {k.strip().lower().replace(" ", "_"): ("" if v is None else str(v).strip()) for k, v in row.items() if k}
+        # Normalize keys (ignore None keys injected by csv.DictReader when row has extra commas)
+        clean = {
+            k.strip().lower().replace(" ", "_"): ("" if v is None else str(v).strip())
+            for k, v in row.items()
+            if k and isinstance(k, str)
+        }
 
-        prompt = clean.get("prompt") or clean.get("question") or clean.get("enonce") or ""
-        modality = clean.get("modality", "reading").lower()
-        if modality not in ("reading", "listening", "writing", "speaking"):
+        prompt = clean.get("prompt") or clean.get("question") or clean.get("enonce") or clean.get("énoncé") or ""
+        modality = (clean.get("modality") or clean.get("modalite") or clean.get("modalité") or "reading").lower()
+        if modality not in ("reading", "listening", "lexique_structure", "writing", "speaking"):
             modality = "reading"
 
-        level = clean.get("level") or clean.get("target_cefr") or clean.get("cefr") or "B1"
+        level = clean.get("level") or clean.get("target_cefr") or clean.get("cefr") or clean.get("niveau") or "B1"
         level = level.upper()
         if level not in ("A1", "A2", "B1", "B2", "C1", "C2"):
             level = "B1"
 
         try:
-            diff = int(clean.get("difficulty", "3"))
+            diff = int(clean.get("difficulty") or clean.get("difficulte") or "3")
             diff = max(1, min(5, diff))
         except ValueError:
             diff = 3
 
         try:
-            points = int(clean.get("points", "1"))
+            points = int(clean.get("points") or "1")
             points = max(1, points)
         except ValueError:
             points = 1
 
         try:
-            penalty = int(clean.get("penalty_points", "0"))
+            penalty = int(clean.get("penalty_points") or "0")
         except ValueError:
             penalty = 0
 
+        q_type = (clean.get("question_type") or "single_choice").strip().lower()
+        r_type = (clean.get("response_type") or q_type or "single_choice").strip().lower()
+
         # Build options
         options: list[BulkOptionPayload] = []
-        correct_indicator = clean.get("correct_option") or clean.get("correct_answer") or clean.get("reponse_correcte") or "A"
-        correct_indicator = correct_indicator.strip()
+        correct_col_keys = ("correct_option", "correct_answer", "reponse_correcte", "réponse_correcte")
+        has_correct_col = any(k in clean for k in correct_col_keys)
+        correct_raw = (
+            clean.get("correct_option")
+            or clean.get("correct_answer")
+            or clean.get("reponse_correcte")
+            or clean.get("réponse_correcte")
+            or ("" if has_correct_col else "A")
+        ).strip()
 
-        # Check for option_a, option_b, etc. or opt_1, opt_2
-        opt_keys = [
-            ("a", clean.get("option_a") or clean.get("opt_a") or clean.get("choice_a")),
-            ("b", clean.get("option_b") or clean.get("opt_b") or clean.get("choice_b")),
-            ("c", clean.get("option_c") or clean.get("opt_c") or clean.get("choice_c")),
-            ("d", clean.get("option_d") or clean.get("opt_d") or clean.get("choice_d")),
+        # Support multiple correct answers for multiple_choice (e.g. "A, C" or "A;C")
+        if r_type == "multiple_choice" or q_type == "multiple_choice":
+            correct_tokens = {t.strip().lower() for t in re.split(r"[,;|/]\s*", correct_raw) if t.strip()}
+        else:
+            correct_tokens = {correct_raw.lower()} if correct_raw else set()
+
+        # Collect options with both letter ('a'..'d') and number ('1'..'4') aliases
+        opt_slots = [
+            ("a", "1", clean.get("option_a") or clean.get("opt_a") or clean.get("choice_a") or clean.get("option_1") or clean.get("choice_1")),
+            ("b", "2", clean.get("option_b") or clean.get("opt_b") or clean.get("choice_b") or clean.get("option_2") or clean.get("choice_2")),
+            ("c", "3", clean.get("option_c") or clean.get("opt_c") or clean.get("choice_c") or clean.get("option_3") or clean.get("choice_3")),
+            ("d", "4", clean.get("option_d") or clean.get("opt_d") or clean.get("choice_d") or clean.get("option_4") or clean.get("choice_4")),
         ]
 
-        # Alternative: 1, 2, 3, 4
-        if not any(v for _, v in opt_keys):
-            opt_keys = [
-                ("1", clean.get("option_1") or clean.get("choice_1")),
-                ("2", clean.get("option_2") or clean.get("choice_2")),
-                ("3", clean.get("option_3") or clean.get("choice_3")),
-                ("4", clean.get("option_4") or clean.get("choice_4")),
-            ]
-
-        has_options = any(bool(v) for _, v in opt_keys)
-        if has_options:
-            for idx, (letter_or_num, opt_text) in enumerate(opt_keys):
-                if opt_text:
-                    is_corr = (
-                        correct_indicator.lower() == letter_or_num.lower()
-                        or correct_indicator.lower() == opt_text.lower()
-                        or f"option {letter_or_num.lower()}" == correct_indicator.lower()
+        for letter, num, opt_text in opt_slots:
+            if opt_text:
+                opt_lower = opt_text.lower()
+                is_corr = bool(
+                    correct_tokens
+                    & {
+                        letter,
+                        num,
+                        opt_lower,
+                        f"option {letter}",
+                        f"option_{letter}",
+                        f"option {num}",
+                        f"option_{num}",
+                        f"choix {letter}",
+                        f"choix {num}",
+                    }
+                )
+                options.append(
+                    BulkOptionPayload(
+                        content=opt_text,
+                        is_correct=is_corr,
+                        order_index=len(options),
+                        explanation=(
+                            clean.get(f"explanation_{letter}")
+                            or clean.get(f"explication_{letter}")
+                            or clean.get(f"explanation_{num}")
+                            or clean.get(f"explication_{num}")
+                        ),
                     )
-                    options.append(
-                        BulkOptionPayload(
-                            content=opt_text,
-                            is_correct=is_corr,
-                            order_index=idx,
-                            explanation=clean.get(f"explanation_{letter_or_num}") or clean.get(f"explication_{letter_or_num}"),
-                        )
-                    )
-
-            # If no correct option was flagged, fallback to first option
-            if options and not any(o.is_correct for o in options):
-                options[0].is_correct = True
+                )
 
         validation_errors: list[str] = []
         if not prompt:
             validation_errors.append("Le champ 'prompt' (énoncé de la question) est obligatoire.")
+        if r_type in ("single_choice", "multiple_choice") and len(options) < 2:
+            validation_errors.append("Au moins 2 options de réponse sont obligatoires pour une question à choix.")
         if options and not any(o.is_correct for o in options):
-            validation_errors.append("Au moins une réponse correcte est obligatoire.")
+            validation_errors.append("Au moins une réponse correcte est obligatoire (vérifiez 'correct_option').")
+        if r_type == "single_choice" and sum(1 for o in options if o.is_correct) > 1:
+            validation_errors.append("Une question à choix unique ne peut avoir qu'une seule réponse correcte.")
 
-        skill_codes_raw = clean.get("skill_codes") or clean.get("skills") or clean.get("competences") or ""
-        skill_codes = [s.strip() for s in re.split(r"[,;]\s*", skill_codes_raw) if s.strip()]
+        skill_codes_raw = clean.get("skill_codes") or clean.get("skills") or clean.get("competences") or clean.get("compétences") or ""
+        raw_codes = [s.strip() for s in re.split(r"[,;]\s*", skill_codes_raw) if s.strip()]
+        skill_codes = [cls.LEGACY_SKILL_ALIASES.get(c.lower(), c) for c in raw_codes]
 
         return BulkImportQuestionItem(
             temp_id=temp_id,
             prompt=prompt,
-            question_type=clean.get("question_type", "single_choice"),
-            response_type=clean.get("response_type", "single_choice"),
+            question_type=q_type,
+            response_type=r_type,
             modality=modality,
             level=level,
             target_cefr=level,
             difficulty=diff,
-            cognitive_complexity=clean.get("cognitive_complexity", "understand"),
+            cognitive_complexity=cls._normalize_cognitive_complexity(clean.get("cognitive_complexity")),
             points=points,
             penalty_points=penalty,
             explanation=clean.get("explanation") or clean.get("explication"),
@@ -409,56 +515,68 @@ class BulkQuestionService:
     @classmethod
     def _dict_to_import_item(cls, raw: dict[str, Any], temp_id: str) -> BulkImportQuestionItem:
         """Transforms a raw JSON dictionary into a BulkImportQuestionItem."""
-        prompt = str(raw.get("prompt") or raw.get("question") or "")
+        prompt = str(raw.get("prompt") or raw.get("question") or "").strip()
         options_data = raw.get("options") or []
         options: list[BulkOptionPayload] = []
 
         if isinstance(options_data, list):
             for idx, opt in enumerate(options_data):
                 if isinstance(opt, dict):
-                    options.append(
-                        BulkOptionPayload(
-                            content=str(opt.get("content") or opt.get("text") or ""),
-                            is_correct=bool(opt.get("is_correct", False)),
-                            explanation=opt.get("explanation"),
-                            order_index=int(opt.get("order_index", idx)),
-                            misconception_type=opt.get("misconception_type"),
+                    content_str = str(opt.get("content") or opt.get("text") or "").strip()
+                    if content_str:
+                        options.append(
+                            BulkOptionPayload(
+                                content=content_str,
+                                is_correct=bool(opt.get("is_correct", False)),
+                                explanation=opt.get("explanation"),
+                                order_index=int(opt.get("order_index", len(options))),
+                                misconception_type=opt.get("misconception_type"),
+                            )
                         )
-                    )
-                elif isinstance(opt, str):
+                elif isinstance(opt, str) and opt.strip():
                     options.append(
                         BulkOptionPayload(
-                            content=opt,
+                            content=opt.strip(),
                             is_correct=(idx == 0),
-                            order_index=idx,
+                            order_index=len(options),
                         )
                     )
+
+        q_type = str(raw.get("question_type", "single_choice")).strip().lower()
+        r_type = str(raw.get("response_type", q_type or "single_choice")).strip().lower()
 
         validation_errors: list[str] = []
         if not prompt:
             validation_errors.append("Le champ 'prompt' (énoncé de la question) est obligatoire.")
+        if r_type in ("single_choice", "multiple_choice") and len(options) < 2:
+            validation_errors.append("Au moins 2 options de réponse sont obligatoires pour une question à choix.")
         if options and not any(o.is_correct for o in options):
             validation_errors.append("Au moins une réponse correcte est obligatoire.")
+        if r_type == "single_choice" and sum(1 for o in options if o.is_correct) > 1:
+            validation_errors.append("Une question à choix unique ne peut avoir qu'une seule réponse correcte.")
 
         modality = str(raw.get("modality", "reading")).lower()
-        if modality not in ("reading", "listening", "writing", "speaking"):
+        if modality not in ("reading", "listening", "lexique_structure", "writing", "speaking"):
             modality = "reading"
 
         level = str(raw.get("level") or raw.get("target_cefr") or "B1").upper()
         if level not in ("A1", "A2", "B1", "B2", "C1", "C2"):
             level = "B1"
 
+        raw_codes = raw.get("skill_codes") or []
+        skill_codes = [cls.LEGACY_SKILL_ALIASES.get(str(c).strip().lower(), str(c).strip()) for c in raw_codes if str(c).strip()]
+
         return BulkImportQuestionItem(
             temp_id=temp_id,
             prompt=prompt,
-            question_type=str(raw.get("question_type", "single_choice")),
-            response_type=str(raw.get("response_type", "single_choice")),
+            question_type=q_type,
+            response_type=r_type,
             modality=modality,
             level=level,
             target_cefr=level,
-            difficulty=int(raw.get("difficulty", 3)),
-            cognitive_complexity=raw.get("cognitive_complexity", "understand"),
-            points=int(raw.get("points", 1)),
+            difficulty=max(1, min(5, int(raw.get("difficulty", 3)))),
+            cognitive_complexity=cls._normalize_cognitive_complexity(raw.get("cognitive_complexity")),
+            points=max(1, int(raw.get("points", 1))),
             penalty_points=int(raw.get("penalty_points", 0)),
             explanation=raw.get("explanation"),
             stimulus_title=raw.get("stimulus_title"),
@@ -466,7 +584,7 @@ class BulkQuestionService:
             stimulus_id=uuid.UUID(raw["stimulus_id"]) if raw.get("stimulus_id") else None,
             media_url=raw.get("media_url"),
             options=options,
-            skill_codes=raw.get("skill_codes", []),
+            skill_codes=skill_codes,
             is_valid=(len(validation_errors) == 0),
             validation_errors=validation_errors,
         )
@@ -482,8 +600,11 @@ class BulkQuestionService:
         actor_id: uuid.UUID | None = None,
     ) -> AIAutoTagAndFormatResponse:
         """Enriches items with auto-formatted Markdown and canonical skill mappings."""
-        # Query active skills from DB to map correctly
-        stmt = select(Skill).where(Skill.is_active.is_(True)).order_by(Skill.order_index)
+        stmt = (
+            select(Skill)
+            .where(Skill.is_active.is_(True), Skill.is_assessable.is_(True))
+            .order_by(Skill.order_index)
+        )
         skills = list((await db.execute(stmt)).scalars().all())
         skills_by_code = {s.code: s for s in skills}
 
@@ -499,27 +620,32 @@ class BulkQuestionService:
 
             # 2. Skill & CEFR Auto-tagging
             if payload.auto_tag_skills:
-                # Infer CEFR level if missing or default B1
                 inferred_cefr = cls._infer_cefr_level(item.prompt, item.stimulus_text)
                 if not item.target_cefr or item.target_cefr == "B1":
                     item.target_cefr = inferred_cefr
                     item.level = inferred_cefr
 
-                # Assign canonical skill tags matching the modality
                 suggested_codes = cls._match_canonical_skills(
                     prompt=item.prompt,
                     stimulus_text=item.stimulus_text,
                     modality=item.modality,
                     skills_by_code=skills_by_code,
                 )
-                item.skill_codes = suggested_codes
+                if suggested_codes:
+                    item.skill_codes = suggested_codes
+
+            item.cognitive_complexity = cls._normalize_cognitive_complexity(item.cognitive_complexity)
 
             # Revalidate
             item.validation_errors = []
             if not item.prompt:
                 item.validation_errors.append("Le champ 'prompt' est obligatoire.")
+            if item.response_type in ("single_choice", "multiple_choice") and len(item.options) < 2:
+                item.validation_errors.append("Au moins 2 options de réponse sont obligatoires pour une question à choix.")
             if item.options and not any(o.is_correct for o in item.options):
                 item.validation_errors.append("Au moins une réponse correcte est obligatoire.")
+            if item.response_type == "single_choice" and sum(1 for o in item.options if o.is_correct) > 1:
+                item.validation_errors.append("Une question à choix unique ne peut avoir qu'une seule réponse correcte.")
             item.is_valid = len(item.validation_errors) == 0
 
             enriched_items.append(item)
@@ -585,36 +711,77 @@ class BulkQuestionService:
         modality: str,
         skills_by_code: dict[str, Skill],
     ) -> list[str]:
-        """Matches competencies from available skills catalog in the database."""
+        """Matches competencies from available assessable skills catalog in the database."""
         text = f"{prompt} {stimulus_text or ''}".lower()
         matched: list[str] = []
 
-        # Find matching codes in skills_by_code
-        for code, sk in skills_by_code.items():
-            if modality == "reading" and (code.startswith("CE-") or "read" in (sk.domain or "")):
-                if "global" in text or "thème" in text or "idée" in text:
-                    if "COMP-GLOB" in code or "GLOBAL" in code:
-                        matched.append(code)
-                elif "détail" in text or "information" in text:
-                    if "COMP-FIN" in code or "DETAIL" in code:
-                        matched.append(code)
-                elif ("grammaire" in text or "temps" in text or "accord" in text) and "GRAM" in code:
-                    matched.append(code)
+        # 1. Check canonical V1 snake_case skill codes first
+        if (
+            any(w in text for w in ("global", "thème", "idée principale", "sujet principal", "objectif principal", "idée"))
+            and "identify_main_idea" in skills_by_code
+        ):
+            matched.append("identify_main_idea")
+        if any(w in text for w in ("intention", "but", "pourquoi", "objectif", "sentiment", "ton")):
+            if "identify_communicative_intention" in skills_by_code:
+                matched.append("identify_communicative_intention")
+            elif "identify_tone" in skills_by_code:
+                matched.append("identify_tone")
+        if (
+            any(w in text for w in ("implicite", "suggère", "déduire", "sous-entend"))
+            and "infer_implicit_information" in skills_by_code
+        ):
+            matched.append("infer_implicit_information")
+        if any(w in text for w in ("détail", "information", "quand", "où", "combien", "date", "avant le", "heure")):
+            if "identify_specific_detail" in skills_by_code:
+                matched.append("identify_specific_detail")
+            elif "locate_information" in skills_by_code:
+                matched.append("locate_information")
+        if (
+            any(w in text for w in ("grammaire", "temps", "accord", "conjug", "complétez", "verbe"))
+            and "grammar_structures" in skills_by_code
+        ):
+            matched.append("grammar_structures")
+        if (
+            any(w in text for w in ("mot", "synonyme", "sens", "vocabulaire", "expression"))
+            and "vocabulary_in_context" in skills_by_code
+        ):
+            matched.append("vocabulary_in_context")
 
-            elif modality == "listening" and (code.startswith("CO-") or "listen" in (sk.domain or "")):
-                if "intention" in text or "sentiment" in text:
-                    if "INTENT" in code or "INFER" in code:
-                        matched.append(code)
-                else:
-                    if "COMP-GLOB" in code or "MAIN" in code:
-                        matched.append(code)
-
-        # Fallback to standard canonical skill if no direct heuristic match
+        # 2. Support legacy or custom codes in skills_by_code (e.g. CE-*, CO-*)
         if not matched:
-            mod_prefix = "CE-" if modality == "reading" else "CO-"
-            candidates = [c for c in skills_by_code if c.startswith(mod_prefix)]
-            if candidates:
-                matched.append(candidates[0])
+            for code, sk in skills_by_code.items():
+                if not getattr(sk, "is_assessable", True):
+                    continue
+                code_upper = code.upper()
+                is_reading_skill = code_upper.startswith("CE-") or "read" in (sk.domain or "") or sk.category == "reading"
+                is_listening_skill = code_upper.startswith("CO-") or "listen" in (sk.domain or "") or sk.category == "listening"
+                if modality == "reading" and is_reading_skill:
+                    matches_reading = (
+                        (any(w in text for w in ("global", "thème", "idée")) and any(t in code_upper for t in ("COMP-GLOB", "GLOBAL", "MAIN")))
+                        or (any(w in text for w in ("détail", "information")) and any(t in code_upper for t in ("COMP-FIN", "DETAIL")))
+                        or (any(w in text for w in ("grammaire", "temps", "accord")) and "GRAM" in code_upper)
+                    )
+                    if matches_reading:
+                        matched.append(code)
+                elif modality == "listening" and is_listening_skill:
+                    matches_listening = (
+                        (any(w in text for w in ("intention", "sentiment")) and any(t in code_upper for t in ("INTENT", "INFER")))
+                        or any(t in code_upper for t in ("COMP-GLOB", "MAIN"))
+                    )
+                    if matches_listening:
+                        matched.append(code)
+
+        # 3. Deterministic fallback to a primary canonical skill so the question always has a valid tag
+        if not matched:
+            for default_code in ("identify_main_idea", "identify_specific_detail", "locate_information", "vocabulary_in_context"):
+                if default_code in skills_by_code:
+                    matched.append(default_code)
+                    break
+
+        if not matched and skills_by_code:
+            assessable_codes = [c for c, s in skills_by_code.items() if getattr(s, "is_assessable", True)]
+            if assessable_codes:
+                matched.append(assessable_codes[0])
 
         return list(dict.fromkeys(matched))[:3]
 
@@ -632,10 +799,11 @@ class BulkQuestionService:
         created_ids: list[uuid.UUID] = []
         errors: list[dict[str, Any]] = []
 
-        # Query active skills for tag linking
-        stmt = select(Skill).where(Skill.is_active.is_(True))
+        # Query active assessable skills for tag linking
+        stmt = select(Skill).where(Skill.is_active.is_(True), Skill.is_assessable.is_(True)).order_by(Skill.order_index)
         all_skills = list((await db.execute(stmt)).scalars().all())
         skills_by_code = {s.code: s for s in all_skills}
+        skills_by_lower = {s.code.lower(): s for s in all_skills}
 
         now = datetime.datetime.now(datetime.UTC)
 
@@ -660,8 +828,11 @@ class BulkQuestionService:
                     stim = await AdminContentService.create_stimulus(db=db, payload=stim_create, actor_id=actor_id)
                     stim_id = stim.id
 
-                # 2. Compute Item Hash
+                # 2. Compute Item Hash, Difficulty Rating, and Cognitive Complexity
                 q_hash = compute_item_hash(item.prompt)
+                cefr_level = (item.target_cefr or item.level or "B1").upper()
+                diff_rating = cls._compute_difficulty_rating(cefr_level, item.difficulty)
+                cog_complexity = cls._normalize_cognitive_complexity(item.cognitive_complexity)
 
                 # 3. Create Question record
                 q_type = QuestionType.SINGLE_CHOICE
@@ -670,16 +841,22 @@ class BulkQuestionService:
                 except ValueError:
                     q_type = QuestionType.SINGLE_CHOICE
 
+                author_type_str = (
+                    QuestionAuthorType.IMPORTED.value
+                    if hasattr(QuestionAuthorType.IMPORTED, "value")
+                    else "imported"
+                )
+
                 question = Question(
                     prompt=item.prompt,
                     question_type=q_type,
                     response_type=item.response_type,
                     stimulus_id=stim_id,
-                    level=item.level,
-                    target_cefr=item.target_cefr or item.level,
+                    level=cefr_level,
+                    target_cefr=cefr_level,
                     difficulty=item.difficulty,
-                    difficulty_rating=item.difficulty,
-                    cognitive_complexity=item.cognitive_complexity,
+                    difficulty_rating=diff_rating,
+                    cognitive_complexity=cog_complexity,
                     points=item.points,
                     penalty_points=item.penalty_points,
                     explanation=item.explanation,
@@ -697,12 +874,12 @@ class BulkQuestionService:
                 await db.flush()
 
                 # 4. Create Question Options
-                for opt_payload in item.options:
+                for opt_idx, opt_payload in enumerate(item.options):
                     opt = QuestionOption(
                         question_id=question.id,
                         content=opt_payload.content,
                         is_correct=opt_payload.is_correct,
-                        order_index=opt_payload.order_index,
+                        order_index=opt_idx,
                         explanation=opt_payload.explanation,
                         misconception_type=opt_payload.misconception_type,
                         created_at=now,
@@ -710,25 +887,58 @@ class BulkQuestionService:
                     )
                     db.add(opt)
 
-                # 5. Create Question Skill Tags (balanced weights = 1.00)
-                matched_skills = [skills_by_code[c] for c in item.skill_codes if c in skills_by_code]
+                # 5. Resolve & Create Question Skill Tags (balanced weights = 1.00 per dimension)
+                matched_skills: list[Skill] = []
+                seen_skill_ids: set[uuid.UUID] = set()
+                for raw_code in item.skill_codes:
+                    norm_code = cls.LEGACY_SKILL_ALIASES.get(raw_code.strip().lower(), raw_code.strip())
+                    sk = skills_by_code.get(norm_code) or skills_by_lower.get(norm_code.lower())
+                    if sk and sk.id not in seen_skill_ids:
+                        matched_skills.append(sk)
+                        seen_skill_ids.add(sk.id)
+
+                if not matched_skills and skills_by_code:
+                    fallback_codes = cls._match_canonical_skills(
+                        prompt=item.prompt,
+                        stimulus_text=item.stimulus_text,
+                        modality=item.modality,
+                        skills_by_code=skills_by_code,
+                    )
+                    for fc in fallback_codes:
+                        sk = skills_by_code.get(fc)
+                        if sk and sk.id not in seen_skill_ids:
+                            matched_skills.append(sk)
+                            seen_skill_ids.add(sk.id)
+
                 if matched_skills:
-                    weight_per_skill = round(1.0 / len(matched_skills), 2)
-                    for s_idx, sk in enumerate(matched_skills):
-                        # Ensure sum equals exactly 1.00
-                        assigned_weight = 1.0 - (weight_per_skill * (len(matched_skills) - 1)) if s_idx == len(matched_skills) - 1 else weight_per_skill
-                        tag = QuestionSkillTag(
-                            question_id=question.id,
-                            skill_id=sk.id,
-                            weight=assigned_weight,
-                            role=SkillTagRole.PRIMARY if s_idx == 0 else SkillTagRole.SECONDARY,
-                            created_at=now,
-                            updated_at=now,
+                    skills_by_dim: dict[str, list[Skill]] = {}
+                    for sk in matched_skills:
+                        dim_key = (
+                            sk.dimension.value
+                            if hasattr(sk.dimension, "value") and sk.dimension is not None
+                            else str(sk.dimension or "default")
                         )
-                        db.add(tag)
+                        skills_by_dim.setdefault(dim_key, []).append(sk)
+
+                    for dim_skills in skills_by_dim.values():
+                        weight_per_skill = round(1.0 / len(dim_skills), 2)
+                        for s_idx, sk in enumerate(dim_skills):
+                            assigned_weight = (
+                                round(1.0 - (weight_per_skill * (len(dim_skills) - 1)), 2)
+                                if s_idx == len(dim_skills) - 1
+                                else weight_per_skill
+                            )
+                            tag = QuestionSkillTag(
+                                question_id=question.id,
+                                skill_id=sk.id,
+                                weight=assigned_weight,
+                                role=SkillTagRole.PRIMARY if s_idx == 0 else SkillTagRole.SECONDARY,
+                                created_at=now,
+                                updated_at=now,
+                            )
+                            db.add(tag)
 
                 # 6. Create Provenance
-                author_type_str = QuestionAuthorType.IMPORTED.value if hasattr(QuestionAuthorType.IMPORTED, "value") else "imported"
                 prov = QuestionProvenance(
                     question_id=question.id,
                     author_type=author_type_str,
@@ -810,7 +1020,7 @@ class BulkQuestionService:
                 "En raison de travaux de modernisation sur la ligne 1, le trafic sera interrompu tout le week-end.",
                 "",
                 "Le document annonce clairement l'interruption du trafic pour travaux de modernisation.",
-                "CE-L1-COMP-GLOB",
+                "identify_main_idea",
             ],
             [
                 "Que doit faire le candidat avant le 15 mai ?",
@@ -827,7 +1037,7 @@ class BulkQuestionService:
                 "Les dossiers complets de candidature doivent parvenir au secrétariat au plus tard le 15 mai à minuit.",
                 "",
                 "La mention de la date limite du 15 mai concerne l'envoi du dossier complet.",
-                "CE-L2-COMP-FIN",
+                "identify_specific_detail",
             ],
         ]
         output = io.StringIO()
