@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BulkImportModal } from "./questions/BulkImportModal";
 import { QuestionQuickPreviewModal } from "./questions/QuestionQuickPreviewModal";
+import { QuestionSheetGuideModal } from "./questions/QuestionSheetGuideModal";
 
 export const QuestionsListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -61,6 +62,7 @@ export const QuestionsListPage: React.FC = () => {
 
   // Modals
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [previewQuestion, setPreviewQuestion] = useState<QuestionItem | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
@@ -356,6 +358,16 @@ export const QuestionsListPage: React.FC = () => {
               title="Télécharger le modèle CSV"
             >
               <Download className="h-3.5 w-3.5" /> Modèle CSV
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsGuideModalOpen(true)}
+              className="gap-1.5 shadow-2xs text-xs h-9 text-muted-foreground hover:text-foreground"
+              title="Ouvrir le guide de référence CSV & Enums"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-primary" /> Guide CSV
             </Button>
 
             <Button
@@ -917,6 +929,12 @@ export const QuestionsListPage: React.FC = () => {
             setPreviewQuestion(null);
           }}
           onEdit={(q) => navigate(`/admin/questions/${q.id}?tab=content`)}
+        />
+
+        {/* CSV Reference Guide Modal */}
+        <QuestionSheetGuideModal
+          isOpen={isGuideModalOpen}
+          onClose={() => setIsGuideModalOpen(false)}
         />
       </div>
     </AdminLayout>

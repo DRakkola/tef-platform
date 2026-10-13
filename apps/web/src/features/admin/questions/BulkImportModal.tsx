@@ -10,6 +10,7 @@ import {
   X,
   Loader2,
   ArrowRight,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,7 @@ import {
   downloadImportTemplateCsv,
 } from "../api";
 import type { BulkImportQuestionItem } from "../types";
+import { QuestionSheetGuideModal } from "./QuestionSheetGuideModal";
 
 interface BulkImportModalProps {
   isOpen: boolean;
@@ -42,6 +44,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   const [targetStatus, setTargetStatus] = useState("draft");
   const [committedCount, setCommittedCount] = useState(0);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -55,6 +58,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       setTargetStatus("draft");
       setCommittedCount(0);
       setGlobalError(null);
+      setIsGuideOpen(false);
     }
   }, [isOpen]);
 
@@ -137,12 +141,122 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         options: [
           { content: "Informer d'un retard", is_correct: true },
           { content: "Annuler une réunion", is_correct: false },
-          { content: "Féliciter un collègue", is_correct: false }
+          { content: "Féliciter un collègue", is_correct: false },
+          { content: "Modifier un contrat", is_correct: false },
         ],
         stimulus_title: "Note de service",
         stimulus_text: "En raison d'un problème technique, le train aura 20 minutes de retard.",
-        skill_codes: ["identify_main_idea"]
-      }
+        skill_codes: ["identify_main_idea"],
+      },
+      {
+        prompt: "Quelles conditions permettent d'obtenir le tarif réduit ?",
+        question_type: "multiple_choice",
+        modality: "reading",
+        level: "B2",
+        difficulty: 3,
+        options: [
+          { content: "Avoir moins de 26 ans", is_correct: true },
+          { content: "Habiter hors de l'UE", is_correct: false },
+          { content: "Présenter un justificatif étudiant", is_correct: true },
+          { content: "Réserver 30 jours à l'avance", is_correct: false },
+        ],
+        stimulus_title: "Conditions tarifaires",
+        stimulus_text: "Le tarif réduit est accordé aux moins de 26 ans et aux étudiants sur justificatif.",
+        skill_codes: ["identify_specific_detail", "locate_information"],
+      },
+      {
+        prompt: "Complétez : « Bien qu'il ___ très tard, le directeur a relu le rapport. »",
+        question_type: "gap_fill",
+        modality: "lexique_structure",
+        level: "B2",
+        difficulty: 3,
+        options: [
+          { content: "soit", is_correct: true },
+          { content: "est", is_correct: false },
+          { content: "sera", is_correct: false },
+          { content: "était", is_correct: false },
+        ],
+        stimulus_title: "Exercice de grammaire",
+        stimulus_text: "Emploi du subjonctif après « bien que ».",
+        skill_codes: ["mood_selection", "subordination_and_coordination"],
+      },
+      {
+        prompt: "Quel mot du texte est synonyme de « amélioration » ?",
+        question_type: "short_text",
+        modality: "reading",
+        level: "B2",
+        difficulty: 3,
+        options: [
+          { content: "modernisation", is_correct: true },
+          { content: "perfectionnement", is_correct: true },
+        ],
+        stimulus_title: "Modernisation du réseau",
+        stimulus_text: "Le plan quinquennal prévoit une modernisation progressive des infrastructures.",
+        skill_codes: ["paraphrase_and_synonym_recognition", "vocabulary_in_context"],
+      },
+      {
+        prompt: "Associez chaque annonce au profil de lecteur correspondant.",
+        question_type: "matching",
+        modality: "reading",
+        level: "B1",
+        difficulty: 2,
+        options: [
+          { content: "Annonce 1 -> Jeune diplômé cherchant un stage", is_correct: true },
+          { content: "Annonce 2 -> Famille recherchant un appartement", is_correct: true },
+        ],
+        stimulus_title: "Petites annonces",
+        stimulus_text: "1. Cabinet recrute stagiaire. 2. Loue T4 proche écoles.",
+        skill_codes: ["compare_information", "locate_information"],
+      },
+      {
+        prompt: "Remettez dans l'ordre chronologique les étapes de la procédure d'inscription.",
+        question_type: "ordering",
+        modality: "reading",
+        level: "B1",
+        difficulty: 3,
+        options: [
+          { content: "Créer un compte en ligne", is_correct: true },
+          { content: "Téléverser les pièces justificatives", is_correct: true },
+          { content: "Valider le paiement", is_correct: true },
+          { content: "Télécharger la convocation", is_correct: true },
+        ],
+        stimulus_title: "Guide d'inscription",
+        stimulus_text: "Commencez par créer votre compte, déposez vos pièces, payez puis téléchargez la convocation.",
+        skill_codes: ["understand_sequence", "discourse_connectors"],
+      },
+      {
+        prompt: "Rédigez une lettre argumentée au maire (180 mots min.) sur l'aménagement de pistes cyclables.",
+        question_type: "long_text",
+        modality: "writing",
+        level: "B2",
+        difficulty: 4,
+        options: [],
+        stimulus_title: "Section B — Lettre ouverte",
+        stimulus_text: "Faut-il limiter la place des voitures en centre-ville ?",
+        skill_codes: ["identify_claim", "discourse_connectors", "register_and_formality"],
+      },
+      {
+        prompt: "Présentez les avantages et les inconvénients du télétravail (2 à 3 minutes).",
+        question_type: "spoken_response",
+        modality: "speaking",
+        level: "B2",
+        difficulty: 3,
+        options: [],
+        stimulus_title: "Exposé oral",
+        stimulus_text: "Le télétravail s'est largement généralisé dans les entreprises de services.",
+        skill_codes: ["identify_supporting_reason", "discourse_connectors", "phonological_control"],
+      },
+      {
+        prompt: "Appelez l'organisateur du séjour linguistique à Montréal pour poser une dizaine de questions.",
+        question_type: "interaction",
+        modality: "speaking",
+        level: "B1",
+        difficulty: 2,
+        options: [],
+        stimulus_title: "Section A — Prise d'informations",
+        stimulus_text: "Séjour intensif de français à Montréal : cours le matin, activités l'après-midi.",
+        skill_codes: ["identify_communicative_intention", "register_and_formality", "sentence_structure"],
+      },
     ];
     const blob = new Blob([JSON.stringify(sample, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -172,12 +286,23 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               Intégrez rapidement vos séries d'items via CSV, Excel ou JSON avec auto-tagging et formatage IA.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsGuideOpen(true)}
+              className="text-xs gap-1.5 h-8"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-primary" />
+              Guide de remplissage
+            </Button>
+            <button
+              onClick={onClose}
+              className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         {globalError && (
@@ -249,18 +374,26 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                 )}
               </div>
 
-              {/* Download templates */}
+              {/* Download templates & Reference Guide */}
               <div className="p-4 rounded-xl border border-border bg-muted/20 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold text-foreground">
-                    Besoin d'un modèle d'import prêt à l'emploi ?
+                    Besoin d'un modèle d'import ou de la liste des valeurs ENUMS ?
                   </div>
                   <div className="text-2xs text-muted-foreground">
-                    Téléchargez nos gabarits d'exemple avec les colonnes attendues (énoncé, réponses, document, compétences).
+                    Nos gabarits incluent un exemple pour chaque type de question (`single_choice`, `multiple_choice`, `gap_fill`, `short_text`, `matching`, `ordering`, `long_text`, `spoken_response`, `interaction`).
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsGuideOpen(true)}
+                    className="text-xs gap-1.5 h-8 border-primary/30 text-primary hover:bg-primary/5 font-semibold"
+                  >
+                    <BookOpen className="h-3.5 w-3.5" /> Guide & Enums
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -342,6 +475,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                       <tr>
                         <th className="p-2.5">#</th>
                         <th className="p-2.5">Énoncé</th>
+                        <th className="p-2.5">Type</th>
                         <th className="p-2.5">Modalité</th>
                         <th className="p-2.5">Niveau</th>
                         <th className="p-2.5">Diff.</th>
@@ -358,6 +492,9 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                           </td>
                           <td className="p-2.5 font-medium text-foreground max-w-xs truncate" title={item.prompt}>
                             {item.prompt || <span className="text-rose-500 italic">Énoncé manquant</span>}
+                          </td>
+                          <td className="p-2.5 font-mono text-2xs text-primary">
+                            {item.response_type || item.question_type}
                           </td>
                           <td className="p-2.5 capitalize text-2xs text-muted-foreground">
                             {item.modality}
@@ -473,6 +610,11 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           )}
         </div>
       </div>
+
+      <QuestionSheetGuideModal
+        isOpen={isGuideOpen}
+        onClose={() => setIsGuideOpen(false)}
+      />
     </div>
   );
 };

@@ -138,14 +138,27 @@ async def test_parse_json_file() -> None:
 
 @pytest.mark.asyncio
 async def test_csv_template_generation() -> None:
-    """Test generating standard import template and round-trip parsing."""
+    """Test generating standard import template with all question_type examples and round-trip parsing."""
     csv_str = BulkQuestionService.generate_csv_template()
     assert "prompt,question_type,modality,level,difficulty" in csv_str
     assert "identify_main_idea" in csv_str
 
     parsed = BulkQuestionService.parse_import_file(csv_str.encode("utf-8"), "template.csv")
-    assert parsed.total_parsed == 2
-    assert parsed.valid_count == 2
+    assert parsed.total_parsed == 9
+    assert parsed.valid_count == 9
+    assert parsed.invalid_count == 0
+    response_types = {item.response_type for item in parsed.items}
+    assert response_types == {
+        "single_choice",
+        "multiple_choice",
+        "gap_fill",
+        "short_text",
+        "matching",
+        "ordering",
+        "long_text",
+        "spoken_response",
+        "interaction",
+    }
 
 
 @pytest.mark.asyncio

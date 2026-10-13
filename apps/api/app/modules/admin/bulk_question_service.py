@@ -223,7 +223,8 @@ class BulkQuestionService:
         "ce-l1-comp-glob": "identify_main_idea",
         "ce-l2-comp-fin": "identify_specific_detail",
         "ce-l1-rep-info": "locate_information",
-        "ce-l2-gram": "grammar_structures",
+        "ce-l2-gram": "grammatical_agreement",
+        "grammar_structures": "grammatical_agreement",
         "ce-l2-lex": "vocabulary_in_context",
         "co-l1-comp-glob": "identify_main_idea",
         "co-l2-comp-fin": "identify_specific_detail",
@@ -266,6 +267,34 @@ class BulkQuestionService:
             return "interpretation"
         key = str(raw_val).strip().lower()
         return cls.COGNITIVE_COMPLEXITY_ALIASES.get(key, "interpretation")
+
+    @classmethod
+    def _normalize_question_and_response_type(
+        cls, raw_q_type: str | None, raw_r_type: str | None
+    ) -> tuple[str, str]:
+        """Normalizes raw question_type and response_type into (QuestionType, QuestionResponseType)."""
+        q_raw = (raw_q_type or "").strip().lower()
+        r_raw = (raw_r_type or q_raw or "single_choice").strip().lower()
+
+        if r_raw == "single_choice":
+            return ("single_choice", "single_choice")
+        if r_raw == "multiple_choice":
+            return ("multiple_choice", "multiple_choice")
+        if r_raw in ("text_input", "short_text"):
+            return ("text_input", "short_text")
+        if r_raw in ("gap_fill", "cloze"):
+            return ("text_input", "gap_fill")
+        if r_raw == "matching":
+            return ("multiple_choice", "matching")
+        if r_raw == "ordering":
+            return ("multiple_choice", "ordering")
+        if r_raw == "long_text":
+            return ("text_input", "long_text")
+        if r_raw == "spoken_response":
+            return ("text_input", "spoken_response")
+        if r_raw == "interaction":
+            return ("text_input", "interaction")
+        return ("single_choice", "single_choice")
 
     @classmethod
     def _compute_difficulty_rating(cls, cefr: str | None, difficulty: int) -> int:
@@ -416,8 +445,9 @@ class BulkQuestionService:
         except ValueError:
             penalty = 0
 
-        q_type = (clean.get("question_type") or "single_choice").strip().lower()
-        r_type = (clean.get("response_type") or q_type or "single_choice").strip().lower()
+        q_type, r_type = cls._normalize_question_and_response_type(
+            clean.get("question_type"), clean.get("response_type")
+        )
 
         # Build options
         options: list[BulkOptionPayload] = []
@@ -431,8 +461,8 @@ class BulkQuestionService:
             or ("" if has_correct_col else "A")
         ).strip()
 
-        # Support multiple correct answers for multiple_choice (e.g. "A, C" or "A;C")
-        if r_type == "multiple_choice" or q_type == "multiple_choice":
+        # Support multiple correct answers for multiple_choice, matching, ordering, short_text, gap_fill
+        if r_type in ("multiple_choice", "matching", "ordering", "short_text", "gap_fill"):
             correct_tokens = {t.strip().lower() for t in re.split(r"[,;|/]\s*", correct_raw) if t.strip()}
         else:
             correct_tokens = {correct_raw.lower()} if correct_raw else set()
@@ -476,11 +506,23 @@ class BulkQuestionService:
                     )
                 )
 
+        # For matching/ordering/short_text/gap_fill, auto-handle options or direct correct_option text
+        if r_type in ("matching", "ordering") and options and not any(o.is_correct for o in options):
+            for o in options:
+                o.is_correct = True
+        elif r_type in ("short_text", "gap_fill"):
+            if not options and correct_raw and correct_raw.lower() not in ("a", "b", "c", "d", "1", "2", "3", "4"):
+                options.append(BulkOptionPayload(content=correct_raw, is_correct=True, order_index=0))
+            elif options and not any(o.is_correct for o in options) and not correct_raw:
+                options[0].is_correct = True
+
         validation_errors: list[str] = []
         if not prompt:
             validation_errors.append("Le champ 'prompt' (énoncé de la question) est obligatoire.")
-        if r_type in ("single_choice", "multiple_choice") and len(options) < 2:
-            validation_errors.append("Au moins 2 options de réponse sont obligatoires pour une question à choix.")
+        if r_type in ("single_choice", "multiple_choice", "matching", "ordering") and len(options) < 2:
+            validation_errors.append("Au moins 2 options de réponse sont obligatoires pour ce type de question.")
+        if r_type in ("short_text", "gap_fill") and len(options) < 1:
+            validation_errors.append("Au moins 1 réponse attendue (option_a ou correct_option) est obligatoire.")
         if options and not any(o.is_correct for o in options):
             validation_errors.append("Au moins une réponse correcte est obligatoire (vérifiez 'correct_option').")
         if r_type == "single_choice" and sum(1 for o in options if o.is_correct) > 1:
@@ -542,14 +584,21 @@ class BulkQuestionService:
                         )
                     )
 
-        q_type = str(raw.get("question_type", "single_choice")).strip().lower()
-        r_type = str(raw.get("response_type", q_type or "single_choice")).strip().lower()
+        q_type, r_type = cls._normalize_question_and_response_type(
+            str(raw.get("question_type", "")) if raw.get("question_type") else None,
+            str(raw.get("response_type", "")) if raw.get("response_type") else None,
+        )
+        if r_type in ("matching", "ordering") and options and not any(o.is_correct for o in options):
+            for o in options:
+                o.is_correct = True
 
         validation_errors: list[str] = []
         if not prompt:
             validation_errors.append("Le champ 'prompt' (énoncé de la question) est obligatoire.")
-        if r_type in ("single_choice", "multiple_choice") and len(options) < 2:
-            validation_errors.append("Au moins 2 options de réponse sont obligatoires pour une question à choix.")
+        if r_type in ("single_choice", "multiple_choice", "matching", "ordering") and len(options) < 2:
+            validation_errors.append("Au moins 2 options de réponse sont obligatoires pour ce type de question.")
+        if r_type in ("short_text", "gap_fill") and len(options) < 1:
+            validation_errors.append("Au moins 1 réponse attendue est obligatoire.")
         if options and not any(o.is_correct for o in options):
             validation_errors.append("Au moins une réponse correcte est obligatoire.")
         if r_type == "single_choice" and sum(1 for o in options if o.is_correct) > 1:
@@ -634,14 +683,19 @@ class BulkQuestionService:
                 if suggested_codes:
                     item.skill_codes = suggested_codes
 
+            item.question_type, item.response_type = cls._normalize_question_and_response_type(
+                item.question_type, item.response_type
+            )
             item.cognitive_complexity = cls._normalize_cognitive_complexity(item.cognitive_complexity)
 
             # Revalidate
             item.validation_errors = []
             if not item.prompt:
                 item.validation_errors.append("Le champ 'prompt' est obligatoire.")
-            if item.response_type in ("single_choice", "multiple_choice") and len(item.options) < 2:
-                item.validation_errors.append("Au moins 2 options de réponse sont obligatoires pour une question à choix.")
+            if item.response_type in ("single_choice", "multiple_choice", "matching", "ordering") and len(item.options) < 2:
+                item.validation_errors.append("Au moins 2 options de réponse sont obligatoires pour ce type de question.")
+            if item.response_type in ("short_text", "gap_fill") and len(item.options) < 1:
+                item.validation_errors.append("Au moins 1 réponse attendue est obligatoire.")
             if item.options and not any(o.is_correct for o in item.options):
                 item.validation_errors.append("Au moins une réponse correcte est obligatoire.")
             if item.response_type == "single_choice" and sum(1 for o in item.options if o.is_correct) > 1:
@@ -738,9 +792,9 @@ class BulkQuestionService:
                 matched.append("locate_information")
         if (
             any(w in text for w in ("grammaire", "temps", "accord", "conjug", "complétez", "verbe"))
-            and "grammar_structures" in skills_by_code
+            and "grammatical_agreement" in skills_by_code
         ):
-            matched.append("grammar_structures")
+            matched.append("grammatical_agreement")
         if (
             any(w in text for w in ("mot", "synonyme", "sens", "vocabulaire", "expression"))
             and "vocabulary_in_context" in skills_by_code
@@ -835,11 +889,32 @@ class BulkQuestionService:
                 cog_complexity = cls._normalize_cognitive_complexity(item.cognitive_complexity)
 
                 # 3. Create Question record
+                norm_q_type, norm_r_type = cls._normalize_question_and_response_type(
+                    item.question_type, item.response_type
+                )
                 q_type = QuestionType.SINGLE_CHOICE
                 try:
-                    q_type = QuestionType(item.question_type)
+                    q_type = QuestionType(norm_q_type)
                 except ValueError:
                     q_type = QuestionType.SINGLE_CHOICE
+
+                scoring_payload: dict[str, Any] | None = None
+                if norm_r_type == "matching":
+                    pairs = []
+                    for o in item.options:
+                        if "->" in o.content:
+                            left_part, right_part = o.content.split("->", 1)
+                            pairs.append({"left": left_part.strip(), "right": right_part.strip()})
+                        else:
+                            pairs.append({"left": f"Élément {o.order_index + 1}", "right": o.content})
+                    scoring_payload = {"pairs": pairs}
+                elif norm_r_type == "ordering":
+                    scoring_payload = {"sequence": [o.content for o in item.options]}
+                elif norm_r_type in ("gap_fill", "short_text"):
+                    accepted = [o.content for o in item.options if o.is_correct] or [o.content for o in item.options]
+                    scoring_payload = {"accepted_answers": accepted}
+                elif norm_r_type in ("long_text", "spoken_response", "interaction"):
+                    scoring_payload = {"criteria": ["pertinence", "coherence", "lexique", "grammaire"]}
 
                 author_type_str = (
                     QuestionAuthorType.IMPORTED.value
@@ -850,7 +925,7 @@ class BulkQuestionService:
                 question = Question(
                     prompt=item.prompt,
                     question_type=q_type,
-                    response_type=item.response_type,
+                    response_type=norm_r_type,
                     stimulus_id=stim_id,
                     level=cefr_level,
                     target_cefr=cefr_level,
@@ -859,6 +934,7 @@ class BulkQuestionService:
                     cognitive_complexity=cog_complexity,
                     points=item.points,
                     penalty_points=item.penalty_points,
+                    scoring_payload=scoring_payload,
                     explanation=item.explanation,
                     media_url=item.media_url,
                     status=payload.default_status,
@@ -986,7 +1062,7 @@ class BulkQuestionService:
     # ---------------------------------------------------------------------------
     @classmethod
     def generate_csv_template(cls) -> str:
-        """Generates standard CSV template headers and sample rows for bulk import."""
+        """Generates standard CSV template headers and sample rows covering every question_type."""
         headers = [
             "prompt",
             "question_type",
@@ -1005,6 +1081,7 @@ class BulkQuestionService:
             "skill_codes",
         ]
         sample_rows = [
+            # 1. single_choice (QCM à choix unique)
             [
                 "Quel est le thème principal de cette annonce ?",
                 "single_choice",
@@ -1022,22 +1099,149 @@ class BulkQuestionService:
                 "Le document annonce clairement l'interruption du trafic pour travaux de modernisation.",
                 "identify_main_idea",
             ],
+            # 2. multiple_choice (QCM à choix multiple)
             [
-                "Que doit faire le candidat avant le 15 mai ?",
-                "single_choice",
+                "Quelles conditions doivent être remplies pour bénéficier du tarif réduit ?",
+                "multiple_choice",
                 "reading",
                 "B2",
                 "3",
-                "Envoyer son dossier complet",
-                "Payer les frais de scolarité",
-                "Prendre rendez-vous avec le directeur",
-                "Passer un entretien oral",
-                "A",
-                "Appel à candidatures",
-                "Les dossiers complets de candidature doivent parvenir au secrétariat au plus tard le 15 mai à minuit.",
+                "Avoir moins de 26 ans",
+                "Habiter hors de l'Union européenne",
+                "Présenter un justificatif de scolarité",
+                "Réserver au moins 30 jours à l'avance",
+                "A,C",
+                "Conditions tarifaires du musée",
+                "Le tarif réduit est accordé aux jeunes de moins de 26 ans ainsi qu'aux étudiants sur présentation d'un justificatif en cours de validité.",
                 "",
-                "La mention de la date limite du 15 mai concerne l'envoi du dossier complet.",
-                "identify_specific_detail",
+                "Le texte mentionne deux critères éligibles : moins de 26 ans (A) et justificatif étudiant (C).",
+                "identify_specific_detail,locate_information",
+            ],
+            # 3. gap_fill (Texte à trous / phrase à compléter)
+            [
+                "Complétez la phrase : « Bien qu'il ___ très tard, le directeur a tenu à relire le rapport. »",
+                "gap_fill",
+                "lexique_structure",
+                "B2",
+                "3",
+                "soit",
+                "est",
+                "sera",
+                "était",
+                "A",
+                "Exercice de grammaire",
+                "La locution conjonctive « bien que » exprime la concession et exige l'emploi du mode subjonctif.",
+                "",
+                "Après « bien que », on utilise le subjonctif présent (« soit »).",
+                "mood_selection,subordination_and_coordination",
+            ],
+            # 4. short_text / text_input (Réponse courte ouverte)
+            [
+                "Quel mot du texte est synonyme de « amélioration » dans le premier paragraphe ?",
+                "short_text",
+                "reading",
+                "B2",
+                "3",
+                "modernisation",
+                "perfectionnement",
+                "",
+                "",
+                "A,B",
+                "Modernisation du réseau",
+                "Le plan quinquennal prévoit une modernisation progressive des infrastructures ferroviaires régionales.",
+                "",
+                "Le terme « modernisation » (ou « perfectionnement ») correspond au sens recherché.",
+                "paraphrase_and_synonym_recognition,vocabulary_in_context",
+            ],
+            # 5. matching (Appariement de paires)
+            [
+                "Associez chaque rubrique d'annonce au profil de lecteur correspondant.",
+                "matching",
+                "reading",
+                "B1",
+                "2",
+                "Annonce 1 -> Jeune diplômé cherchant un stage",
+                "Annonce 2 -> Famille recherchant un appartement",
+                "Annonce 3 -> Randonneur souhaitant du matériel d'occasion",
+                "Annonce 4 -> Étudiant proposant des cours de soutien",
+                "A,B,C,D",
+                "Petites annonces locales",
+                "1. Cabinet recrute stagiaire. 2. Loue T4 proche écoles. 3. Vends sac à dos et tente. 4. Donne cours de mathématiques.",
+                "",
+                "Chaque petite annonce correspond à un besoin spécifique identifié par ses mots-clés.",
+                "compare_information,locate_information",
+            ],
+            # 6. ordering (Ordonnancement / remise en ordre chronologique)
+            [
+                "Remettez dans l'ordre chronologique les étapes de la procédure d'inscription.",
+                "ordering",
+                "reading",
+                "B1",
+                "3",
+                "Créer un compte personnel sur le portail en ligne",
+                "Téléverser les pièces justificatives numérisées",
+                "Valider le paiement des frais de dossier",
+                "Télécharger la convocation officielle à l'examen",
+                "A,B,C,D",
+                "Guide d'inscription en ligne",
+                "Pour vous inscrire, commencez par créer votre compte, déposez ensuite vos justificatifs, réglez les frais puis téléchargez votre convocation.",
+                "",
+                "L'ordre suit les connecteurs temporels : commencer par, ensuite, puis.",
+                "understand_sequence,discourse_connectors",
+            ],
+            # 7. long_text (Expression écrite longue)
+            [
+                "Rédigez une lettre argumentée au maire (180 mots minimum) pour proposer l'aménagement de nouvelles pistes cyclables dans votre quartier.",
+                "long_text",
+                "writing",
+                "B2",
+                "4",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Section B — Lettre ouverte",
+                "« La municipalité devrait-elle limiter la place des voitures en centre-ville ? » Vous écrivez au courrier des lecteurs pour partager votre point de vue.",
+                "",
+                "Évaluation sur la structure argumentative, la richesse lexicale, la cohérence et la maîtrise morphosyntaxique.",
+                "identify_claim,discourse_connectors,register_and_formality",
+            ],
+            # 8. spoken_response (Expression orale — monologue suivi)
+            [
+                "Présentez les avantages et les inconvénients du télétravail à partir de votre expérience ou d'exemples précis (2 à 3 minutes).",
+                "spoken_response",
+                "speaking",
+                "B2",
+                "3",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Sujet d'exposé oral",
+                "Le télétravail s'est largement généralisé dans les entreprises de services au cours des dernières années.",
+                "",
+                "Le candidat doit structurer son propos avec une introduction, des arguments illustrés et une conclusion.",
+                "identify_supporting_reason,discourse_connectors,phonological_control",
+            ],
+            # 9. interaction (Expression orale — jeu de rôle interactif)
+            [
+                "Vous appelez l'organisateur d'un séjour linguistique à Montréal pour poser une dizaine de questions sur l'hébergement, les cours et les tarifs.",
+                "interaction",
+                "speaking",
+                "B1",
+                "2",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Section A — Prise d'informations",
+                "Séjour intensif de français à Montréal : cours le matin, activités culturelles l'après-midi, hébergement en famille d'accueil ou résidence. Renseignements par téléphone.",
+                "",
+                "Le candidat doit utiliser le registre formel (« vous ») et varier la formulation des questions.",
+                "identify_communicative_intention,register_and_formality,sentence_structure",
             ],
         ]
         output = io.StringIO()
