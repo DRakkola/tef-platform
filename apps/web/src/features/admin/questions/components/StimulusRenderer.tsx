@@ -35,6 +35,31 @@ interface ParsedDocument {
   body: string;
 }
 
+export function renderHighlightedGapText(text: string): React.ReactNode {
+  if (!text) return null;
+  const pattern = /(_{2,}\s*\(\d+\)|\[\d+\]|\[gap:\d+\])/g;
+  const parts = text.split(pattern);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const gapMatch = part.match(/(?:_{2,}\s*\((\d+)\)|\[(\d+)\]|\[gap:(\d+)\])/);
+        if (gapMatch) {
+          const num = gapMatch[1] || gapMatch[2] || gapMatch[3];
+          return (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 font-mono font-bold text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-md text-xs mx-1 align-baseline shadow-2xs"
+            >
+              <span className="text-3xs uppercase tracking-wider text-primary/70">Trou</span> [{num}]
+            </span>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
 export const StimulusRenderer: React.FC<StimulusRendererProps> = ({
   title,
   content,
@@ -405,7 +430,7 @@ export const StimulusRenderer: React.FC<StimulusRendererProps> = ({
     return (
       <div className="prose prose-sm dark:prose-invert max-w-none">
         <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed whitespace-pre-line font-serif bg-card/60 p-4 rounded-xl border border-border shadow-2xs">
-          {content}
+          {renderHighlightedGapText(content)}
         </p>
       </div>
     );

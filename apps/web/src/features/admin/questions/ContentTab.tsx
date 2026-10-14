@@ -43,7 +43,7 @@ export const ContentTab: React.FC<ContentTabProps> = ({
     });
   };
 
-  const qType = question.question_type || "single_choice";
+  const rType = question.response_type || question.question_type || "single_choice";
 
   return (
     <div className="space-y-6">
@@ -198,32 +198,43 @@ export const ContentTab: React.FC<ContentTabProps> = ({
 
       {/* Dynamic Response-Type Editor */}
       <div className="p-4 rounded-xl border border-border bg-card">
-        {qType === "single_choice" || qType === "multiple_choice" ? (
+        {rType === "single_choice" || rType === "multiple_choice" ? (
           <OptionEditor
             options={question.options || []}
             onChange={(nextOptions: QuestionOption[]) => onChange({ options: nextOptions })}
-            responseType={qType}
+            responseType={rType}
             disabled={disabled}
           />
-        ) : qType === "matching" ? (
+        ) : rType === "matching" ? (
           <MatchingEditor
             metadata={question.response_metadata || {}}
             onChange={(meta) => onChange({ response_metadata: meta })}
             disabled={disabled}
           />
-        ) : qType === "ordering" ? (
+        ) : rType === "ordering" ? (
           <OrderingEditor
             metadata={question.response_metadata || {}}
             onChange={(meta) => onChange({ response_metadata: meta })}
             disabled={disabled}
           />
-        ) : qType === "gap_fill" || qType === "cloze" ? (
+        ) : rType === "gap_fill" || rType === "cloze" ? (
           <GapFillEditor
-            metadata={question.response_metadata || {}}
-            onChange={(meta) => onChange({ response_metadata: meta })}
+            metadata={question.scoring_payload || question.response_metadata || {}}
+            options={question.options || []}
+            stimulusText={question.stimulus?.content || question.stimulus_text || ""}
+            onChange={(meta, synthesizedOptions) => {
+              const patch: Partial<QuestionItem> = {
+                scoring_payload: meta,
+                response_metadata: meta,
+              };
+              if (synthesizedOptions) {
+                patch.options = synthesizedOptions;
+              }
+              onChange(patch);
+            }}
             disabled={disabled}
           />
-        ) : qType === "short_text" || qType === "text_input" ? (
+        ) : rType === "short_text" || rType === "text_input" ? (
           <ShortTextEditor
             metadata={question.response_metadata || {}}
             onChange={(meta) => onChange({ response_metadata: meta })}
@@ -231,7 +242,7 @@ export const ContentTab: React.FC<ContentTabProps> = ({
           />
         ) : (
           <div className="p-4 rounded-lg bg-muted/40 border border-border text-xs text-muted-foreground space-y-2">
-            <h4 className="font-semibold text-foreground">Évaluation ouverte ({qType})</h4>
+            <h4 className="font-semibold text-foreground">Évaluation ouverte ({rType})</h4>
             <p>
               Ce type de question implique une production libre (écrite ou orale) évaluée par grille critériée ou enseignant.
               Configurez les consignes ci-dessus et associez les compétences cibles dans l'onglet "Compétences".

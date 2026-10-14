@@ -43,6 +43,25 @@ class BulkOptionPayload(BaseModel):
     explanation: str | None = None
     order_index: int = 0
     misconception_type: str | None = None
+    distractor_rationale: str | None = None
+
+
+class BulkGapChoiceOption(BaseModel):
+    content: str
+    is_correct: bool = False
+    order_index: int = 0
+    misconception_type: str | None = None
+    distractor_rationale: str | None = None
+    explanation: str | None = None
+
+
+class BulkGapItem(BaseModel):
+    gap_id: str = "1"
+    order_index: int = 0
+    cue_text: str | None = None
+    options: list[BulkGapChoiceOption] = []
+    expected_answers: list[str] = []
+    case_sensitive: bool = False
 
 
 class BulkImportQuestionItem(BaseModel):
@@ -50,6 +69,7 @@ class BulkImportQuestionItem(BaseModel):
     prompt: str
     question_type: str = "single_choice"
     response_type: str = "single_choice"
+    task_type_code: str | None = None
     modality: str = "reading"
     level: str = "B1"
     target_cefr: str | None = None
@@ -63,9 +83,14 @@ class BulkImportQuestionItem(BaseModel):
     stimulus_id: uuid.UUID | None = None
     media_url: str | None = None
     options: list[BulkOptionPayload] = []
+    gaps: list[BulkGapItem] = []
+    scoring_payload: dict[str, Any] | None = None
     skill_codes: list[str] = []
     is_valid: bool = True
     validation_errors: list[str] = []
+    is_duplicate: bool = False
+    duplicate_reason: str | None = None
+    duplicate_similarity: float = 0.0
 
 
 class BulkParseResponse(BaseModel):
@@ -73,6 +98,7 @@ class BulkParseResponse(BaseModel):
     total_parsed: int
     valid_count: int
     invalid_count: int
+    duplicate_count: int = 0
     parse_errors: list[str] = []
 
 
@@ -90,9 +116,11 @@ class AIAutoTagAndFormatResponse(BaseModel):
 class BulkImportCommitRequest(BaseModel):
     items: list[BulkImportQuestionItem] = Field(..., min_length=1, max_length=500)
     default_status: str = Field(default="draft", pattern=r"^(draft|in_review|approved|published)$")
+    skip_duplicates: bool = True
 
 
 class BulkImportCommitResponse(BaseModel):
     created_count: int
+    skipped_duplicates_count: int = 0
     created_ids: list[uuid.UUID] = []
     errors: list[dict[str, Any]] = []

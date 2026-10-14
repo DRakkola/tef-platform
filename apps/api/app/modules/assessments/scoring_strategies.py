@@ -214,8 +214,11 @@ class MatchingStrategy(BaseScoringStrategy):
             expected_pairs = {str(k): str(v) for k, v in raw_pairs.items()}
         elif isinstance(raw_pairs, list):
             for item in raw_pairs:
-                if isinstance(item, dict) and "source_id" in item and "target_id" in item:
-                    expected_pairs[str(item["source_id"])] = str(item["target_id"])
+                if isinstance(item, dict):
+                    src = item.get("source_id") or item.get("left") or item.get("left_text") or item.get("left_id")
+                    tgt = item.get("target_id") or item.get("right") or item.get("right_text") or item.get("right_id")
+                    if src is not None and tgt is not None:
+                        expected_pairs[str(src)] = str(tgt)
                 elif isinstance(item, (list, tuple)) and len(item) == 2:
                     expected_pairs[str(item[0])] = str(item[1])
 
@@ -227,8 +230,11 @@ class MatchingStrategy(BaseScoringStrategy):
                 submitted_pairs = {str(k): str(v) for k, v in payload.items()}
             elif isinstance(payload, list):
                 for item in payload:
-                    if isinstance(item, dict) and "source_id" in item and "target_id" in item:
-                        submitted_pairs[str(item["source_id"])] = str(item["target_id"])
+                    if isinstance(item, dict):
+                        src = item.get("source_id") or item.get("left") or item.get("left_text") or item.get("left_id")
+                        tgt = item.get("target_id") or item.get("right") or item.get("right_text") or item.get("right_id")
+                        if src is not None and tgt is not None:
+                            submitted_pairs[str(src)] = str(tgt)
                     elif isinstance(item, (list, tuple)) and len(item) == 2:
                         submitted_pairs[str(item[0])] = str(item[1])
 
@@ -371,7 +377,7 @@ class OrderingStrategy(BaseScoringStrategy):
 
 
 class GapFillStrategy(BaseScoringStrategy):
-    """Scoring strategy for gap_fill questions with multiple discrete blanks."""
+    """Scoring strategy for gap_fill questions with multiple discrete blanks or multi-choice gaps."""
 
     def score(
         self,
@@ -383,33 +389,116 @@ class GapFillStrategy(BaseScoringStrategy):
         ignore_case = bool(scoring_payload.get("ignore_case", True))
         ignore_accents = bool(scoring_payload.get("ignore_accents", False))
 
-        # Expected gaps dictionary: {gap_key: [accepted_variants]}
-        expected_gaps: dict[str, list[str]] = {}
-        raw_gaps = scoring_payload.get("gaps") or scoring_payload.get("gap_solutions") or {}
+        raw_gaps = scoring_payload.get("gaps") or scoring_payload.get("gap_solutions") or []
+
+        parsed_gaps: list[dict[str, Any]] = []
+
         if isinstance(raw_gaps, dict):
-            for k, v in raw_gaps.items():
-                if isinstance(v, list):
-                    expected_gaps[str(k)] = [str(x) for x in v]
+            for i, (k, v) in enumerate(raw_gaps.items()):
+                gap_key = str(k)
+                if isinstance(v, dict) and "options" in v:
+                    opts = v.get("options") or []
+                    correct_ids = set()
+                    for opt_idx, opt in enumerate(opts):
+                        if opt.get("is_correct"):
+                            if opt.get("id"):
+                                correct_ids.add(str(opt["id"]))
+                            correct_ids.add(normalize_text(opt.get("content", ""), ignore_case=ignore_case, ignore_accents=ignore_accents))
+                            correct_ids.add(chr(65 + opt_idx))
+                            correct_ids.add(str(opt_idx + 1))
+                    parsed_gaps.append({
+                        "key": gap_key,
+                        "alt_key": f"gap_{i + 1}",
+                        "numeric_key": str(i + 1),
+                        "is_choice": True,
+                        "correct_identifiers": correct_ids,
+                        "options": opts,
+                    })
+                elif isinstance(v, list):
+                    parsed_gaps.append({
+                        "key": gap_key,
+                        "alt_key": f"gap_{i + 1}",
+                        "numeric_key": str(i + 1),
+                        "is_choice": False,
+                        "accepted_texts": [str(x) for x in v],
+                        "options": [],
+                    })
                 else:
-                    expected_gaps[str(k)] = [str(v)]
+                    parsed_gaps.append({
+                        "key": gap_key,
+                        "alt_key": f"gap_{i + 1}",
+                        "numeric_key": str(i + 1),
+                        "is_choice": False,
+                        "accepted_texts": [str(v)],
+                        "options": [],
+                    })
         elif isinstance(raw_gaps, list):
             for i, item in enumerate(raw_gaps):
+                gap_id = str(item.get("gap_id") or item.get("id") or (i + 1)) if isinstance(item, dict) else str(i + 1)
                 gap_key = f"gap_{i + 1}"
-                if isinstance(item, list):
-                    expected_gaps[gap_key] = [str(x) for x in item]
+                if isinstance(item, dict) and item.get("options"):
+                    opts = item.get("options") or []
+                    correct_ids = set()
+                    for opt_idx, opt in enumerate(opts):
+                        if opt.get("is_correct"):
+                            if opt.get("id"):
+                                correct_ids.add(str(opt["id"]))
+                            correct_ids.add(normalize_text(opt.get("content", ""), ignore_case=ignore_case, ignore_accents=ignore_accents))
+                            correct_ids.add(chr(65 + opt_idx))
+                            correct_ids.add(str(opt_idx + 1))
+                    parsed_gaps.append({
+                        "key": gap_key,
+                        "alt_key": gap_id,
+                        "numeric_key": str(i + 1),
+                        "is_choice": True,
+                        "correct_identifiers": correct_ids,
+                        "options": opts,
+                    })
+                elif isinstance(item, dict) and (item.get("expected_answers") or item.get("accepted_answers")):
+                    acc = item.get("expected_answers") or item.get("accepted_answers") or []
+                    parsed_gaps.append({
+                        "key": gap_key,
+                        "alt_key": gap_id,
+                        "numeric_key": str(i + 1),
+                        "is_choice": False,
+                        "accepted_texts": [str(x) for x in acc],
+                        "options": [],
+                    })
+                elif isinstance(item, list):
+                    parsed_gaps.append({
+                        "key": gap_key,
+                        "alt_key": str(i + 1),
+                        "numeric_key": str(i + 1),
+                        "is_choice": False,
+                        "accepted_texts": [str(x) for x in item],
+                        "options": [],
+                    })
                 else:
-                    expected_gaps[gap_key] = [str(item)]
+                    parsed_gaps.append({
+                        "key": gap_key,
+                        "alt_key": str(i + 1),
+                        "numeric_key": str(i + 1),
+                        "is_choice": False,
+                        "accepted_texts": [str(item)],
+                        "options": [],
+                    })
 
-        # Candidate submissions: {gap_key: text}
+        # Candidate submissions resolution
         submitted_gaps: dict[str, str] = {}
         if answer:
             if isinstance(answer.response_payload, dict):
                 submitted_gaps = {str(k): str(v) for k, v in answer.response_payload.items()}
             elif isinstance(answer.response_payload, list):
-                submitted_gaps = {f"gap_{i + 1}": str(v) for i, v in enumerate(answer.response_payload)}
+                for i, v in enumerate(answer.response_payload):
+                    submitted_gaps[str(i + 1)] = str(v)
+                    submitted_gaps[f"gap_{i + 1}"] = str(v)
+            elif answer.selected_option_ids:
+                for i, opt_id in enumerate(answer.selected_option_ids):
+                    submitted_gaps[str(i + 1)] = str(opt_id)
+                    submitted_gaps[f"gap_{i + 1}"] = str(opt_id)
             elif answer.text_response:
-                # Single gap fallback
-                submitted_gaps = {"gap_1": answer.text_response}
+                submitted_gaps["1"] = answer.text_response
+                submitted_gaps["gap_1"] = answer.text_response
 
         if not submitted_gaps:
             return ItemScoreResult(
@@ -420,7 +509,7 @@ class GapFillStrategy(BaseScoringStrategy):
                 scoring_status=ScoringStatus.MISSING,
             )
 
-        if not expected_gaps:
+        if not parsed_gaps:
             return ItemScoreResult(
                 raw_score=max_score,
                 max_score=max_score,
@@ -430,17 +519,56 @@ class GapFillStrategy(BaseScoringStrategy):
             )
 
         correct_gaps = 0
-        total_gaps = len(expected_gaps)
+        total_gaps = len(parsed_gaps)
+        gap_diagnostics: list[dict[str, Any]] = []
 
-        for gap_key, accepted_list in expected_gaps.items():
-            user_val = submitted_gaps.get(gap_key, "")
-            norm_user = normalize_text(user_val, ignore_case=ignore_case, ignore_accents=ignore_accents)
-            norm_accepted = [
-                normalize_text(acc, ignore_case=ignore_case, ignore_accents=ignore_accents)
-                for acc in accepted_list
-            ]
-            if norm_user in norm_accepted:
+        for gap in parsed_gaps:
+            user_val = (
+                submitted_gaps.get(gap["key"])
+                or submitted_gaps.get(gap["alt_key"])
+                or submitted_gaps.get(gap["numeric_key"])
+                or ""
+            ).strip()
+
+            gap_is_correct = False
+            diag: dict[str, Any] = {
+                "gap_key": gap["key"],
+                "gap_id": gap["alt_key"],
+                "submitted_value": user_val,
+                "is_correct": False,
+            }
+
+            if gap["is_choice"]:
+                norm_user = normalize_text(user_val, ignore_case=ignore_case, ignore_accents=ignore_accents)
+                user_upper = user_val.upper()
+                if (
+                    user_val in gap["correct_identifiers"]
+                    or norm_user in gap["correct_identifiers"]
+                    or user_upper in gap["correct_identifiers"]
+                ):
+                    gap_is_correct = True
+                    diag["is_correct"] = True
+                else:
+                    for opt in gap["options"]:
+                        opt_norm = normalize_text(opt.get("content", ""), ignore_case=ignore_case, ignore_accents=ignore_accents)
+                        if user_val == str(opt.get("id")) or norm_user == opt_norm:
+                            diag["misconception_type"] = opt.get("misconception_type")
+                            diag["distractor_rationale"] = opt.get("distractor_rationale")
+                            break
+            else:
+                norm_user = normalize_text(user_val, ignore_case=ignore_case, ignore_accents=ignore_accents)
+                norm_accepted = [
+                    normalize_text(acc, ignore_case=ignore_case, ignore_accents=ignore_accents)
+                    for acc in gap.get("accepted_texts", [])
+                ]
+                if norm_user in norm_accepted:
+                    gap_is_correct = True
+                    diag["is_correct"] = True
+
+            if gap_is_correct:
                 correct_gaps += 1
+
+            gap_diagnostics.append(diag)
 
         ratio = correct_gaps / total_gaps if total_gaps > 0 else 0.0
         raw_score = round(ratio * max_score, 4)
@@ -465,6 +593,7 @@ class GapFillStrategy(BaseScoringStrategy):
             diagnostic_metadata={
                 "correct_gaps": correct_gaps,
                 "total_gaps": total_gaps,
+                "gap_diagnostics": gap_diagnostics,
             },
         )
 

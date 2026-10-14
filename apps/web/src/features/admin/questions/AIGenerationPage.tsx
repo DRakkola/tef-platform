@@ -398,7 +398,7 @@ export const AIGenerationPage: React.FC = () => {
         type: "success",
         text: `Brouillon #${q.id.slice(0, 8)} créé avec succès.`,
       });
-      navigate(`/admin/questions/${q.id}?tab=content`);
+      navigate(`/admin/questions/${q.id}?tab=editor`);
     } catch (err: unknown) {
       setFeedback({
         type: "error",

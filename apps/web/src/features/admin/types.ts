@@ -29,7 +29,7 @@ export type CognitiveComplexityLevel =
   | "evaluate"
   | "create";
 
-export type QuestionValidationStatus = "valid" | "warning" | "invalid";
+export type QuestionValidationStatus = "valid" | "warning" | "invalid" | "blocking";
 
 export interface QuestionValidationIssue {
   code: string;
@@ -40,16 +40,22 @@ export interface QuestionValidationIssue {
 }
 
 export interface QuestionValidationResult {
+  valid?: boolean;
   is_valid: boolean;
   status: QuestionValidationStatus;
   issues: QuestionValidationIssue[];
+  errors?: QuestionValidationIssue[];
+  warnings?: QuestionValidationIssue[];
+  informational?: QuestionValidationIssue[];
   checked_at?: string;
+  validated_at?: string;
 }
 
 export interface AdminStimulus {
   id: string;
   title: string;
-  content: string;
+  content?: string;
+  content_text?: string;
   modality?: string | null;
   media_url?: string | null;
   audio_url?: string | null;
@@ -152,6 +158,7 @@ export interface QuestionItem {
   id: string;
   section_id?: string | null;
   question_type: QuestionResponseType;
+  response_type?: QuestionResponseType;
   prompt: string;
   stimulus_id?: string | null;
   stimulus?: AdminStimulus | null;
@@ -173,6 +180,16 @@ export interface QuestionItem {
   version: number;
   validation_status?: QuestionValidationStatus;
   validation_issues?: QuestionValidationIssue[];
+  validations?: Array<{
+    id?: string;
+    question_id?: string;
+    validation_status: QuestionValidationStatus;
+    blocking_error_count?: number;
+    warning_count?: number;
+    issues_payload?: QuestionValidationIssue[];
+    checked_at?: string;
+    validated_by_system_version?: string;
+  }>;
   options: QuestionOption[];
   skill_tags?: QuestionSkillTag[];
   response_metadata?: Record<string, any>;
@@ -188,6 +205,7 @@ export interface QuestionCreatePayload {
   section_id?: string | null;
   prompt: string;
   question_type: QuestionResponseType;
+  response_type?: QuestionResponseType;
   stimulus_id?: string | null;
   stimulus_text?: string | null;
   audio_url?: string | null;
@@ -604,6 +622,25 @@ export interface BulkOptionPayload {
   explanation?: string | null;
   order_index?: number;
   misconception_type?: string | null;
+  distractor_rationale?: string | null;
+}
+
+export interface BulkGapChoiceOption {
+  content: string;
+  is_correct: boolean;
+  order_index?: number;
+  misconception_type?: string | null;
+  distractor_rationale?: string | null;
+  explanation?: string | null;
+}
+
+export interface BulkGapItem {
+  gap_id: string;
+  order_index: number;
+  cue_text?: string | null;
+  options: BulkGapChoiceOption[];
+  expected_answers?: string[];
+  case_sensitive?: boolean;
 }
 
 export interface BulkImportQuestionItem {
@@ -611,6 +648,7 @@ export interface BulkImportQuestionItem {
   prompt: string;
   question_type?: string;
   response_type?: string;
+  task_type_code?: string | null;
   modality?: string;
   level?: string;
   target_cefr?: string | null;
@@ -624,16 +662,23 @@ export interface BulkImportQuestionItem {
   stimulus_id?: string | null;
   media_url?: string | null;
   options: BulkOptionPayload[];
+  gaps?: BulkGapItem[];
+  scoring_payload?: Record<string, any>;
   skill_codes?: string[];
   is_valid?: boolean;
   validation_errors?: string[];
+  is_duplicate?: boolean;
+  duplicate_reason?: string | null;
+  duplicate_similarity?: number;
 }
+
 
 export interface BulkParseResponse {
   items: BulkImportQuestionItem[];
   total_parsed: number;
   valid_count: number;
   invalid_count: number;
+  duplicate_count?: number;
   parse_errors: string[];
 }
 
@@ -644,7 +689,15 @@ export interface AIAutoTagAndFormatResponse {
 
 export interface BulkImportCommitResponse {
   created_count: number;
+  skipped_duplicates_count?: number;
   created_ids: string[];
-  errors: Array<{ item_index: number; prompt: string; error?: string; errors?: string[] }>;
+  errors: Array<{
+    item_index?: number;
+    prompt?: string;
+    error?: string;
+    errors?: string[];
+  }>;
 }
+
+export type { TaskType } from "./skills/types";
 

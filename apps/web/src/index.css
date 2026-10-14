@@ -32,6 +32,7 @@
 
   /* 2. Primary Accent: Vibrant Chartreuse / Lime with High-Contrast Dark Text */
   --primary: oklch(0.88 0.22 128);
+  /* #d9eb28 */
   --primary-foreground: oklch(0.14 0.01 90);
 
   /* 3. High-Contrast Text/Graphic Accent (Deep Editorial Teal: 10.2:1 contrast against white) */
@@ -65,11 +66,16 @@
   --focus: oklch(0.14 0.01 90);
 
   /* 7. Data Visualization Palette (Lime, Deep Teal, Neutral Stone, Olive) */
-  --chart-1: oklch(0.88 0.22 128); /* Bright Lime */
-  --chart-2: oklch(0.36 0.09 195); /* Deep Teal */
-  --chart-3: oklch(0.88 0.01 95);  /* Neutral Sage/Stone */
-  --chart-4: oklch(0.65 0.12 140); /* Muted Olive */
-  --chart-5: oklch(0.25 0.04 195); /* Midnight Teal */
+  --chart-1: oklch(0.88 0.22 128);
+  /* Bright Lime */
+  --chart-2: oklch(0.36 0.09 195);
+  /* Deep Teal */
+  --chart-3: oklch(0.88 0.01 95);
+  /* Neutral Sage/Stone */
+  --chart-4: oklch(0.65 0.12 140);
+  /* Muted Olive */
+  --chart-5: oklch(0.25 0.04 195);
+  /* Midnight Teal */
 
   /* 8. Radius Tokens */
   --radius: 0.875rem;
@@ -247,12 +253,14 @@ body {
 
 /* Centralized Contrast & Typography Scale Classes */
 @layer utilities {
+
   /* Coherent Contrast Standards:
      In light mode, text-primary resolves to deep editorial teal (10.2:1 contrast against white/cream/lime tint).
      In dark mode, it resolves to vibrant lime (10.5:1 contrast against dark charcoal). */
   .text-primary {
     color: var(--primary-text) !important;
   }
+
   .dark .text-primary {
     color: var(--primary) !important;
   }
@@ -266,31 +274,37 @@ body {
     flex-shrink: 0;
     transition: all 0.15s ease;
   }
+
   .icon-box-sm {
     width: 1.75rem;
     height: 1.75rem;
     border-radius: var(--radius-md);
   }
+
   .icon-box-md {
     width: 2rem;
     height: 2rem;
     border-radius: var(--radius-lg);
   }
+
   .icon-box-lg {
     width: 2.5rem;
     height: 2.5rem;
     border-radius: var(--radius-xl);
   }
+
   .icon-box-accent {
     background-color: oklch(from var(--primary) l c h / 15%);
     color: var(--primary-text);
     border: 1px solid oklch(from var(--primary) l c h / 25%);
   }
+
   .icon-box-teal {
     background-color: oklch(from var(--teal) l c h / 12%);
     color: var(--teal);
     border: 1px solid oklch(from var(--teal) l c h / 25%);
   }
+
   .icon-box-muted {
     background-color: var(--muted);
     color: var(--foreground);
@@ -380,9 +394,11 @@ body {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
+
   html {
     @apply font-sans;
   }

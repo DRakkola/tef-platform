@@ -288,16 +288,41 @@ _SPEC_LIST: Final[tuple[TaskFormatSpec, ...]] = (
     _spec(
         "text_gap",
         MODULE_READING,
-        "Textes a trous",
-        "Un paragraphe suivi d'un blanc. Le candidat choisit le connecteur ou le mot qui "
-        "assure la cohesion du texte. Variante : plusieurs blancs a remplir librement.",
+        "Textes à trous (Cloze multi-lacunes)",
+        "Un texte suivi comportant plusieurs lacunes numérotées ([1], [2], [3]...). Pour chaque trou, le candidat choisit parmi 4 options (A, B, C, D) le mot ou connecteur assurant la cohésion textuelle. Le texte et l'ensemble de ses trous forment une seule question indivisible.",
         STIMULUS_SINGLE_DOCUMENT,
-        (_SINGLE, _GAP_FILL),
-        "Le stimulus est un texte suivi comportant une lacune identifiee par '______'. "
-        "En mode gap_fill, declare chaque lacune dans 'gaps' avec ses variantes "
-        "acceptees et marque-les dans le texte avec [gap:gap_1].",
+        (_GAP_FILL, _SINGLE),
+        "Le texte et l'intégralité de ses trous constituent une SEULE et UNIQUE question (ne jamais diviser en questions séparées). "
+        "Marquez chaque trou dans stimulus_text avec [1], [2]... ou [gap:1], [gap:2]. "
+        "Déclarez chaque trou dans le tableau 'gaps' avec son 'gap_id', son 'cue_text' et ses 4 'options' (exactement 1 correcte avec 'is_correct: true' et 3 distracteurs avec 'misconception_type' et 'distractor_rationale').",
         option_count=(4, 4),
-        few_shot=_CHOICE_FEW_SHOT,
+        few_shot={
+            "prompt": "Complétez le texte ci-dessus en choisissant le mot ou connecteur approprié pour chaque trou numéroté.",
+            "gaps": [
+                {
+                    "gap_id": "1",
+                    "order_index": 0,
+                    "cue_text": "Connecteur logique d'opposition",
+                    "options": [
+                        {"content": "Cependant", "is_correct": True, "order_index": 0, "explanation": "Exprime une restriction en accord avec le contexte."},
+                        {"content": "De plus", "is_correct": False, "order_index": 1, "misconception_type": "contradiction", "distractor_rationale": "Marque une addition alors que le texte exige une opposition."},
+                        {"content": "En effet", "is_correct": False, "order_index": 2, "misconception_type": "false_friend", "distractor_rationale": "Introduit une explication causale inadaptée."},
+                        {"content": "Pourtant que", "is_correct": False, "order_index": 3, "misconception_type": "morphosyntax", "distractor_rationale": "Tournure agrammaticale en français."}
+                    ]
+                },
+                {
+                    "gap_id": "2",
+                    "order_index": 1,
+                    "cue_text": "Vocabulaire en contexte",
+                    "options": [
+                        {"content": "développé", "is_correct": True, "order_index": 0, "explanation": "Collocation naturelle avec 'un réseau'."},
+                        {"content": "fabriqué", "is_correct": False, "order_index": 1, "misconception_type": "collocations", "distractor_rationale": "Incompatible avec la notion abstraite de réseau."},
+                        {"content": "inventé", "is_correct": False, "order_index": 2, "misconception_type": "overgeneralization", "distractor_rationale": "Sens inapproprié dans ce contexte industriel."},
+                        {"content": "commis", "is_correct": False, "order_index": 3, "misconception_type": "false_friend", "distractor_rationale": "S'emploie principalement pour une faute ou une erreur."}
+                    ]
+                }
+            ]
+        },
     ),
     _spec(
         "document_matching",

@@ -733,6 +733,29 @@ async def run_seed():
             await session.flush()
             print("  [✓] Editorial review queue & audit logs initialized.")
 
+        # 7. Automated Conformity Auditing for Questions
+        from app.modules.assessments.question_validation import QuestionValidationEngine
+        all_qs = (await session.execute(
+            select(Question).options(
+                selectinload(Question.validations),
+                selectinload(Question.options),
+                selectinload(Question.skill_tags),
+                selectinload(Question.stimulus),
+            )
+        )).scalars().all()
+        audited_count = 0
+        for q in all_qs:
+            if not q.validations or len(q.validations) == 0:
+                await QuestionValidationEngine.validate_and_persist(
+                    db=session,
+                    question=q,
+                    actor_id=admin.id,
+                    check_duplication=False,
+                )
+                audited_count += 1
+        if audited_count > 0:
+            print(f"  [✓] Automated conformity audit backfilled for {audited_count} questions.")
+
         await session.commit()
         print("✨ Content Studio Seeding Complete!")
 

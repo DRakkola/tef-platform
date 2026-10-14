@@ -10,6 +10,40 @@ interface PreviewTabProps {
 export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
   const [previewMode, setPreviewMode] = useState<"student" | "admin">("student");
   const [selectedStudentOptions, setSelectedStudentOptions] = useState<Record<number, boolean>>({});
+  const [selectedStudentGapOptions, setSelectedStudentGapOptions] = useState<Record<string, number>>({});
+
+  // Grouped gaps if this is a multi-gap cloze question
+  const gapsData = useMemo(() => {
+    if (Array.isArray(question.scoring_payload?.gaps) && question.scoring_payload.gaps.length > 0) {
+      return question.scoring_payload.gaps;
+    }
+    if (Array.isArray(question.response_metadata?.gaps) && question.response_metadata.gaps.length > 0) {
+      return question.response_metadata.gaps;
+    }
+    if (question.options && question.options.length > 0) {
+      const hasPrefix = question.options.some((o) => /^\[\d+\]\s*/.test(o.content));
+      if (hasPrefix) {
+        const grouped: Record<string, any[]> = {};
+        question.options.forEach((opt) => {
+          const match = opt.content.match(/^\[(\d+)\]\s*(.*)/);
+          if (match) {
+            const gapId = match[1];
+            if (!grouped[gapId]) grouped[gapId] = [];
+            grouped[gapId].push({
+              ...opt,
+              content: match[2],
+            });
+          }
+        });
+        return Object.entries(grouped).map(([gapId, opts], idx) => ({
+          gap_id: gapId,
+          order_index: idx,
+          options: opts,
+        }));
+      }
+    }
+    return null;
+  }, [question.scoring_payload, question.response_metadata, question.options]);
 
   const handleStudentSelect = (index: number) => {
     if (question.question_type === "multiple_choice") {
@@ -119,7 +153,84 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
           </div>
 
           {/* Student Response Options */}
-          {question.options && question.options.length > 0 ? (
+          {gapsData && gapsData.length > 0 ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b border-border/70 pb-2">
+                <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                  Options par lacune ({gapsData.length} trous à compléter)
+                </span>
+                <span className="text-2xs text-muted-foreground font-mono">
+                  {Object.keys(selectedStudentGapOptions).length} / {gapsData.length} sélectionné(s)
+                </span>
+              </div>
+
+              <div className="space-y-3.5">
+                {gapsData.map((gap: any, gapIdx: number) => {
+                  const gapKey = String(gap.gap_id || gapIdx + 1);
+                  const selectedIdx = selectedStudentGapOptions[gapKey];
+                  const optionsList = gap.options || [];
+
+                  return (
+                    <div
+                      key={gapKey}
+                      className="p-3.5 rounded-xl border border-border bg-card space-y-2.5 shadow-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs font-bold text-primary px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20">
+                          Trou [{gapKey}]
+                        </span>
+                        {gap.cue_text && (
+                          <span className="text-2xs text-muted-foreground italic">
+                            {gap.cue_text}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {optionsList.map((opt: any, optIdx: number) => {
+                          const isSelected = selectedIdx === optIdx;
+                          const letter = String.fromCharCode(65 + optIdx);
+
+                          return (
+                            <div
+                              key={optIdx}
+                              onClick={() =>
+                                setSelectedStudentGapOptions((prev) => ({
+                                  ...prev,
+                                  [gapKey]: optIdx,
+                                }))
+                              }
+                              className={`p-2.5 rounded-lg border text-xs cursor-pointer transition flex items-center gap-2.5 select-none ${
+                                isSelected
+                                  ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/40 font-medium"
+                                  : "border-border bg-background hover:border-border/80 text-foreground"
+                              }`}
+                            >
+                              <div
+                                className={`h-4 w-4 shrink-0 rounded-full flex items-center justify-center border transition ${
+                                  isSelected
+                                    ? "bg-primary border-primary text-primary-foreground"
+                                    : "border-muted-foreground/40 bg-background"
+                                }`}
+                              >
+                                {isSelected && (
+                                  <div className="h-2 w-2 rounded-full bg-primary-foreground" />
+                                )}
+                              </div>
+                              <span className="font-mono text-2xs text-muted-foreground font-bold">
+                                {letter}.
+                              </span>
+                              <span className="flex-1 truncate">{opt.content}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : question.options && question.options.length > 0 ? (
             <div className="space-y-2.5">
               {question.options.map((opt, idx) => {
                 const isSelected = !!selectedStudentOptions[idx];
@@ -161,7 +272,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
             </div>
           ) : (
             <div className="p-4 rounded-lg bg-muted/40 border border-border text-center text-xs text-muted-foreground">
-              [Champ de saisie interactif candidat pour le format {question.question_type || "générique"}]
+              [Champ de saisie interactif candidat pour le format {question.response_type || question.question_type || "générique"}]
             </div>
           )}
         </div>
@@ -194,6 +305,15 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
                 {question.task_type.name}
               </span>
             )}
+            {gapsData && gapsData.length > 0 ? (
+              <span className="px-2 py-0.5 rounded text-2xs bg-primary/10 text-primary font-semibold">
+                Texte à trous • {gapsData.length} lacunes
+              </span>
+            ) : question.response_type ? (
+              <span className="px-2 py-0.5 rounded text-2xs bg-muted text-muted-foreground font-medium">
+                {question.response_type}
+              </span>
+            ) : null}
           </div>
 
           {/* Admin Stimulus Support Preview */}
@@ -228,7 +348,82 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
           </div>
 
           {/* Diagnostic Options Breakdown */}
-          {question.options && question.options.length > 0 && (
+          {gapsData && gapsData.length > 0 ? (
+            <div className="space-y-4">
+              <span className="text-2xs font-bold text-muted-foreground uppercase">
+                Grille des réponses et analyse des distracteurs par trou ({gapsData.length} lacunes)
+              </span>
+              <div className="space-y-4">
+                {gapsData.map((gap: any, gapIdx: number) => {
+                  const gapKey = String(gap.gap_id || gapIdx + 1);
+                  const optionsList = gap.options || [];
+
+                  return (
+                    <div
+                      key={gapKey}
+                      className="p-3.5 rounded-xl border border-border bg-card space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between border-b border-border/70 pb-2">
+                        <span className="font-mono text-xs font-bold text-primary px-2 py-0.5 rounded bg-primary/10 border border-primary/20">
+                          Trou [{gapKey}]
+                        </span>
+                        {gap.cue_text && (
+                          <span className="text-xs font-medium text-foreground">
+                            {gap.cue_text}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        {optionsList.map((opt: any, optIdx: number) => (
+                          <div
+                            key={optIdx}
+                            className={`p-2.5 rounded-lg border text-xs space-y-1.5 ${
+                              opt.is_correct
+                                ? "border-emerald-500/40 bg-emerald-500/5 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-200"
+                                : "border-border bg-background text-foreground"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between font-semibold">
+                              <span className="flex items-center gap-2">
+                                <span className="font-mono font-bold">
+                                  {String.fromCharCode(65 + optIdx)}.
+                                </span>
+                                {opt.content}
+                              </span>
+                              {opt.is_correct ? (
+                                <span className="text-2xs px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
+                                  <CheckCircle2 className="h-3 w-3" /> RÉPONSE CORRECTE
+                                </span>
+                              ) : (
+                                opt.misconception_type && (
+                                  <span className="text-2xs px-2 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 font-mono">
+                                    Piège : {opt.misconception_type}
+                                  </span>
+                                )
+                              )}
+                            </div>
+
+                            {!opt.is_correct && opt.distractor_rationale && (
+                              <p className="text-2xs text-muted-foreground italic pl-5">
+                                Raison du distracteur : {opt.distractor_rationale}
+                              </p>
+                            )}
+
+                            {opt.explanation && (
+                              <p className="text-2xs text-muted-foreground pl-5">
+                                Explication : {opt.explanation}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : question.options && question.options.length > 0 ? (
             <div className="space-y-3">
               <span className="text-2xs font-bold text-muted-foreground uppercase">
                 Grille des réponses et analyse des distracteurs
@@ -278,7 +473,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({ question }) => {
                 ))}
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Skills Breakdown */}
           {question.skill_tags && question.skill_tags.length > 0 && (

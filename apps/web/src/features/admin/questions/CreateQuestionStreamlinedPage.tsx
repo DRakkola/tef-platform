@@ -157,6 +157,29 @@ export const CreateQuestionStreamlinedPage: React.FC = () => {
     if (!options.some((o) => o.is_correct)) {
       validationErrors.push("Au moins une réponse correcte doit être cochée.");
     }
+  } else if (responseType === "gap_fill") {
+    const gapsList: any[] = responseMetadata?.gaps || [];
+    if (gapsList.length === 0) {
+      validationErrors.push("Au moins un trou / lacune doit être configuré pour le texte à trous.");
+    } else {
+      for (let i = 0; i < gapsList.length; i++) {
+        const gap = gapsList[i];
+        const gapLabel = `Trou [${gap.gap_id || i + 1}]`;
+        if (gap.mode === "text") {
+          if (!gap.expected_answers || gap.expected_answers.length === 0 || !gap.expected_answers.some((a: string) => a.trim())) {
+            validationErrors.push(`${gapLabel} : au moins une réponse attendue est obligatoire.`);
+          }
+        } else {
+          const opts: any[] = gap.options || [];
+          if (opts.length < 2) {
+            validationErrors.push(`${gapLabel} : au moins 2 options de réponse sont requises.`);
+          }
+          if (!opts.some((o: any) => o.is_correct)) {
+            validationErrors.push(`${gapLabel} : au moins une réponse correcte doit être cochée.`);
+          }
+        }
+      }
+    }
   }
 
   const handleSave = async (publishImmediately = false) => {
@@ -185,10 +208,41 @@ export const CreateQuestionStreamlinedPage: React.FC = () => {
         resolvedStimulusId = existingStimulus.id;
       }
 
+      // Synthesize flattened options if needed
+      let resolvedOptions: any[] | undefined = undefined;
+      if (responseType === "single_choice" || responseType === "multiple_choice") {
+        resolvedOptions = options.map((opt, i) => ({
+          content: opt.content,
+          is_correct: opt.is_correct,
+          order_index: i,
+          explanation: opt.explanation || undefined,
+          misconception_type: opt.misconception_type || undefined,
+          distractor_rationale: opt.distractor_rationale || undefined,
+        }));
+      } else if (responseType === "gap_fill" && responseMetadata?.gaps) {
+        resolvedOptions = [];
+        let optIndex = 0;
+        for (const gap of responseMetadata.gaps) {
+          if (gap.options && gap.options.length > 0) {
+            for (const opt of gap.options) {
+              resolvedOptions.push({
+                content: `[${gap.gap_id}] ${opt.content}`,
+                is_correct: opt.is_correct,
+                order_index: optIndex++,
+                explanation: opt.explanation || (gap.cue_text ? `Trou [${gap.gap_id}]: ${gap.cue_text}` : undefined),
+                misconception_type: opt.misconception_type || undefined,
+                distractor_rationale: opt.distractor_rationale || undefined,
+              });
+            }
+          }
+        }
+      }
+
       // 2. Prepare payload
       const payload: any = {
         prompt: prompt.trim(),
         question_type: responseType,
+        response_type: responseType,
         stimulus_id: resolvedStimulusId,
         media_url: questionAudioUrl || undefined,
         modality,
@@ -201,16 +255,9 @@ export const CreateQuestionStreamlinedPage: React.FC = () => {
         explanation: explanation.trim() || undefined,
         points,
         penalty_points: penaltyPoints,
-        options: (responseType === "single_choice" || responseType === "multiple_choice")
-          ? options.map((opt, i) => ({
-              content: opt.content,
-              is_correct: opt.is_correct,
-              order_index: i,
-              explanation: opt.explanation || undefined,
-              misconception_type: opt.misconception_type || undefined,
-              distractor_rationale: opt.distractor_rationale || undefined,
-            }))
-          : undefined,
+        response_metadata: responseMetadata,
+        scoring_payload: responseType === "gap_fill" && responseMetadata?.gaps ? { gaps: responseMetadata.gaps } : (Object.keys(responseMetadata).length > 0 ? responseMetadata : undefined),
+        options: resolvedOptions,
         skill_tags: skillTags.map((tag) => ({
           skill_id: tag.skill_id,
           role: tag.role || "primary",
@@ -223,7 +270,7 @@ export const CreateQuestionStreamlinedPage: React.FC = () => {
       // If publish requested, update status
       if (publishImmediately) {
         // Redirect to content view where publish can be finalized
-        navigate(`/admin/questions/${created.id}?tab=content&autoPublish=1`);
+        navigate(`/admin/questions/${created.id}?tab=editor&autoPublish=1`);
       } else {
         navigate(`/admin/questions?created=${created.id}`);
       }
@@ -257,7 +304,7 @@ export const CreateQuestionStreamlinedPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <Link to="/admin/questions/new?tab=content">
+            <Link to="/admin/questions/new?tab=editor">
               <Button variant="outline" size="sm" className="gap-1.5 text-xs text-muted-foreground">
                 <ExternalLink className="h-3.5 w-3.5" /> Atelier avancé (7 onglets)
               </Button>

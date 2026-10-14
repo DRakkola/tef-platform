@@ -306,10 +306,52 @@ export async function updateQuestion(
 }
 
 export async function validateQuestion(id: string): Promise<QuestionValidationResult> {
-  return apiClient<QuestionValidationResult>(`/admin/content/questions/${id}/validate`, {
+  const raw = await apiClient<any>(`/admin/content/questions/${id}/validate`, {
     method: "POST",
   });
+  const errors = (raw.errors || []).map((e: any) => ({
+    ...e,
+    severity: e.severity || "blocking",
+  }));
+  const warnings = (raw.warnings || []).map((w: any) => ({
+    ...w,
+    severity: w.severity || "warning",
+  }));
+  const info = (raw.informational || []).map((i: any) => ({
+    ...i,
+    severity: i.severity || "info",
+  }));
+  const combinedIssues = raw.issues && Array.isArray(raw.issues) ? raw.issues : [...errors, ...warnings, ...info];
+
+  return {
+    valid: raw.valid ?? (errors.length === 0),
+    is_valid: raw.valid ?? raw.is_valid ?? (errors.length === 0),
+    status: raw.status || (errors.length > 0 ? "invalid" : warnings.length > 0 ? "warning" : "valid"),
+    issues: combinedIssues,
+    errors,
+    warnings,
+    informational: info,
+    checked_at: raw.validated_at || raw.checked_at || new Date().toISOString(),
+    validated_at: raw.validated_at || raw.checked_at,
+  };
 }
+
+export async function regenerateDraftComponent(
+  questionId: string,
+  payload: {
+    component: string;
+    model?: string;
+    temperature?: number;
+    prompt_guidance?: string;
+    force_simulation?: boolean;
+  }
+): Promise<QuestionItem> {
+  return apiClient<QuestionItem>(`/admin/content/questions/${questionId}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 
 export async function submitQuestionForReview(id: string, comments?: string): Promise<QuestionItem> {
   return apiClient<QuestionItem>(`/admin/content/questions/${id}/submit-review`, {
@@ -788,13 +830,15 @@ export async function aiAutoTagAndFormatQuestions(
 
 export async function commitBulkQuestionImport(
   items: BulkImportQuestionItem[],
-  defaultStatus = "draft"
+  defaultStatus = "draft",
+  skipDuplicates = true
 ): Promise<BulkImportCommitResponse> {
   return apiClient<BulkImportCommitResponse>("/admin/content/questions/bulk-import", {
     method: "POST",
     body: JSON.stringify({
       items,
       default_status: defaultStatus,
+      skip_duplicates: skipDuplicates,
     }),
   });
 }
@@ -826,5 +870,7 @@ export async function downloadImportTemplateCsv(): Promise<void> {
 }
 
 export const uploadMediaFile = uploadMediaAsset;
+
+export { fetchTaskTypes } from "./skills/api";
 
 

@@ -772,10 +772,26 @@ class AdminContentService:
         payload: AdminQuestionCreate,
         actor_id: uuid.UUID | None = None,
     ) -> Question:
-        """Add question with options and skill tags to a section."""
         now = datetime.datetime.now(datetime.UTC)
+        stim_id = getattr(payload, "stimulus_id", None)
+        stim_text = getattr(payload, "stimulus_text", None)
+        if not stim_id and stim_text and stim_text.strip():
+            modality_val = "reading"
+            if payload.question_type == QuestionType.AUDIO_MATCHING or getattr(payload, "audio_url", None):
+                modality_val = "listening"
+            from app.modules.admin.schemas import AdminStimulusCreate
+            stim_create = AdminStimulusCreate(
+                title=getattr(payload, "stimulus_title", None) or f"Document {payload.level}",
+                modality=modality_val,
+                content_text=stim_text.strip(),
+                media_url=getattr(payload, "media_url", None) or getattr(payload, "audio_url", None),
+                text_format="markdown",
+            )
+            created_stim = await AdminContentService.create_stimulus(db, stim_create, actor_id=actor_id)
+            stim_id = created_stim.id
+
         q = Question(
-            stimulus_id=getattr(payload, "stimulus_id", None),
+            stimulus_id=stim_id,
             question_type=payload.question_type,
             response_type=getattr(payload, "response_type", "single_choice"),
             prompt=payload.prompt,
@@ -849,6 +865,17 @@ class AdminContentService:
 
         await db.flush()
 
+        try:
+            from app.modules.assessments.question_validation import QuestionValidationEngine
+            await QuestionValidationEngine.validate_and_persist(
+                db=db,
+                question=q,
+                actor_id=actor_id,
+                check_duplication=False,
+            )
+        except Exception:
+            pass
+
         await AuditService.log_event(
             db=db,
             actor_user_id=actor_id,
@@ -868,7 +895,8 @@ class AdminContentService:
             .where(Question.id == question_id)
             .options(
                 selectinload(Question.options),
-                selectinload(Question.skill_tags),
+                selectinload(Question.skill_tags).selectinload(QuestionSkillTag.skill),
+                selectinload(Question.task_type),
                 selectinload(Question.stimulus),
                 selectinload(Question.provenance),
                 selectinload(Question.validations),
@@ -917,7 +945,8 @@ class AdminContentService:
             select(Question)
             .options(
                 selectinload(Question.options),
-                selectinload(Question.skill_tags),
+                selectinload(Question.skill_tags).selectinload(QuestionSkillTag.skill),
+                selectinload(Question.task_type),
                 selectinload(Question.stimulus),
                 selectinload(Question.provenance),
                 selectinload(Question.validations),
@@ -973,6 +1002,20 @@ class AdminContentService:
         total = (await db.execute(count_stmt)).scalar() or 0
         paged = stmt.offset((page - 1) * page_size).limit(page_size)
         items = list((await db.execute(paged)).scalars().all())
+
+        # Auto-audit unvalidated items so conformity status is immediately available
+        from app.modules.assessments.question_validation import QuestionValidationEngine
+        for q in items:
+            if not q.validations or len(q.validations) == 0:
+                try:
+                    await QuestionValidationEngine.validate_and_persist(
+                        db=db,
+                        question=q,
+                        check_duplication=False,
+                    )
+                except Exception:
+                    pass
+
         return items, total
 
     @staticmethod
@@ -1102,6 +1145,30 @@ class AdminContentService:
             q.response_type = payload.response_type
         if getattr(payload, "stimulus_id", None) is not None:
             q.stimulus_id = payload.stimulus_id
+
+        if getattr(payload, "stimulus_text", None) is not None:
+            st_text = payload.stimulus_text.strip()
+            if q.stimulus:
+                q.stimulus.content_text = st_text
+                if getattr(payload, "stimulus_title", None):
+                    q.stimulus.title = payload.stimulus_title
+                q.stimulus.word_count = len(st_text.split()) if st_text else 0
+                q.stimulus.updated_at = datetime.datetime.now(datetime.UTC)
+            elif st_text:
+                from app.modules.admin.schemas import AdminStimulusCreate
+                modality_val = "reading"
+                if q.question_type == QuestionType.AUDIO_MATCHING or q.media_url:
+                    modality_val = "listening"
+                stim_create = AdminStimulusCreate(
+                    title=getattr(payload, "stimulus_title", None) or f"Document {q.level}",
+                    modality=modality_val,
+                    content_text=st_text,
+                    media_url=q.media_url,
+                    text_format="markdown",
+                )
+                created_stim = await AdminContentService.create_stimulus(db, stim_create, actor_id=actor_id)
+                q.stimulus_id = created_stim.id
+
         if payload.difficulty is not None:
             q.difficulty = payload.difficulty
         if getattr(payload, "difficulty_rating", None) is not None:
@@ -1181,6 +1248,17 @@ class AdminContentService:
         q.updated_by_user_id = actor_id
         q.updated_at = datetime.datetime.now(datetime.UTC)
         await db.flush()
+
+        try:
+            from app.modules.assessments.question_validation import QuestionValidationEngine
+            await QuestionValidationEngine.validate_and_persist(
+                db=db,
+                question=q,
+                actor_id=actor_id,
+                check_duplication=False,
+            )
+        except Exception:
+            pass
 
         await AuditService.log_event(
             db=db,

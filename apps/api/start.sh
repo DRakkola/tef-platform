@@ -65,5 +65,12 @@ if [ -n "$REDIS_URL" ]; then
     celery -A app.core.celery_app worker -B -l INFO -c 1 &
 fi
 
+RELOAD_ARGS=""
+if [ "$ENVIRONMENT" = "development" ] || [ "$DEV_RELOAD" = "true" ]; then
+    echo "[STARTUP] Development mode active: enabling uvicorn hot-reload on /app/app..."
+    RELOAD_ARGS="--reload --reload-dir /app/app"
+fi
+
 echo "[STARTUP] Starting FastAPI application on port ${PORT:-8000}..."
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --no-access-log
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" $RELOAD_ARGS --no-access-log
+

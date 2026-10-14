@@ -234,6 +234,30 @@ class TestMatchingStrategy:
         assert res.raw_score == 0.0
         assert res.scoring_status == ScoringStatus.INCORRECT
 
+    def test_matching_with_left_right_list(self):
+        question_data = {
+            "id": str(uuid.uuid4()),
+            "points": 4.0,
+            "response_type": QuestionResponseType.MATCHING.value,
+            "scoring_payload": {
+                "pairs": [
+                    {"left": "Annonce 1", "right": "Profil A"},
+                    {"left": "Annonce 2", "right": "Profil B"},
+                ]
+            },
+        }
+        answer = AttemptAnswer(
+            question_id=uuid.UUID(question_data["id"]),
+            response_payload=[
+                {"left": "Annonce 1", "right": "Profil A"},
+                {"left": "Annonce 2", "right": "Profil B"},
+            ],
+        )
+        res = self.strategy.score(question_data, answer)
+        assert res.is_correct is True
+        assert res.raw_score == 4.0
+        assert res.scoring_status == ScoringStatus.CORRECT
+
 
 class TestOrderingStrategy:
     """Test sequential permutation ordering scoring."""
@@ -322,6 +346,85 @@ class TestGapFillStrategy:
         assert res.is_correct is False
         assert res.raw_score == 2.0
         assert res.scoring_status == ScoringStatus.PARTIAL
+
+    def test_multigap_choice_all_correct(self):
+        opt1_id = str(uuid.uuid4())
+        opt2_id = str(uuid.uuid4())
+        question_data = {
+            "id": str(uuid.uuid4()),
+            "points": 2.0,
+            "response_type": QuestionResponseType.GAP_FILL.value,
+            "scoring_payload": {
+                "gaps": [
+                    {
+                        "gap_id": "1",
+                        "options": [
+                            {"id": opt1_id, "content": "Néanmoins", "is_correct": True},
+                            {"id": str(uuid.uuid4()), "content": "En effet", "is_correct": False},
+                        ],
+                    },
+                    {
+                        "gap_id": "2",
+                        "options": [
+                            {"id": str(uuid.uuid4()), "content": "retardé", "is_correct": False},
+                            {"id": opt2_id, "content": "facilité", "is_correct": True},
+                        ],
+                    },
+                ]
+            },
+        }
+        answer = AttemptAnswer(
+            question_id=uuid.UUID(question_data["id"]),
+            response_payload={"1": opt1_id, "2": opt2_id},
+        )
+        res = self.strategy.score(question_data, answer)
+        assert res.is_correct is True
+        assert res.raw_score == 2.0
+        assert res.scoring_status == ScoringStatus.CORRECT
+
+    def test_multigap_choice_partial_with_distractor_diagnostic(self):
+        opt1_id = str(uuid.uuid4())
+        distractor2_id = str(uuid.uuid4())
+        question_data = {
+            "id": str(uuid.uuid4()),
+            "points": 2.0,
+            "response_type": QuestionResponseType.GAP_FILL.value,
+            "scoring_payload": {
+                "gaps": [
+                    {
+                        "gap_id": "1",
+                        "options": [
+                            {"id": opt1_id, "content": "Néanmoins", "is_correct": True},
+                            {"id": str(uuid.uuid4()), "content": "En effet", "is_correct": False},
+                        ],
+                    },
+                    {
+                        "gap_id": "2",
+                        "options": [
+                            {
+                                "id": distractor2_id,
+                                "content": "retardé",
+                                "is_correct": False,
+                                "misconception_type": "contradiction",
+                                "distractor_rationale": "Contredit le sens positif de l'essor.",
+                            },
+                            {"id": str(uuid.uuid4()), "content": "facilité", "is_correct": True},
+                        ],
+                    },
+                ]
+            },
+        }
+        answer = AttemptAnswer(
+            question_id=uuid.UUID(question_data["id"]),
+            response_payload={"1": opt1_id, "2": distractor2_id},
+        )
+        res = self.strategy.score(question_data, answer)
+        assert res.is_correct is False
+        assert res.raw_score == 1.0
+        assert res.scoring_status == ScoringStatus.PARTIAL
+        assert res.diagnostic_metadata is not None
+        assert "gap_diagnostics" in res.diagnostic_metadata
+        assert res.diagnostic_metadata["gap_diagnostics"][1]["misconception_type"] == "contradiction"
 
 
 class TestShortTextStrategy:

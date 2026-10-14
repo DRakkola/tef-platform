@@ -134,6 +134,7 @@ services:
     volumes:
       - ../../apps/api/app:/app/app:ro
       - ../../apps/api/alembic:/app/alembic:ro
+      - ../../apps/api/start.sh:/app/start.sh:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -200,7 +201,8 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     deploy:
       resources:
         limits:

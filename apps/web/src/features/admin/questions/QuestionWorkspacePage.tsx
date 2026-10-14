@@ -138,6 +138,7 @@ export const QuestionWorkspacePage: React.FC<QuestionWorkspacePageProps> = ({ mo
         const created = await createQuestion({
           prompt: question.prompt.trim(),
           question_type: question.question_type || "single_choice",
+          response_type: question.response_type,
           stimulus_id: question.stimulus_id || undefined,
           stimulus_text: question.stimulus_text || undefined,
           audio_url: question.audio_url || undefined,
@@ -165,11 +166,12 @@ export const QuestionWorkspacePage: React.FC<QuestionWorkspacePageProps> = ({ mo
           provenance: question.provenance,
         });
         setAlertMsg({ type: "success", text: "Question créée avec succès en brouillon." });
-        navigate(`/admin/questions/${created.id}?tab=content`, { replace: true });
+        navigate(`/admin/questions/${created.id}?tab=editor`, { replace: true });
       } else {
         const updated = await updateQuestion(question.id, {
           prompt: question.prompt.trim(),
           question_type: question.question_type,
+          response_type: question.response_type,
           stimulus_id: question.stimulus_id,
           stimulus_text: question.stimulus_text,
           audio_url: question.audio_url,
@@ -349,7 +351,7 @@ export const QuestionWorkspacePage: React.FC<QuestionWorkspacePageProps> = ({ mo
     try {
       const res = await forkQuestion(question.id);
       setAlertMsg({ type: "success", text: "Question dupliquée avec succès." });
-      navigate(`/admin/questions/${res.id}?tab=content`);
+      navigate(`/admin/questions/${res.id}?tab=editor`);
     } catch (err: any) {
       setAlertMsg({ type: "error", text: err.message || "Échec de duplication." });
     } finally {

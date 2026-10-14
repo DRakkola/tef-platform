@@ -533,6 +533,10 @@ class Question(TimeStampedUUIDModel):
         index=True,
     )
 
+    task_type: Mapped[TaskType | None] = relationship(
+        "TaskType",
+        foreign_keys=[task_type_id],
+    )
     stimulus: Mapped[Stimulus | None] = relationship(
         "Stimulus",
         back_populates="questions",
@@ -839,6 +843,15 @@ class QuestionSkillTag(TimeStampedUUIDModel):
         foreign_keys=[skill_id],
         back_populates="question_tags",
     )
+
+    @property
+    def skill_code(self) -> str | None:
+        return self.skill.code if self.skill else None
+
+    @property
+    def skill_name(self) -> str | None:
+        return self.skill.name if self.skill else None
+
 
 
 class Attempt(TimeStampedUUIDModel):

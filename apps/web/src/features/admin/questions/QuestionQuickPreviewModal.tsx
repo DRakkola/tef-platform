@@ -2,6 +2,7 @@ import React from "react";
 import { X, CheckCircle2, BookOpen, Music, Tag, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { QuestionItem } from "../types";
+import { renderHighlightedGapText } from "./components/StimulusRenderer";
 
 interface QuestionQuickPreviewModalProps {
   question: QuestionItem | null;
@@ -16,6 +17,38 @@ export const QuestionQuickPreviewModal: React.FC<QuestionQuickPreviewModalProps>
   onClose,
   onEdit,
 }) => {
+  const gapsData = React.useMemo(() => {
+    if (Array.isArray(question?.scoring_payload?.gaps) && question.scoring_payload.gaps.length > 0) {
+      return question.scoring_payload.gaps;
+    }
+    if (Array.isArray(question?.response_metadata?.gaps) && question.response_metadata.gaps.length > 0) {
+      return question.response_metadata.gaps;
+    }
+    if (question?.options && question.options.length > 0) {
+      const hasPrefix = question.options.some((o) => /^\[\d+\]\s*/.test(o.content));
+      if (hasPrefix) {
+        const grouped: Record<string, any[]> = {};
+        question.options.forEach((opt) => {
+          const match = opt.content.match(/^\[(\d+)\]\s*(.*)/);
+          if (match) {
+            const gapId = match[1];
+            if (!grouped[gapId]) grouped[gapId] = [];
+            grouped[gapId].push({
+              ...opt,
+              content: match[2],
+            });
+          }
+        });
+        return Object.entries(grouped).map(([gapId, opts], idx) => ({
+          gap_id: gapId,
+          order_index: idx,
+          options: opts,
+        }));
+      }
+    }
+    return null;
+  }, [question?.scoring_payload, question?.response_metadata, question?.options]);
+
   if (!isOpen || !question) return null;
 
   return (
@@ -39,6 +72,11 @@ export const QuestionQuickPreviewModal: React.FC<QuestionQuickPreviewModalProps>
             <span className="text-2xs font-mono text-muted-foreground">
               #{question.id.slice(0, 8)}
             </span>
+            {gapsData && gapsData.length > 0 && (
+              <span className="text-2xs px-2 py-0.5 rounded bg-primary/10 text-primary font-semibold">
+                Texte à trous • {gapsData.length} lacunes
+              </span>
+            )}
           </div>
 
           <button
@@ -61,7 +99,7 @@ export const QuestionQuickPreviewModal: React.FC<QuestionQuickPreviewModalProps>
 
               {question.stimulus.content && (
                 <div className="text-foreground/90 leading-relaxed font-sans text-xs whitespace-pre-wrap bg-card p-3 rounded-lg border border-border/60">
-                  {question.stimulus.content}
+                  {renderHighlightedGapText(question.stimulus.content)}
                 </div>
               )}
 
@@ -93,8 +131,69 @@ export const QuestionQuickPreviewModal: React.FC<QuestionQuickPreviewModalProps>
             </div>
           </div>
 
-          {/* Options */}
-          {question.options && question.options.length > 0 && (
+          {/* Options / Multi-gap rendering */}
+          {gapsData && gapsData.length > 0 ? (
+            <div className="space-y-4 pt-1">
+              <div className="text-2xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                <span>Options par trou ({gapsData.length} lacunes à compléter)</span>
+                <span className="text-primary font-mono lowercase">Format Texte à trous</span>
+              </div>
+              <div className="space-y-3.5">
+                {gapsData.map((gap: any, gapIdx: number) => {
+                  const gapKey = String(gap.gap_id || gapIdx + 1);
+                  const optionsList = gap.options || [];
+                  return (
+                    <div key={gapKey} className="p-3.5 rounded-xl border border-border bg-card space-y-2.5 shadow-xs">
+                      <div className="flex items-center justify-between border-b border-border/70 pb-2">
+                        <span className="font-mono text-xs font-bold text-primary px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20">
+                          Trou [{gapKey}]
+                        </span>
+                        {gap.cue_text && (
+                          <span className="text-2xs text-muted-foreground italic">{gap.cue_text}</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {optionsList.map((opt: any, optIdx: number) => (
+                          <div
+                            key={opt.id || optIdx}
+                            className={`p-2.5 rounded-lg border text-xs flex items-start justify-between gap-2.5 ${
+                              opt.is_correct
+                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-950 dark:text-emerald-100 font-medium"
+                                : "bg-background border-border text-foreground"
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className="font-mono text-2xs font-bold px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground">
+                                {String.fromCharCode(65 + optIdx)}
+                              </span>
+                              <div>
+                                <span>{opt.content}</span>
+                                {opt.explanation && (
+                                  <div className="text-2xs text-muted-foreground mt-0.5 italic">
+                                    {opt.explanation}
+                                  </div>
+                                )}
+                                {!opt.is_correct && opt.distractor_rationale && (
+                                  <div className="text-2xs text-amber-600/90 dark:text-amber-400/90 mt-0.5 italic">
+                                    Piège : {opt.distractor_rationale}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {opt.is_correct && (
+                              <span className="flex items-center gap-1 text-2xs font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Correcte
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : question.options && question.options.length > 0 ? (
             <div className="space-y-2 pt-1">
               <div className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
                 Options de réponse ({question.options.length})
@@ -132,7 +231,7 @@ export const QuestionQuickPreviewModal: React.FC<QuestionQuickPreviewModalProps>
                 ))}
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Explanation */}
           {question.explanation && (

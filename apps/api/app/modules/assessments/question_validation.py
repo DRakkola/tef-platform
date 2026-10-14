@@ -612,6 +612,59 @@ class QuestionValidationEngine:
                     rule="structural",
                     field="scoring_payload",
                 )
+            elif payload.get("gaps"):
+                gaps = payload["gaps"]
+                gap_list = gaps if isinstance(gaps, list) else list(gaps.values())
+                combined_text = f"{data.stimulus_text or ''} {data.prompt or ''}"
+                for i, gap in enumerate(gap_list):
+                    gap_id = str(gap.get("gap_id") or gap.get("id") or (i + 1)) if isinstance(gap, dict) else str(i + 1)
+                    idx_str = str(i + 1)
+
+                    if isinstance(gap, dict) and "options" in gap:
+                        opts = gap.get("options") or []
+                        if len(opts) < 2:
+                            result.add_error(
+                                code="ERR_INSUFFICIENT_GAP_OPTIONS",
+                                message=f"Gap {gap_id} has {len(opts)} options; minimum 2 required (standard TEF: 4).",
+                                rule="option_quality",
+                                field=f"scoring_payload.gaps[{i}].options",
+                            )
+                        elif len(opts) != 4:
+                            result.add_warning(
+                                code="WARN_GAP_OPTION_COUNT",
+                                message=f"Gap {gap_id} has {len(opts)} options; standard TEF cloze expects exactly 4 choices.",
+                                rule="option_quality",
+                                field=f"scoring_payload.gaps[{i}].options",
+                            )
+                        correct_count = sum(1 for o in opts if o.get("is_correct"))
+                        if correct_count != 1:
+                            result.add_error(
+                                code="ERR_INVALID_GAP_CORRECT_COUNT",
+                                message=f"Gap {gap_id} must have exactly 1 correct option (found {correct_count}).",
+                                rule="key_validity",
+                                field=f"scoring_payload.gaps[{i}].options",
+                            )
+
+                    # Validate gap marker presence in stimulus/prompt
+                    has_marker = (
+                        f"[{gap_id}]" in combined_text
+                        or f"({gap_id})" in combined_text
+                        or f"[gap:{gap_id}]" in combined_text
+                        or f"[{idx_str}]" in combined_text
+                        or f"({idx_str})" in combined_text
+                        or f"[gap:{idx_str}]" in combined_text
+                        or f"___{gap_id}___" in combined_text
+                        or f"___{idx_str}___" in combined_text
+                        or "___" in combined_text
+                        or "____" in combined_text
+                    )
+                    if not has_marker:
+                        result.add_warning(
+                            code="WARN_MISSING_GAP_MARKER",
+                            message=f"Gap {gap_id} does not appear to have a corresponding marker like [{gap_id}] or ({gap_id}) in the text.",
+                            rule="structural",
+                            field="stimulus_text",
+                        )
         elif data.response_type == QuestionResponseType.SHORT_TEXT.value:
             payload = data.scoring_payload or {}
             if not (payload.get("accepted_answers") or payload.get("answer_key")) and len(data.options) == 0:

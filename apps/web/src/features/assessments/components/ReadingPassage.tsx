@@ -1,4 +1,4 @@
-﻿import React from "react"
+import React from "react"
 import { BookOpen } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ListeningPlayer } from "@/components/common/ListeningPlayer"

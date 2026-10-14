@@ -198,6 +198,7 @@ class AdminStimulusResponse(BaseModel):
     title: str
     modality: str
     content_text: str | None = None
+    content: str | None = None
     text_format: str = "plain_text"
     word_count: int | None = None
     media_url: str | None = None
@@ -212,6 +213,24 @@ class AdminStimulusResponse(BaseModel):
     updated_by_user_id: uuid.UUID | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_content_aliases(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            c_text = getattr(data, "content_text", None)
+            d = dict(data.__dict__) if hasattr(data, "__dict__") else {}
+            if "content_text" not in d or d["content_text"] is None:
+                d["content_text"] = c_text
+            d["content"] = c_text or d.get("content")
+            return d
+        elif isinstance(data, dict):
+            c = data.get("content_text") or data.get("content")
+            data["content_text"] = c
+            data["content"] = c
+            return data
+        return data
+
 
 
 class AdminStimulusListResponse(BaseModel):
@@ -349,6 +368,8 @@ class AdminStandaloneQuestionUpdate(BaseModel):
     expected_version: int | None = None
     section_id: uuid.UUID | None = None
     stimulus_id: uuid.UUID | None = None
+    stimulus_text: str | None = None
+    stimulus_title: str | None = None
     prompt: str | None = None
     instructions: str | None = None
     question_type: QuestionType | None = None
@@ -398,6 +419,17 @@ class QuestionForkRequest(BaseModel):
 
 
 
+class AdminTaskTypeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    modality: str
+    code: str
+    name: str
+    description: str | None = None
+    is_active: bool = True
+
+
 class AdminQuestionSkillTagResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -406,6 +438,19 @@ class AdminQuestionSkillTagResponse(BaseModel):
     role: str = "primary"
     weight: float = 1.0
     context: dict | None = None
+    skill_code: str | None = None
+    skill_name: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_skill_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            d = dict(data.__dict__) if hasattr(data, "__dict__") else {}
+            skill_obj = getattr(data, "skill", None)
+            d["skill_code"] = getattr(data, "skill_code", None) or (getattr(skill_obj, "code", None) if skill_obj else None)
+            d["skill_name"] = getattr(data, "skill_name", None) or (getattr(skill_obj, "name", None) if skill_obj else None)
+            return d
+        return data
 
 
 class AdminQuestionResponse(BaseModel):
@@ -437,6 +482,8 @@ class AdminQuestionResponse(BaseModel):
     is_live_delivered: bool = False
     item_hash: str | None = None
     task_type_id: uuid.UUID | None = None
+    task_type: AdminTaskTypeResponse | None = None
+    validation_status: str | None = None
     created_by_user_id: uuid.UUID | None = None
     updated_by_user_id: uuid.UUID | None = None
     created_at: datetime.datetime
@@ -451,12 +498,31 @@ class AdminQuestionResponse(BaseModel):
     def handle_unloaded_relationships(cls, data: Any) -> Any:
         if not isinstance(data, dict) and hasattr(data, "__table__"):
             d = dict(data.__dict__)
-            for rel in ("stimulus", "provenance"):
+            for rel in ("stimulus", "provenance", "task_type"):
                 if rel not in d:
                     d[rel] = None
             for rel_list in ("options", "skill_tags", "validations"):
                 if rel_list not in d:
                     d[rel_list] = []
+            if not d.get("stimulus_text"):
+                stim_obj = getattr(data, "stimulus", None)
+                if stim_obj:
+                    d["stimulus_text"] = getattr(stim_obj, "content_text", None)
+            if not d.get("validation_status"):
+                val_list = d.get("validations") or getattr(data, "validations", None)
+                if val_list and len(val_list) > 0:
+                    first_val = val_list[0]
+                    d["validation_status"] = getattr(first_val, "validation_status", None) or (
+                        first_val.get("validation_status") if isinstance(first_val, dict) else None
+                    )
+            return d
+        elif isinstance(data, dict):
+            d = dict(data)
+            if not d.get("validation_status") and d.get("validations"):
+                first_val = d["validations"][0]
+                d["validation_status"] = getattr(first_val, "validation_status", None) or (
+                    first_val.get("validation_status") if isinstance(first_val, dict) else None
+                )
             return d
         return data
 

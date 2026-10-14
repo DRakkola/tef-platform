@@ -58,6 +58,7 @@ class QuestionSerializer:
                 "title": stim.title,
                 "modality": stim.modality,
                 "content_text": stim.content_text,
+                "content": stim.content_text,
                 "text_format": stim.text_format,
                 "word_count": stim.word_count,
                 "media_url": stim.media_url,
@@ -136,6 +137,7 @@ class QuestionSerializer:
                 "title": stim.title,
                 "modality": stim.modality,
                 "content_text": stim.content_text,
+                "content": stim.content_text,
                 "text_format": stim.text_format,
                 "word_count": stim.word_count,
                 "register": stim.register,
@@ -151,9 +153,14 @@ class QuestionSerializer:
         if getattr(question, "skill_tags", None):
             for tag in question.skill_tags:
                 role_val = tag.role.value if hasattr(tag.role, "value") else str(tag.role)
+                skill_obj = getattr(tag, "skill", None)
+                s_code = getattr(tag, "skill_code", None) or (skill_obj.code if skill_obj else None)
+                s_name = getattr(tag, "skill_name", None) or (skill_obj.name if skill_obj else None)
                 skill_tags_data.append({
                     "id": str(tag.id),
                     "skill_id": str(tag.skill_id),
+                    "skill_code": s_code,
+                    "skill_name": s_name,
                     "subskill_id": str(tag.subskill_id) if getattr(tag, "subskill_id", None) else None,
                     "subskill": getattr(tag, "subskill", None),
                     "role": role_val,
@@ -235,6 +242,7 @@ class QuestionSerializer:
             "options": options_data,
             "skill_tags": skill_tags_data,
             "validations": validations_data,
+            "validation_status": validations_data[0]["validation_status"] if validations_data else None,
             "provenance": provenance_data,
         }
 

@@ -1,4 +1,4 @@
-﻿import React from "react"
+import React from "react"
 import { ReadingPassage } from "./ReadingPassage"
 import { QuestionPanel } from "./QuestionPanel"
 import { ExamNavigation } from "./ExamNavigation"

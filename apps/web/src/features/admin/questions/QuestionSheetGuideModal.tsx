@@ -11,6 +11,8 @@ import {
   HelpCircle,
   Table2,
   Info,
+  FileText,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +23,7 @@ interface QuestionSheetGuideModalProps {
   onClose: () => void;
 }
 
-type GuideTab = "columns" | "question_types" | "enums" | "skills";
+type GuideTab = "question_types" | "task_types" | "columns" | "enums" | "skills";
 
 const COLUMNS_GUIDE = [
   {
@@ -30,6 +32,14 @@ const COLUMNS_GUIDE = [
     required: true,
     defaultVal: "—",
     description: "Énoncé principal de la question ou consigne posée au candidat.",
+  },
+  {
+    name: "task_type_code",
+    aliases: "task_type, type_tache, type_de_tache",
+    required: false,
+    defaultVal: "Auto-inféré",
+    description:
+      "Format de tâche canonique TEF (ex: daily_document, press_article, sentence_gap, opinion_letter...). Restreint et valide les compétences admissibles.",
   },
   {
     name: "question_type",
@@ -63,6 +73,14 @@ const COLUMNS_GUIDE = [
       "Difficulté intra-niveau de 1 (très facile) à 5 (très difficile). Calcule automatiquement le score psychométrique [100–699].",
   },
   {
+    name: "cognitive_complexity",
+    aliases: "—",
+    required: false,
+    defaultVal: "interpretation",
+    description:
+      "Complexité cognitive : recall_recognition, interpretation, inferencing_synthesis, critical_evaluation.",
+  },
+  {
     name: "option_a .. option_d",
     aliases: "opt_a..d, choice_a..d, option_1..4",
     required: false,
@@ -79,6 +97,30 @@ const COLUMNS_GUIDE = [
       "Clé de correction : lettre (A, B, C, D), numéro (1..4), texte exact, ou liste séparée par virgule (ex: A,C).",
   },
   {
+    name: "misconception_a .. misconception_d",
+    aliases: "misconception_type_a..d, piege_a..d",
+    required: false,
+    defaultVal: "—",
+    description:
+      "Code du piège cognitif du distracteur (ex: surface_association, negation_trap, literal_trap, overgeneralization...).",
+  },
+  {
+    name: "rationale_a .. rationale_d",
+    aliases: "distractor_rationale_a..d, justification_a..d",
+    required: false,
+    defaultVal: "—",
+    description:
+      "Justification pédagogique spécifique expliquant pourquoi cette option est un piège / incorrecte.",
+  },
+  {
+    name: "gaps",
+    aliases: "trous, lacunes",
+    required: false,
+    defaultVal: "—",
+    description:
+      "JSON structuré pour textes à trous multi-lacunes. Tableau d'objets décrivant chaque trou [1], [2]... avec ses 4 options (A, B, C, D), sa réponse correcte et ses pièges didactiques. Le texte et l'ensemble de ses trous forment une question unique indivisible.",
+  },
+  {
     name: "stimulus_title",
     aliases: "titre_document",
     required: false,
@@ -90,7 +132,7 @@ const COLUMNS_GUIDE = [
     aliases: "texte_document, passage",
     required: false,
     defaultVal: "—",
-    description: "Contenu textuel du document support (accepte le texte brut ou Markdown).",
+    description: "Contenu textuel du document support (accepte le texte brut ou Markdown, avec [1], [2]... pour les textes à trous).",
   },
   {
     name: "media_url",
@@ -114,14 +156,6 @@ const COLUMNS_GUIDE = [
     defaultVal: "Auto-inféré",
     description:
       "Codes de compétences Taxonomy V1 séparés par virgule ou point-virgule (ex: identify_main_idea,locate_information).",
-  },
-  {
-    name: "cognitive_complexity",
-    aliases: "—",
-    required: false,
-    defaultVal: "interpretation",
-    description:
-      "Complexité cognitive : recall_recognition, interpretation, inferencing_synthesis, critical_evaluation.",
   },
   {
     name: "points / penalty_points",
@@ -153,12 +187,12 @@ const QUESTION_TYPES_GUIDE = [
   },
   {
     code: "gap_fill",
-    label: "Texte à trous / Phrase à compléter",
-    optionsRule: "4 options (QCM lacunaire) ou 1+ réponses acceptées dans option_a..",
-    correctRule: "A (ou lettres des formes acceptées)",
-    examplePrompt: "Complétez : « Bien qu'il ___ très tard, il a relu le dossier. »",
-    exampleOptions: "option_a: soit | option_b: est | option_c: sera | option_d: était",
-    exampleCorrect: "A",
+    label: "Texte à trous / Cloze (Multi-lacunes indivisible)",
+    optionsRule: "4 options par trou (ou champ gaps JSON). Le texte et l'ensemble de ses trous forment UNE SEULE question indivisible.",
+    correctRule: "Une réponse correcte par trou. Notation proportionnelle TEF sans pénalité.",
+    examplePrompt: "Complétez le texte en sélectionnant la bonne réponse pour chaque trou [1], [2]...",
+    exampleOptions: "Trou [1]: Néanmoins (V), De plus (F), En fait (F) | Trou [2]: stabiliser (V), aggraver (F)",
+    exampleCorrect: "1: A, 2: B (ou tableau gaps)",
   },
   {
     code: "short_text",
@@ -216,6 +250,282 @@ const QUESTION_TYPES_GUIDE = [
   },
 ];
 
+const TASK_TYPES_GUIDE = [
+  // READING (10)
+  {
+    code: "daily_document",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Document de la vie quotidienne",
+    description: "Petites annonces, courriels courts, menus, horaires, prospectus pratiques.",
+    defaultCefr: "A1–B1",
+    typicalSkills: "locate_information, identify_specific_detail, vocabulary_in_context",
+  },
+  {
+    code: "press_article",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Article d'information / opinion",
+    description: "Articles de presse généraliste ou spécialisée présentant un fait d'actualité ou un débat d'idées.",
+    defaultCefr: "B1–C1",
+    typicalSkills: "identify_main_idea, identify_stance_and_perspective, infer_implicit_information",
+  },
+  {
+    code: "administrative_document",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Document administratif / formulaire",
+    description: "Règlements, démarches officielles, avis municipaux, fiches de consignes.",
+    defaultCefr: "A2–B2",
+    typicalSkills: "locate_information, identify_specific_detail, understand_sequence",
+  },
+  {
+    code: "professional_document",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Document professionnel / entreprise",
+    description: "Comptes-rendus, notes internes, consignes de sécurité, courriels de collègues.",
+    defaultCefr: "B1–B2",
+    typicalSkills: "locate_information, understand_context, identify_communicative_intention",
+  },
+  {
+    code: "sentence_gap",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Phrase lacunaire (choix ciblé)",
+    description: "Phrase isolée où un mot pivot, un connecteur ou une forme verbale manque.",
+    defaultCefr: "A2–B2",
+    typicalSkills: "vocabulary_in_context, paraphrase_and_synonym_recognition, discourse_connectors",
+  },
+  {
+    code: "text_gap",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Texte à trous suivi",
+    description: "Paragraphe continu avec plusieurs trous testant la cohérence textuelle globale.",
+    defaultCefr: "B1–C1",
+    typicalSkills: "textual_cohesion_and_coherence, discourse_connectors, reference_resolution",
+  },
+  {
+    code: "document_matching",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Appariement de documents / annonces",
+    description: "Association de profils, besoins ou critères avec plusieurs textes courts.",
+    defaultCefr: "A2–B2",
+    typicalSkills: "compare_information, locate_information, synthesize_information",
+  },
+  {
+    code: "graph_matching",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Graphique & infographie",
+    description: "Analyse de données chiffrées, graphiques de tendances et mise en relation avec le texte.",
+    defaultCefr: "B2–C1",
+    typicalSkills: "interpret_data_trends, correlate_data_and_text, synthesize_information",
+  },
+  {
+    code: "text_ordering",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Reconstitution chronologique / logique",
+    description: "Paragraphes ou phrases désordonnés à réagencer selon la progression discursive.",
+    defaultCefr: "B1–B2",
+    typicalSkills: "understand_sequence, textual_cohesion_and_coherence, reference_resolution",
+  },
+  {
+    code: "reformulation",
+    modality: "reading",
+    modalityLabel: "Compréhension écrite",
+    label: "Paraphrase & reformulation fidèle",
+    description: "Identification de la phrase qui exprime exactement la même idée sans déformation.",
+    defaultCefr: "B1–C1",
+    typicalSkills: "paraphrase_and_synonym_recognition, identify_stance_and_perspective",
+  },
+
+  // LISTENING (6)
+  {
+    code: "short_announcement",
+    modality: "listening",
+    modalityLabel: "Compréhension orale",
+    label: "Annonce publique courte",
+    description: "Messages de sonorisation en gare, aéroport, magasin, messages téléphoniques.",
+    defaultCefr: "A1–B1",
+    typicalSkills: "locate_information, identify_specific_detail, identify_communicative_intention",
+  },
+  {
+    code: "radio_broadcast",
+    modality: "listening",
+    modalityLabel: "Compréhension orale",
+    label: "Chronique radiophonique",
+    description: "Émissions radio, reportages, chroniques météo ou culturelles.",
+    defaultCefr: "B1–C1",
+    typicalSkills: "identify_main_idea, infer_implicit_information, identify_tone",
+  },
+  {
+    code: "public_survey",
+    modality: "listening",
+    modalityLabel: "Compréhension orale",
+    label: "Micro-trottoir / sondage",
+    description: "Multiples avis de personnes interrogées sur un sujet de société.",
+    defaultCefr: "B1–B2",
+    typicalSkills: "compare_information, identify_stance_and_perspective, identify_tone",
+  },
+  {
+    code: "conversation_extract",
+    modality: "listening",
+    modalityLabel: "Compréhension orale",
+    label: "Échange informel / professionnel",
+    description: "Dialogue entre deux ou plusieurs locuteurs (amis, collègues, commerçant).",
+    defaultCefr: "A2–B2",
+    typicalSkills: "understand_context, infer_pragmatic_meaning, identify_tone",
+  },
+  {
+    code: "phonological_recognition",
+    modality: "listening",
+    modalityLabel: "Compréhension orale",
+    label: "Discrimination phonologique",
+    description: "Différenciation de sonorités proches, liaisons ou intonations déclarative/interrogative.",
+    defaultCefr: "A1–A2",
+    typicalSkills: "phonological_control, register_and_formality",
+  },
+  {
+    code: "message_association",
+    modality: "listening",
+    modalityLabel: "Compréhension orale",
+    label: "Association message audio / situation",
+    description: "Identification du lieu, de la relation entre interlocuteurs ou du but de l'appel.",
+    defaultCefr: "A2–B1",
+    typicalSkills: "identify_communicative_intention, understand_context",
+  },
+
+  // LEXIQUE & STRUCTURE (4)
+  {
+    code: "word_formation",
+    modality: "lexique_structure",
+    modalityLabel: "Lexique et structure",
+    label: "Dérivation et morphologie",
+    description: "Suffixes, préfixes, nominalisations et familles de mots.",
+    defaultCefr: "B1–C1",
+    typicalSkills: "word_formation, lexical_precision",
+  },
+  {
+    code: "adjective_agreement",
+    modality: "lexique_structure",
+    modalityLabel: "Lexique et structure",
+    label: "Accords adjectivaux et nominaux",
+    description: "Accord en genre et en nombre dans des contextes complexes (adjectifs de couleur, composés).",
+    defaultCefr: "A2–B2",
+    typicalSkills: "grammatical_agreement, orthography",
+  },
+  {
+    code: "pronoun_reference",
+    modality: "lexique_structure",
+    modalityLabel: "Lexique et structure",
+    label: "Substitution pronominale (y, en, relatifs)",
+    description: "Choix du pronom complément approprié ou du pronom relatif simple / composé.",
+    defaultCefr: "B1–B2",
+    typicalSkills: "pronoun_usage, relative_clauses, reference_resolution",
+  },
+  {
+    code: "syntax_construction",
+    modality: "lexique_structure",
+    modalityLabel: "Lexique et structure",
+    label: "Structure propositionnelle & subordonnées",
+    description: "Subjonctif, concordance des temps, hypothèses, connecteurs et inversion du sujet.",
+    defaultCefr: "B2–C2",
+    typicalSkills: "mood_selection, conditional_structures, subordination_and_coordination",
+  },
+
+  // WRITING (2)
+  {
+    code: "fait_divers",
+    modality: "writing",
+    modalityLabel: "Expression écrite",
+    label: "Fait divers — Section A",
+    description: "Récit d'un événement insolite ou dramatique au passé (80 mots min.).",
+    defaultCefr: "A2–B1",
+    typicalSkills: "tense_selection, sentence_structure, textual_cohesion_and_coherence",
+  },
+  {
+    code: "opinion_letter",
+    modality: "writing",
+    modalityLabel: "Expression écrite",
+    label: "Lettre d'opinion / argumentation — Section B",
+    description: "Prise de position argumentée et persuasive avec concessions et propositions (200 mots min.).",
+    defaultCefr: "B2–C1",
+    typicalSkills: "identify_claim, identify_supporting_reason, handle_counterargument, discourse_connectors",
+  },
+
+  // SPEAKING (2)
+  {
+    code: "information_gathering",
+    modality: "speaking",
+    modalityLabel: "Expression orale",
+    label: "Collecte d'informations — Section A",
+    description: "Appel téléphonique / échange pour poser 10 questions précises sur une annonce.",
+    defaultCefr: "A2–B1",
+    typicalSkills: "identify_communicative_intention, sentence_structure, register_and_formality",
+  },
+  {
+    code: "persuasive_argumentation",
+    modality: "speaking",
+    modalityLabel: "Expression orale",
+    label: "Argumentation persuasive — Section B",
+    description: "Convaincre un ami ou un collègue d'adhérer à une activité ou un projet.",
+    defaultCefr: "B2–C1",
+    typicalSkills: "identify_claim, handle_counterargument, register_and_formality, phonological_control",
+  },
+];
+
+const MISCONCEPTIONS_GUIDE = [
+  {
+    code: "surface_association",
+    label: "Association de surface",
+    desc: "Mot ou syntagme présent tel quel dans le document mais détourné de son contexte réel.",
+  },
+  {
+    code: "negation_trap",
+    label: "Piège de la négation",
+    desc: "Inversion entre affirmation et négation (ex: « ne pas pouvoir » confondu avec « pouvoir »).",
+  },
+  {
+    code: "overgeneralization",
+    label: "Généralisation abusive",
+    desc: "Extension indue d'un cas particulier à une règle générale (« toujours », « tous les cas »).",
+  },
+  {
+    code: "literal_trap",
+    label: "Piège de la littéralité",
+    desc: "Interprétation au premier degré d'une métaphore, d'un idiotisme ou d'une hyperbole.",
+  },
+  {
+    code: "opposite_meaning",
+    label: "Antinomie / Contresens",
+    desc: "Affirmation du contraire exact de ce qui est énoncé dans le document support.",
+  },
+  {
+    code: "unsupported_inference",
+    label: "Inférence non étayée",
+    desc: "Proposition plausible dans le monde réel mais impossible à déduire du document.",
+  },
+  {
+    code: "detail_confusion",
+    label: "Confusion de détails",
+    desc: "Mélange entre deux dates, deux pourcentages, deux lieux ou deux personnes citées.",
+  },
+  {
+    code: "chronology_inversion",
+    label: "Inversion chronologique",
+    desc: "Inversion entre l'antériorité et la postériorité, ou entre la cause et l'effet.",
+  },
+  {
+    code: "register_mismatch",
+    label: "Incohérence de registre",
+    desc: "Formulation inadaptée au contexte sociolinguistique ou formalité requise par la situation.",
+  },
+];
+
 const REASONING_SKILLS = [
   { code: "locate_information", category: "Repérage", label: "Localiser une information explicite" },
   { code: "identify_specific_detail", category: "Repérage", label: "Identifier un détail précis" },
@@ -270,6 +580,8 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
 }) => {
   const [activeTab, setActiveTab] = useState<GuideTab>("question_types");
   const [skillSearch, setSkillSearch] = useState("");
+  const [taskTypeSearch, setTaskTypeSearch] = useState("");
+  const [taskTypeModalityFilter, setTaskTypeModalityFilter] = useState<string>("all");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   useEffect(() => {
@@ -307,6 +619,21 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
       s.category.toLowerCase().includes(q)
   );
 
+  const tq = taskTypeSearch.trim().toLowerCase();
+  const filteredTaskTypes = TASK_TYPES_GUIDE.filter((tt) => {
+    if (taskTypeModalityFilter !== "all" && tt.modality !== taskTypeModalityFilter) {
+      return false;
+    }
+    if (!tq) return true;
+    return (
+      tt.code.toLowerCase().includes(tq) ||
+      tt.label.toLowerCase().includes(tq) ||
+      tt.description.toLowerCase().includes(tq) ||
+      tt.typicalSkills.toLowerCase().includes(tq) ||
+      tt.modalityLabel.toLowerCase().includes(tq)
+    );
+  });
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
@@ -330,7 +657,7 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
               Guide de référence — Remplissage de la feuille d'import (CSV / Excel)
             </h2>
             <p className="text-xs text-muted-foreground">
-              Documentation complète des colonnes, types de questions (`question_type`), valeurs ENUM et référentiel des compétences Taxonomy V1.
+              Documentation complète des colonnes, formats de tâches (`task_type_code`), types de questions (`question_type`), valeurs ENUM et référentiel Taxonomy V1.
             </p>
           </div>
           <button
@@ -358,6 +685,18 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab("task_types")}
+            className={`px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === "task_types"
+                ? "border-primary text-primary bg-primary/5"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            2. Formats de tâches TEF (task_type_code)
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab("columns")}
             className={`px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === "columns"
@@ -366,7 +705,7 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
             }`}
           >
             <Table2 className="h-3.5 w-3.5" />
-            2. Colonnes & Structure CSV
+            3. Colonnes & Structure CSV
           </button>
           <button
             type="button"
@@ -378,7 +717,7 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
             }`}
           >
             <Layers className="h-3.5 w-3.5" />
-            3. Valeurs ENUMS (Modalité, CEFR, Difficulté)
+            4. Valeurs ENUMS & Pièges
           </button>
           <button
             type="button"
@@ -390,7 +729,7 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
             }`}
           >
             <Tag className="h-3.5 w-3.5" />
-            4. Compétences (skill_codes)
+            5. Compétences Taxonomy V1 (skill_codes)
           </button>
         </div>
 
@@ -460,7 +799,130 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
             </div>
           )}
 
-          {/* TAB 2: COLUMNS */}
+          {/* TAB 2: TASK TYPES */}
+          {activeTab === "task_types" && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 flex items-start gap-2.5">
+                <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                <div className="text-2xs text-muted-foreground leading-relaxed">
+                  Le champ <code className="font-mono text-primary font-bold">task_type_code</code> identifie l'un des <strong>24 formats d'épreuves canoniques du TEF</strong>. Renseigner ce code active le contrôle de conformité strict, restreint les compétences admissibles et calibre la complexité cognitive. Cliquez sur un code pour le copier.
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    value={taskTypeSearch}
+                    onChange={(e) => setTaskTypeSearch(e.target.value)}
+                    placeholder="Rechercher une tâche (ex: daily_document, fait_divers, article, annonce)..."
+                    className="pl-8 h-8 text-xs"
+                  />
+                </div>
+                <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+                  {[
+                    { id: "all", label: "Tous (24)" },
+                    { id: "reading", label: "CE (10)" },
+                    { id: "listening", label: "CO (6)" },
+                    { id: "lexique_structure", label: "LS (4)" },
+                    { id: "writing", label: "EE (2)" },
+                    { id: "speaking", label: "EO (2)" },
+                  ].map((filter) => (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      onClick={() => setTaskTypeModalityFilter(filter.id)}
+                      className={`px-2.5 py-1 rounded-md text-2xs font-semibold whitespace-nowrap transition ${
+                        taskTypeModalityFilter === filter.id
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Task Types Table */}
+              <div className="rounded-xl border border-border overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-muted/50 border-b border-border text-2xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="p-2.5">Code `task_type_code`</th>
+                      <th className="p-2.5">Modalité & Niveau</th>
+                      <th className="p-2.5">Intitulé & Description</th>
+                      <th className="p-2.5">Compétences typiques</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {filteredTaskTypes.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="p-6 text-center text-muted-foreground text-xs">
+                          Aucun format de tâche correspondant aux critères.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTaskTypes.map((tt) => (
+                        <tr key={tt.code} className="hover:bg-muted/20 align-top">
+                          <td className="p-2.5 whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(tt.code)}
+                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 text-primary font-mono font-bold text-2xs hover:bg-primary/20 transition"
+                              title="Cliquer pour copier"
+                            >
+                              {tt.code}
+                              {copiedCode === tt.code ? (
+                                <Check className="h-3 w-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="h-3 w-3 opacity-70" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="p-2.5 text-2xs whitespace-nowrap">
+                            <span className="px-1.5 py-0.5 rounded font-medium bg-muted text-foreground">
+                              {tt.modalityLabel}
+                            </span>
+                            <div className="text-muted-foreground font-mono mt-1">
+                              {tt.defaultCefr}
+                            </div>
+                          </td>
+                          <td className="p-2.5">
+                            <div className="font-semibold text-foreground">{tt.label}</div>
+                            <div className="text-2xs text-muted-foreground mt-0.5 leading-relaxed">
+                              {tt.description}
+                            </div>
+                          </td>
+                          <td className="p-2.5 text-2xs">
+                            <div className="flex flex-wrap gap-1">
+                              {tt.typicalSkills.split(",").map((s) => {
+                                const trimmed = s.trim();
+                                return (
+                                  <button
+                                    key={trimmed}
+                                    type="button"
+                                    onClick={() => handleCopy(trimmed)}
+                                    className="font-mono text-2xs px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground hover:text-primary hover:bg-primary/10 transition"
+                                    title="Cliquer pour copier ce code"
+                                  >
+                                    {trimmed}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: COLUMNS */}
           {activeTab === "columns" && (
             <div className="space-y-4">
               <div className="p-3 rounded-xl bg-muted/30 border border-border text-2xs text-muted-foreground space-y-1">
@@ -517,7 +979,7 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
             </div>
           )}
 
-          {/* TAB 3: ENUMS */}
+          {/* TAB 4: ENUMS & PIÈGES */}
           {activeTab === "enums" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Modality */}
@@ -646,10 +1108,43 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
                   </div>
                 </div>
               </div>
+
+              {/* Misconceptions & Distractor Traps */}
+              <div className="p-4 rounded-xl border border-border bg-card space-y-2.5 md:col-span-2">
+                <h3 className="font-bold text-foreground flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    5. Codes de Pièges cognitifs (`misconception_a..d`)
+                  </span>
+                  <span className="text-2xs font-mono text-muted-foreground">9 codes canoniques</span>
+                </h3>
+                <p className="text-2xs text-muted-foreground">
+                  Utilisez ces codes pour qualifier le type de piège des distracteurs de vos QCM dans les colonnes optionnelles <code className="font-mono text-foreground bg-muted px-1 rounded">misconception_a</code> à <code className="font-mono text-foreground bg-muted px-1 rounded">misconception_d</code>.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-2xs pt-1">
+                  {MISCONCEPTIONS_GUIDE.map((m) => (
+                    <div key={m.code} className="p-2.5 rounded-lg border border-border/80 bg-muted/20 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(m.code)}
+                          className="font-mono font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
+                          title="Cliquer pour copier"
+                        >
+                          {m.code}
+                          {copiedCode === m.code ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-2.5 w-2.5 opacity-60" />}
+                        </button>
+                      </div>
+                      <div className="font-medium text-foreground">{m.label}</div>
+                      <div className="text-muted-foreground text-2xs leading-relaxed">{m.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* TAB 4: SKILLS */}
+          {/* TAB 5: SKILLS */}
           {activeTab === "skills" && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -747,7 +1242,7 @@ export const QuestionSheetGuideModal: React.FC<QuestionSheetGuideModalProps> = (
             className="text-xs gap-1.5 h-8"
           >
             <Download className="h-3.5 w-3.5" />
-            Télécharger le modèle CSV (avec les 9 types d'exemples)
+            Télécharger le modèle CSV (avec exemples & formats de tâches)
           </Button>
           <Button size="sm" onClick={onClose} className="text-xs font-semibold h-8">
             Fermer le guide

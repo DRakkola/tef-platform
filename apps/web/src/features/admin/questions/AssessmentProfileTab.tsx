@@ -144,8 +144,12 @@ export const AssessmentProfileTab: React.FC<AssessmentProfileTabProps> = ({
           <div>
             <Label className="text-xs font-semibold">Modèle de réponse (Response Type) *</Label>
             <select
-              value={question.question_type || "single_choice"}
-              onChange={(e) => onChange({ question_type: e.target.value as QuestionResponseType })}
+              value={question.response_type || question.question_type || "single_choice"}
+              onChange={(e) => {
+                const val = e.target.value as QuestionResponseType;
+                const qType = (val === "single_choice" || val === "multiple_choice") ? val : "text_input";
+                onChange({ response_type: val, question_type: qType });
+              }}
               disabled={disabled}
               className="w-full mt-1 rounded-md border border-border bg-background p-2 text-xs text-foreground focus:ring-1 focus:ring-primary"
             >
